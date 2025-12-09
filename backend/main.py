@@ -6,7 +6,7 @@ import os
 # Add the parent directory to sys.path to allow imports from the root
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.routers import projects, websocket
+from backend.routers import router as projects_router, websocket
 
 from fastapi.staticfiles import StaticFiles
 import json
@@ -32,7 +32,7 @@ app.add_middleware(
 app.mount("/static", StaticFiles(directory=workspace_root), name="static")
 
 # Include Routers
-app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
+app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
 app.include_router(websocket.router, tags=["websocket"])
 
 @app.get("/")

@@ -66,56 +66,70 @@ class TestOCRHandler:
         assert "第二行" in lines[1]
         assert "第三行" in lines[2]
 
-
 # ============================================================================
-# TextCorrector Tests
+# LLMHandler._correct_text Tests (was TextCorrector)
 # ============================================================================
 
-class TestTextCorrector:
-    """Tests for text correction."""
+class TestCorrectTextMethod:
+    """Tests for LLMHandler._correct_text method."""
 
-    @patch('backend.processing.text_corrector.ollama')
+    @patch('backend.processing.llm_handler.ollama')
     def test_correct_text_success(self, mock_ollama):
         """Test successful text correction."""
-        from backend.processing.text_corrector import TextCorrector
+        from backend.processing.llm_handler import LLMHandler
         
-        # Mock ollama response
+        # Mock ollama for init
+        mock_ollama.list.return_value = []
+        
+        # Mock ollama response for _correct_text
         mock_ollama.chat.return_value = {
             "message": {"content": "海報紙 圓頭筆 電話"}
         }
         
-        corrector = TextCorrector("qwen3:1.7b")
-        result = corrector.correct_text("每報紙 圆头笔 电话")
+        config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
+        handler = LLMHandler(config)
+        result = handler._correct_text("每報紙 圆头笔 电话")
         
         assert result == "海報紙 圓頭筆 電話"
         mock_ollama.chat.assert_called_once()
 
-    @patch('backend.processing.text_corrector.ollama')
+    @patch('backend.processing.llm_handler.ollama')
     def test_correct_text_failure_returns_original(self, mock_ollama):
         """Test that failure returns original text."""
-        from backend.processing.text_corrector import TextCorrector
+        from backend.processing.llm_handler import LLMHandler
         
-        # Mock ollama to raise exception
+        # Mock ollama for init
+        mock_ollama.list.return_value = []
+        
+        config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
+        handler = LLMHandler(config)
+        
+        # Mock ollama to raise exception after init
         mock_ollama.chat.side_effect = Exception("LLM Error")
         
-        corrector = TextCorrector("qwen3:1.7b")
         original_text = "測試文字"
-        result = corrector.correct_text(original_text)
+        result = handler._correct_text(original_text)
         
         assert result == original_text
 
 
 # ============================================================================
-# DataExtractor Tests
+# LLMHandler._extract_data Tests (was DataExtractor)
 # ============================================================================
 
-class TestDataExtractor:
-    """Tests for data extraction."""
+class TestExtractDataMethod:
+    """Tests for LLMHandler._extract_data method."""
 
-    @patch('backend.processing.data_extractor.ollama')
+    @patch('backend.processing.llm_handler.ollama')
     def test_extract_data_success(self, mock_ollama):
         """Test successful data extraction."""
-        from backend.processing.data_extractor import DataExtractor
+        from backend.processing.llm_handler import LLMHandler
+        
+        # Mock ollama for init
+        mock_ollama.list.return_value = []
+        
+        config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
+        handler = LLMHandler(config)
         
         # Mock ollama response with valid JSON
         mock_response = {
@@ -131,24 +145,28 @@ class TestDataExtractor:
             "message": {"content": json.dumps(mock_response)}
         }
         
-        extractor = DataExtractor("qwen3:1.7b")
-        result = extractor.extract_data("測試發票文字")
+        result = handler._extract_data("測試發票文字")
         
         assert result["supplier"] == "測試供應商"
         assert result["invoice_id"] == "AB12345678"
         assert len(result["items"]) == 1
         assert result["items"][0]["description"] == "商品A"
 
-    @patch('backend.processing.data_extractor.ollama')
+    @patch('backend.processing.llm_handler.ollama')
     def test_extract_data_failure(self, mock_ollama):
         """Test data extraction failure handling."""
-        from backend.processing.data_extractor import DataExtractor
+        from backend.processing.llm_handler import LLMHandler
+        
+        # Mock ollama for init
+        mock_ollama.list.return_value = []
+        
+        config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
+        handler = LLMHandler(config)
         
         # Mock ollama to raise exception
         mock_ollama.chat.side_effect = Exception("LLM Error")
         
-        extractor = DataExtractor("qwen3:1.7b")
-        result = extractor.extract_data("測試發票文字")
+        result = handler._extract_data("測試發票文字")
         
         assert "error" in result
 
@@ -158,17 +176,15 @@ class TestDataExtractor:
 # ============================================================================
 
 class TestLLMHandler:
-    """Tests for LLM handler."""
+    """Tests for LLM handler (unified module after merging text_corrector and data_extractor)."""
 
-    @patch('backend.processing.data_extractor.ollama')
-    @patch('backend.processing.text_corrector.ollama')
     @patch('backend.processing.llm_handler.ollama')
-    def test_structure_with_llm(self, mock_llm_ollama, mock_tc_ollama, mock_de_ollama):
+    def test_structure_with_llm(self, mock_ollama):
         """Test complete LLM processing workflow."""
         from backend.processing.llm_handler import LLMHandler
         
-        # All mocks need the same list() response for init
-        mock_llm_ollama.list.return_value = []
+        # Mock ollama for init
+        mock_ollama.list.return_value = []
         
         # Use realistic invoice text and response
         corrected_text = """全家便利超商
@@ -190,9 +206,11 @@ class TestLLMHandler:
             "total_amount": 200.0
         }
         
-        # TextCorrector uses mock_tc_ollama, DataExtractor uses mock_de_ollama
-        mock_tc_ollama.chat.return_value = {"message": {"content": corrected_text}}
-        mock_de_ollama.chat.return_value = {"message": {"content": json.dumps(extracted_data)}}
+        # Setup side_effect for sequential calls: _correct_text then _extract_data
+        mock_ollama.chat.side_effect = [
+            {"message": {"content": corrected_text}},  # _correct_text
+            {"message": {"content": json.dumps(extracted_data)}}  # _extract_data
+        ]
         
         config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
         handler = LLMHandler(config)
@@ -214,14 +232,13 @@ class TestLLMHandler:
         assert result["structured_data"]["supplier"] == "全家便利超商"
         assert len(result["structured_data"]["items"]) == 2
 
-    @patch('backend.processing.data_extractor.ollama')
     @patch('backend.processing.llm_handler.ollama')
-    def test_regenerate_from_corrected_text(self, mock_llm_ollama, mock_de_ollama):
+    def test_regenerate_from_corrected_text(self, mock_ollama):
         """Test regenerating from manually corrected text."""
         from backend.processing.llm_handler import LLMHandler
         
         # Mock init
-        mock_llm_ollama.list.return_value = []
+        mock_ollama.list.return_value = []
         
         # Realistic manually corrected text
         manual_text = """全家便利超商
@@ -242,8 +259,8 @@ class TestLLMHandler:
             "total_amount": 200.0
         }
         
-        # Set return value for DataExtractor call
-        mock_de_ollama.chat.return_value = {
+        # Set return value for _extract_data call
+        mock_ollama.chat.return_value = {
             "message": {"content": json.dumps(extracted_data)}
         }
         

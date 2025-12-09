@@ -47,15 +47,32 @@ def temp_workspace():
 @pytest.fixture(scope="function")
 def mock_engine_for_api():
     """
-    Patches the global engine instance for API tests.
+    Patches the engine instance across all router modules for API tests.
     Returns the mock object to configure return values.
     """
+    from contextlib import ExitStack
     
-    with patch("backend.routers.projects.engine") as mock:
-        # Default mock behaviors to avoid NoneType errors
+    # Need to patch engine in all router modules
+    router_modules = [
+        "backend.routers.projects",
+        "backend.routers.files",
+        "backend.routers.processing",
+        "backend.routers.jobs",
+        "backend.routers.correction",
+        "backend.routers.groups",
+    ]
+    
+    with ExitStack() as stack:
+        # Create shared mock
+        mock = MagicMock()
         mock.project_manager.list_projects.return_value = []
         mock.project_manager.get_project_status.return_value = {}
         mock.project_manager.list_groups.return_value = []
+        
+        # Patch all router modules to use the same mock
+        for module in router_modules:
+            stack.enter_context(patch(f"{module}.engine", mock))
+        
         yield mock
 
 @pytest.fixture(scope="function")

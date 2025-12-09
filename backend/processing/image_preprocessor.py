@@ -1,0 +1,75 @@
+# Image Preprocessor - 影像預處理功能
+"""
+影像預處理模組：執行灰階轉換、濾波、邊緣檢測和形態學運算。
+"""
+import cv2
+import numpy as np
+from typing import Tuple, List
+
+
+class ImagePreprocessor:
+    """
+    影像預處理器：準備圖像用於輪廓檢測。
+    """
+    
+    def __init__(
+        self,
+        canny_threshold1: int = 30,
+        canny_threshold2: int = 100,
+        morph_kernel_size: Tuple[int, int] = (5, 5)
+    ):
+        """
+        初始化預處理器。
+        
+        Args:
+            canny_threshold1: Canny 邊緣檢測的第一閾值 (低)
+            canny_threshold2: Canny 邊緣檢測的第二閾值 (高)
+            morph_kernel_size: 形態學核心大小
+        """
+        self.canny_threshold1 = canny_threshold1
+        self.canny_threshold2 = canny_threshold2
+        self.morph_kernel_size = morph_kernel_size
+
+    def preprocess(self, image: np.ndarray) -> np.ndarray:
+        """
+        執行完整的預處理流程。
+        
+        流程：灰階 -> 雙邊濾波 -> Canny 邊緣檢測 -> 膨脹
+        
+        Args:
+            image: 輸入的 BGR 圖像
+            
+        Returns:
+            處理後的二值圖像
+        """
+        # 灰階轉換
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        # 使用 Bilateral Filter 保留邊緣細節同時去除雜訊
+        blurred = cv2.bilateralFilter(gray, 9, 75, 75)
+
+        # Canny 邊緣檢測
+        edged = cv2.Canny(blurred, self.canny_threshold1, self.canny_threshold2)
+
+        # 形態學膨脹，連接斷裂的線條
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, self.morph_kernel_size)
+        dilated = cv2.dilate(edged, kernel, iterations=2)
+
+        return dilated
+
+    def find_contours(self, binary_image: np.ndarray) -> List[np.ndarray]:
+        """
+        尋找外輪廓。
+        
+        Args:
+            binary_image: 二值圖像
+            
+        Returns:
+            輪廓列表（按面積降序排列）
+        """
+        contours, _ = cv2.findContours(
+            binary_image.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        
+        # 依照面積大小排序，優先處理主要物件
+        return sorted(contours, key=cv2.contourArea, reverse=True)
