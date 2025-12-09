@@ -1,19 +1,18 @@
 <template>
   <div class="home-container">
     <div class="header">
-      <h1>Projects</h1>
-      <button @click="$router.push('/create')" class="create-btn">+ New Project</button>
+      <h1>Activities</h1>
+      <button @click="$router.push('/create')" class="create-btn">+ New Activity</button>
     </div>
 
-    <div v-if="loading" class="loading">Loading projects...</div>
+    <div v-if="loading" class="loading">Loading activities...</div>
     
     <div v-else class="projects-table-container">
       <table class="projects-table">
         <thead>
           <tr>
-            <th>Project Name</th>
+            <th>Activity Name</th>
             <th>Activity ID</th>
-            <th>Leader</th>
             <th>Status</th>
             <th>Updated</th>
             <th>Actions</th>
@@ -22,8 +21,7 @@
         <tbody>
           <tr v-for="project in projects" :key="project.project_id" @click="goToProject(project.project_id)" class="clickable-row">
             <td>{{ project.name || project.project_id }}</td>
-            <td>{{ project.metadata?.activityId || '-' }}</td>
-            <td>{{ project.metadata?.leader || '-' }}</td>
+            <td>{{ project.project_id }}</td>
             <td>
               <span class="status-badge" :class="project.status">{{ project.status }}</span>
             </td>
@@ -34,7 +32,7 @@
             </td>
           </tr>
           <tr v-if="projects.length === 0">
-            <td colspan="6" class="empty-state">No projects found. Create one to get started.</td>
+            <td colspan="5" class="empty-state">No activities found. Create one to get started.</td>
           </tr>
         </tbody>
       </table>
@@ -71,7 +69,7 @@ const editProject = (project) => {
 }
 
 const deleteProject = async (project) => {
-  if (!confirm(`Are you sure you want to delete project "${project.name}"? This cannot be undone.`)) return
+  if (!confirm(`Are you sure you want to delete activity "${project.name}"? This cannot be undone.`)) return
 
   try {
     await api.deleteProject(project.project_id)

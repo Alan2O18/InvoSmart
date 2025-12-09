@@ -2,7 +2,7 @@
 
 本文件說明後端專案的架構、各模組功能與職責劃分。
 
-> **最後更新**：2025-12-09（重構完成後）
+> **最後更新**：2025-12-09（活動術語重構與自動狀態同步功能完成後）
 
 ## 專案結構
 
@@ -86,10 +86,18 @@ backend/
 #### `project_manager.py` - 專案管理 Facade
 - **設計模式**：Facade
 - **職責**：整合 CRUD 和 Setup 功能
+- **新功能**：
+  - `sync_status_to_db()` - 自動計算並同步活動狀態到資料庫
+  - 狀態檢測包含 `pending`, `running`, `processing` 狀態
 
 #### `project_crud.py` - 專案 CRUD
-- **資料庫**：`projects.db`
+- **資料庫**：`global_projects.db`
 - **職責**：管理全域專案記錄
+- **活動欄位**：
+  - `project_id` - 活動 ID（主鍵）
+  - `name` - 活動名稱（前端顯示用）
+  - `status` - 活動狀態（自動同步）
+  - `metadata` - JSON 格式的額外資訊
 
 #### `project_setup.py` - 專案初始化
 - **職責**：建立專案目錄和 jobs.db
@@ -160,10 +168,10 @@ backend/
 
 | 模組 | 端點數 | 職責 |
 |-----|-------|------|
-| `projects.py` | 5 | 專案 CRUD |
+| `projects.py` | 5 | 活動 CRUD（含自動狀態同步） |
 | `files.py` | 4 | 檔案操作（上傳、旋轉、刪除） |
 | `processing.py` | 7 | 處理操作（split、OCR、LLM、export） |
-| `jobs.py` | 5 | Job 管理（查詢、刪除、單一處理） |
+| `jobs.py` | 5 | Job 管理（查詢時自動同步狀態） |
 | `correction.py` | 2 | 人工修正（儲存、重新生成） |
 | `groups.py` | 3 | 群組管理 |
 | `websocket.py` | 1 | WebSocket 即時推送 |
@@ -238,3 +246,20 @@ router.include_router(groups.router)
 | `processing/receipt_splitter.py` | 415 | → 4 個處理模組 |
 
 所有重構使用 **Facade 模式** 保持向後相容性。
+
+### 2025-12-09 活動術語重構與自動狀態同步
+
+**術語統一**：
+- 前端全面改用「活動」（Activity）術語
+- 資料庫使用 `name` 欄位儲存活動名稱
+- `project_id` 作為活動 ID（主鍵）
+
+**自動狀態同步**：
+- 新增 `ProjectManager.sync_status_to_db()` 方法
+- `GET /api/projects/{id}` 自動同步狀態
+- `GET /api/projects/{id}/jobs` 自動同步狀態
+- 狀態根據檔案和 jobs 狀態即時計算並更新
+
+**改進的狀態檢測**：
+- 新增 `pending` 狀態檢測
+- 狀態流程：`NEW` → `INGESTED` → `SPLIT` → `PROCESSING` → `PROCESSED` → `ARCHIVED` → `SEALED`

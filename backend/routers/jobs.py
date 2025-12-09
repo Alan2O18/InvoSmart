@@ -12,6 +12,9 @@ router = APIRouter()
 def get_project_jobs(project_id: str):
     """Get all jobs for a project."""
     try:
+        # Auto-sync status before returning jobs
+        engine.project_manager.sync_status_to_db(project_id)
+        
         root = engine.project_manager._project_root(project_id)
         db_path = root / "jobs.db"
         if not db_path.exists():

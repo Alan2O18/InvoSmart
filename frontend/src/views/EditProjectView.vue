@@ -1,6 +1,6 @@
 <template>
-  <div class="edit-project" v-if="form.projectName">
-    <h1>Edit Project: {{ form.projectName }}</h1>
+  <div class="edit-project" v-if="loaded">
+    <h1>Edit Activity: {{ projectName }}</h1>
     <form @submit.prevent="updateProject" class="project-form">
       
       <!-- Basic Info -->
@@ -8,8 +8,12 @@
         <h2>Basic Information</h2>
         <div class="form-row">
           <div class="form-group">
-            <label for="activityId">Activity ID</label>
-            <input type="text" id="activityId" v-model="form.activityId" placeholder="e.g. ACT-001" />
+            <label for="activityId">Activity ID (Read-Only)</label>
+            <input type="text" id="activityId" :value="projectId" readonly class="readonly" />
+          </div>
+          <div class="form-group">
+            <label for="activityName">Activity Name *</label>
+            <input type="text" id="activityName" v-model="projectName" required placeholder="Enter activity name" />
           </div>
         </div>
         
@@ -116,10 +120,10 @@ const router = useRouter()
 const route = useRoute()
 const projectId = route.params.id
 const loading = ref(false)
+const loaded = ref(false)
+const projectName = ref('')
 
 const form = reactive({
-  projectName: '',
-  activityId: '',
   group: '',
   leader: '',
   coordinator: '',
@@ -138,25 +142,26 @@ const form = reactive({
 
 const fetchProject = async () => {
   try {
-    // We need a way to get project metadata. 
-    // Currently list_projects returns it, but getProject (status) does not.
-    // Let's assume we can get it from list_projects for now or update backend.
-    // Actually, list_projects is efficient enough for small number of projects.
     const res = await api.getProjects()
     const project = res.data.find(p => p.project_id === projectId)
     
     if (project) {
-      form.projectName = project.name
+      // Load Activity Name from project.name field
+      projectName.value = project.name || projectId
+      
+      // Load all metadata fields
       const meta = project.metadata || {}
       Object.assign(form, meta)
-      // Ensure name is consistent
-      form.projectName = project.name 
+      
+      loaded.value = true
     } else {
-      alert('Project not found')
+      alert('Activity not found')
       router.push('/')
     }
   } catch (error) {
-    console.error('Failed to fetch project:', error)
+    console.error('Failed to fetch activity:', error)
+    alert('Failed to load activity data')
+    router.push('/')
   }
 }
 
@@ -180,16 +185,25 @@ const onStartTimeChange = () => {
 }
 
 const updateProject = async () => {
+  if (!projectName.value) {
+    alert('Activity Name is required')
+    return
+  }
+  
   loading.value = true
   try {
-    const metadata = { ...form }
-    delete metadata.projectName // stored in main table, but we only update metadata col for now
+    // Include Activity Name in metadata
+    const metadata = {
+      ...form,
+      name: projectName.value,
+      projectName: projectName.value
+    }
     
     await api.updateProject(projectId, metadata)
     router.push('/')
   } catch (error) {
-    console.error('Failed to update project:', error)
-    alert('Failed to update project.')
+    console.error('Failed to update activity:', error)
+    alert('Failed to update activity.')
   } finally {
     loading.value = false
   }
@@ -259,6 +273,13 @@ input, textarea {
 input:focus, textarea:focus {
   border-color: #60a5fa;
   outline: none;
+}
+
+input.readonly {
+  background-color: #0f0f0f;
+  color: #888;
+  cursor: not-allowed;
+  border-color: #333;
 }
 
 .actions {

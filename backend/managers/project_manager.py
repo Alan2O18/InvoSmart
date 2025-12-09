@@ -86,7 +86,7 @@ class ProjectManager:
             try:
                 cur = conn.cursor()
                 cur.execute(
-                    "SELECT COUNT(1) AS cnt FROM jobs WHERE status IN ('running','processing')"
+                    "SELECT COUNT(1) AS cnt FROM jobs WHERE status IN ('running','processing','pending')"
                 )
                 r = cur.fetchone()
                 processing = r and r["cnt"] and r["cnt"] > 0
@@ -115,3 +115,22 @@ class ProjectManager:
             "processed": processed,
             "suggested_status": suggested,
         }
+
+    def sync_status_to_db(self, project_id: str):
+        """
+        Calculate suggested_status and sync it to the database.
+        Call this after major operations (split, OCR, LLM, etc.)
+        """
+        try:
+            status_info = self.get_project_status(project_id)
+            suggested_status = status_info["suggested_status"]
+            
+            # Get current status from DB
+            project = self.project_crud.get_project(project_id)
+            if project and project.get("status") != suggested_status:
+                # Only update if status has changed
+                self.update_project_status(project_id, suggested_status)
+                logger.info(f"Auto-synced status for {project_id}: {suggested_status}")
+        except Exception as e:
+            logger.error(f"Error syncing status for {project_id}: {e}")
+

@@ -136,12 +136,12 @@ class Engine:
 
     # --- Delegated Methods ---
 
-    def create_project(self, project_id: str, files: list, metadata: dict = None):
+    def create_project(self, project_id: str, files: list, name: str = None, metadata: dict = None):
         # Delegate to ProjectManager, but we might need to do initial file copy via FileOps or PM
         # PM.setup_project copies files if provided.
         # But Engine.create_project usually implies full setup.
         # Let's keep it simple and delegate to PM + FileOps if needed.
-        res = self.project_manager.setup_project(project_id, input_image=files, metadata=metadata)
+        res = self.project_manager.setup_project(project_id, input_image=files, name=name, metadata=metadata)
         return res
 
     def run_splitting(self, project_id: str, target_files: Optional[list[str]] = None):

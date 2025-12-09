@@ -2,8 +2,11 @@
   <div class="project-detail" v-if="project">
     <header class="detail-header">
       <button @click="$router.push('/')" class="back-btn">← Back</button>
-      <h1>{{ project.projectName || project.name || project.project_id }} ({{ project.project_id }})</h1>
-      <span class="status-badge" :class="project.status">{{ project.status }}</span>
+      <h1>{{ project.name || project.project_id }}</h1>
+      <div class="header-info">
+        <span class="activity-id">Activity ID: {{ project.project_id }}</span>
+        <span class="status-badge" :class="project.status">{{ project.status }}</span>
+      </div>
     </header>
 
     <div class="pipeline-controls">
@@ -106,7 +109,7 @@
                 <span class="badge" :class="getOCRBadgeClass(job)">
                   {{ getOCRStatusText(job) }}
                 </span>
-                <button v-if="!isOCRDone(job) || job.status === 'done'" @click="runSingleOCR(job)" class="mini-btn">
+                <button v-if="canShowOCRButton(job)" @click="runSingleOCR(job)" class="mini-btn">
                   {{ isOCRDone(job) ? 'Rerun' : 'Run' }}
                 </button>
               </td>
@@ -114,7 +117,7 @@
                 <span class="badge" :class="getLLMBadgeClass(job)">
                   {{ getLLMStatusText(job) }}
                 </span>
-                <button v-if="(isOCRDone(job) && !isLLMDone(job)) || job.status === 'done'" @click="runSingleLLM(job)" class="mini-btn">
+                <button v-if="canShowLLMButton(job)" @click="runSingleLLM(job)" class="mini-btn">
                   {{ isLLMDone(job) ? 'Rerun' : 'Run' }}
                 </button>
               </td>
@@ -155,14 +158,18 @@ let pollInterval = null
 
 const fetchProjectData = async () => {
   try {
+    // Get status and progress info
     const statusRes = await api.getProject(projectId)
     progress.value = statusRes.data
     
+    // Get full project info including Activity Name from list endpoint
+    const projectsRes = await api.getProjects()
+    const projectData = projectsRes.data.find(p => p.project_id === projectId)
+    
     project.value = { 
         project_id: projectId, 
-        status: progress.value.suggested_status,
-        name: statusRes.data.metadata?.projectName || projectId,
-        projectName: statusRes.data.metadata?.projectName
+        status: projectData?.status || 'NEW',  // Backend now auto-syncs status to database
+        name: projectData?.name || projectId  // Activity Name from database name field
     }
 
     const jobsRes = await api.getProjectJobs(projectId)
@@ -258,6 +265,23 @@ const getLLMBadgeClass = (job) => {
   return 'pending';
 }
 
+// Button visibility functions
+const canShowOCRButton = (job) => {
+  // Hide button if job is currently pending or running OCR
+  if (job.status === 'pending' && job.stage === 'ocr') return false;
+  if (job.status === 'running' && job.stage === 'ocr') return false;
+  // Show button if OCR not done yet, or if job is completely done (for rerun)
+  return !isOCRDone(job) || job.status === 'done';
+}
+
+const canShowLLMButton = (job) => {
+  // Hide button if job is currently pending or running LLM
+  if (job.status === 'pending' && job.stage === 'llm') return false;
+  if (job.status === 'running' && job.stage === 'llm') return false;
+  // Show button if OCR is done but LLM is not, or if job is completely done (for rerun)
+  return (isOCRDone(job) && !isLLMDone(job)) || job.status === 'done';
+}
+
 const runSplit = async () => {
   loading.value = true
   try { await api.runSplit(projectId); await fetchProjectData(); } 
@@ -290,14 +314,22 @@ const deleteRawFile = async (file) => {
 
 const runOCR = async () => {
   loading.value = true
-  try { await api.runOCR(projectId); await fetchProjectData(); } 
+  try { 
+    await api.runOCR(projectId); 
+    // Immediate poll to show pending status
+    setTimeout(() => fetchProjectData(), 100);
+  } 
   catch (e) { alert(e); } 
   finally { loading.value = false; }
 }
 
 const runLLM = async () => {
   loading.value = true
-  try { await api.runLLM(projectId); await fetchProjectData(); } 
+  try { 
+    await api.runLLM(projectId); 
+    // Immediate poll to show pending status
+    setTimeout(() => fetchProjectData(), 100);
+  } 
   catch (e) { alert(e); } 
   finally { loading.value = false; }
 }
@@ -399,9 +431,25 @@ const editJob = (job) => {
 
 .detail-header {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 1rem;
   margin-bottom: 2rem;
+}
+
+.detail-header h1 {
+  margin: 0;
+}
+
+.header-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.activity-id {
+  color: #888;
+  font-size: 0.9rem;
+  font-weight: 500;
 }
 
 .back-btn {

@@ -1,6 +1,6 @@
 <template>
   <div class="create-project">
-    <h1>Create New Project</h1>
+    <h1>Create New Activity</h1>
     <form @submit.prevent="createProject" class="project-form">
       
       <!-- Basic Info -->
@@ -8,12 +8,12 @@
         <h2>Basic Information</h2>
         <div class="form-row">
           <div class="form-group">
-            <label for="projectId">Activity ID (Project ID) *</label>
+            <label for="projectId">Activity ID *</label>
             <input type="text" id="projectId" v-model="form.projectId" required placeholder="e.g. ACT-001" />
           </div>
           <div class="form-group">
-            <label for="projectName">Activity Name (Project Name)</label>
-            <input type="text" id="projectName" v-model="form.projectName" placeholder="Enter activity name" />
+            <label for="projectName">Activity Name *</label>
+            <input type="text" id="projectName" v-model="form.projectName" required placeholder="Enter activity name" />
           </div>
         </div>
         
@@ -120,7 +120,7 @@
       <div class="actions">
         <button type="button" @click="$router.push('/')" class="secondary">Cancel</button>
         <button type="submit" :disabled="loading">
-          {{ loading ? 'Creating...' : 'Create Project' }}
+          {{ loading ? 'Creating...' : 'Create Activity' }}
         </button>
       </div>
     </form>
@@ -177,16 +177,35 @@ const onStartTimeChange = () => {
 }
 
 const createProject = async () => {
-  if (!form.projectId || files.value.length === 0) return
+  if (!form.projectId || !form.projectName || files.value.length === 0) {
+    alert('Please fill in Activity ID, Activity Name, and upload at least one file.')
+    return
+  }
 
   loading.value = true
   try {
     const formData = new FormData()
     formData.append('project_id', form.projectId)
     
-    // Pack metadata
-    const metadata = { ...form }
-    delete metadata.projectId // Already sent as project_id
+    // Pack metadata - projectName goes into metadata with special handling
+    const metadata = {
+      name: form.projectName,  // Activity Name stored as 'name' in metadata
+      projectName: form.projectName,  // Keep for backward compatibility
+      group: form.group,
+      leader: form.leader,
+      coordinator: form.coordinator,
+      startTime: form.startTime,
+      endTime: form.endTime,
+      location: form.location,
+      teacherCount: form.teacherCount,
+      studentCount: form.studentCount,
+      subsidyReason: form.subsidyReason,
+      subsidyMethod: form.subsidyMethod,
+      balanceHandling: form.balanceHandling,
+      overdraftHandling: form.overdraftHandling,
+      budgetDate: form.budgetDate,
+      finalAccountDate: form.finalAccountDate
+    }
     formData.append('metadata', JSON.stringify(metadata))
 
     files.value.forEach(file => {
@@ -196,8 +215,8 @@ const createProject = async () => {
     await api.createProject(formData)
     router.push('/')
   } catch (error) {
-    console.error('Failed to create project:', error)
-    alert('Failed to create project. See console for details.')
+    console.error('Failed to create activity:', error)
+    alert('Failed to create activity. See console for details.')
   } finally {
     loading.value = false
   }
