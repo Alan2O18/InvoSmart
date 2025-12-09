@@ -74,6 +74,14 @@ class TaskManager:
     def fail_job(self, job_id: str, reason: str = "") -> None:
         """Mark job as failed."""
         self._state_machine.fail_job(job_id, reason)
+    
+    def mark_ocr_stage_as_pending(self) -> int:
+        """Mark all ready OCR jobs as pending. Returns count of updated jobs."""
+        return self._state_machine.mark_ocr_stage_as_pending()
+    
+    def mark_llm_stage_as_pending(self) -> int:
+        """Mark all ready LLM jobs as pending. Returns count of updated jobs."""
+        return self._state_machine.mark_llm_stage_as_pending()
 
     def delete_job(self, job_id: str) -> bool:
         """Delete a job."""

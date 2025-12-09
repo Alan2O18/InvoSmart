@@ -74,14 +74,18 @@ class Engine:
         try:
             tm = self.get_task_manager(project_id)
             
-            thread_name = f"CPU-{project_id}"
+            # Mark all ready OCR jobs as pending immediately for UI feedback
+            count = tm.mark_ocr_stage_as_pending()
+            logger.info(f"[OCR] 標記 {count} 個工作為 pending")
+            
+            thread_name = f"ocr-{project_id}"
             if any(t.name == thread_name for t in threading.enumerate()):
                 logger.warning(f"[OCR] 專案 {project_id} 已在運行中")
                 return {"status": "ocr_already_running"}
 
             cpu_thread = threading.Thread(
                 target=start_cpu_worker, 
-                args=(tm, project_id, self.ocr_handler),
+                args=(tm, project_id, self.ocr_handler), 
                 name=thread_name
             )
             cpu_thread.start()
@@ -101,14 +105,18 @@ class Engine:
         try:
             tm = self.get_task_manager(project_id)
             
-            thread_name = f"GPU-{project_id}"
+            # Mark all ready LLM jobs as pending immediately for UI feedback
+            count = tm.mark_llm_stage_as_pending()
+            logger.info(f"[LLM] 標記 {count} 個工作為 pending")
+            
+            thread_name = f"llm-{project_id}"
             if any(t.name == thread_name for t in threading.enumerate()):
                 logger.warning(f"[LLM] 專案 {project_id} 已在運行中")
                 return {"status": "llm_already_running"}
 
             gpu_thread = threading.Thread(
                 target=start_gpu_worker, 
-                args=(tm, project_id, self.llm_handler),
+                args=(tm, project_id, self.llm_handler), 
                 name=thread_name
             )
             gpu_thread.start()

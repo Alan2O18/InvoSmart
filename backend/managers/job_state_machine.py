@@ -54,6 +54,20 @@ class JobStateMachine:
             
             self.repo.emit_event(job_id, "ocr_claimed", {})
             return {"job_id": job_id, "image_path": row["image_path"]}
+    
+    def mark_ocr_stage_as_pending(self) -> int:
+        """Mark all ready OCR jobs as pending. Returns count of updated jobs."""
+        with self.repo.lock:
+            conn = self.repo._get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                """UPDATE jobs SET status='pending', updated_at=strftime('%s','now')
+                   WHERE status='ready' AND stage='ocr'"""
+            )
+            count = cur.rowcount
+            conn.commit()
+            conn.close()
+            return count
 
     def claim_for_llm(self) -> Optional[Dict[str, Any]]:
         """Claim a job for LLM processing."""
@@ -107,6 +121,20 @@ class JobStateMachine:
                 "image_path": row["image_path"],
                 "ocr_result": ocr_data,
             }
+    
+    def mark_llm_stage_as_pending(self) -> int:
+        """Mark all ready LLM jobs as pending. Returns count of updated jobs."""
+        with self.repo.lock:
+            conn = self.repo._get_conn()
+            cur = conn.cursor()
+            cur.execute(
+                """UPDATE jobs SET status='pending', updated_at=strftime('%s','now')
+                   WHERE status='ready' AND stage='llm'"""
+            )
+            count = cur.rowcount
+            conn.commit()
+            conn.close()
+            return count
 
     def reset_and_claim(self, job_id: str, stage: str) -> Optional[Dict[str, Any]]:
         """
