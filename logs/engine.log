@@ -1,0 +1,109 @@
+2025-12-06 01:32:23,063 - backend.managers.project_setup - INFO - created new project test_new_proj at C:\Users\tange\AppData\Local\Temp\tmpqir_3eez\test_new_proj (jobs.db init)
+2025-12-06 01:33:52,820 - backend.managers.project_setup - INFO - created new project AB-01 at C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\AB-01 (jobs.db init)
+2025-12-06 01:34:00,027 - backend.engine.core - INFO - run_split_single called for AB-01, file=收據20251121.2.png
+2025-12-06 01:34:00,028 - backend.engine.file_ops - INFO - [FileOps] run_splitting started for AB-01, target_files=['收據20251121.2.png']
+2025-12-06 01:34:01,283 - backend.engine.file_ops - INFO - [FileOps] Saved 1 split images for 收據20251121.2.png
+2025-12-06 01:34:01,298 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued job: 分割發票\收據20251121.2_split_0_1764956041.jpg
+2025-12-06 01:34:01,311 - backend.managers.project_crud - INFO - project AB-01 status -> SPLIT
+2025-12-06 01:34:01,315 - backend.engine.file_ops - INFO - [FileOps] run_splitting completed for AB-01
+2025-12-06 01:34:05,043 - backend.engine.workers - INFO - [OCR] Processing: 收據20251121.2_split_0_1764956041.jpg
+2025-12-06 01:34:05,044 - backend.engine.workers - ERROR - [OCR] Error: 讀取圖片失敗: 分割發票\收據20251121.2_split_0_1764956041.jpg. 錯誤: [Errno 2] No such file or directory: '分割發票\\收據20251121.2_split_0_1764956041.jpg'
+2025-12-06 01:34:17,505 - backend.engine.workers - INFO - [CPU Worker] Started for AB-01
+2025-12-06 01:34:17,509 - backend.engine.workers - INFO - [CPU Worker] Finished for AB-01
+2025-12-06 01:34:17,511 - backend.managers.project_crud - INFO - project AB-01 status -> PROCESSING
+2025-12-06 01:46:33,610 - backend.engine.core - INFO - run_splitting called for split_proj, target_files=None
+2025-12-06 01:46:55,590 - backend.managers.project_setup - INFO - created new project test_new_proj at C:\Users\tange\AppData\Local\Temp\tmpxmn44byi\test_new_proj (jobs.db init)
+2025-12-06 01:46:55,714 - backend.engine.core - INFO - run_splitting called for split_proj, target_files=None
+2025-12-06 01:46:55,900 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued split file with absolute path: C:\Users\tange\AppData\Local\Temp\tmpaptvnf6w\add_split\分割發票\tmp6zyytl83.jpg
+2025-12-06 01:46:56,047 - backend.managers.project_crud - INFO - project ocr_proj status -> PROCESSING
+2025-12-06 01:47:29,795 - backend.engine.workers - INFO - [CPU Worker] Started for AB-01
+2025-12-06 01:47:29,798 - backend.engine.workers - INFO - [CPU Worker] Finished for AB-01
+2025-12-06 01:47:29,799 - backend.managers.project_crud - INFO - project AB-01 status -> PROCESSING
+2025-12-06 01:47:59,116 - backend.engine.workers - INFO - [OCR] Processing: 收據20251121.2_split_0_1764956041.jpg
+2025-12-06 01:47:59,117 - backend.engine.workers - ERROR - [OCR] Error: 讀取圖片失敗: 分割發票\收據20251121.2_split_0_1764956041.jpg. 錯誤: [Errno 2] No such file or directory: '分割發票\\收據20251121.2_split_0_1764956041.jpg'
+2025-12-06 01:48:21,091 - backend.managers.project_setup - INFO - created new project AC-01 at C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\AC-01 (jobs.db init)
+2025-12-06 01:48:24,142 - backend.engine.core - INFO - run_split_single called for AC-01, file=Scan_0001.jpg
+2025-12-06 01:48:24,142 - backend.engine.file_ops - INFO - [FileOps] run_splitting started for AC-01, target_files=['Scan_0001.jpg']
+2025-12-06 01:48:24,304 - backend.engine.file_ops - INFO - [FileOps] Saved 5 split images for Scan_0001.jpg
+2025-12-06 01:48:24,326 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued job with absolute path: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\AC-01\分割發票\Scan_0001_split_0_1764956904.jpg
+2025-12-06 01:48:24,344 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued job with absolute path: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\AC-01\分割發票\Scan_0001_split_1_1764956904.jpg
+2025-12-06 01:48:24,362 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued job with absolute path: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\AC-01\分割發票\Scan_0001_split_2_1764956904.jpg
+2025-12-06 01:48:24,379 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued job with absolute path: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\AC-01\分割發票\Scan_0001_split_3_1764956904.jpg
+2025-12-06 01:48:24,396 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued job with absolute path: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\AC-01\分割發票\Scan_0001_split_4_1764956904.jpg
+2025-12-06 01:48:24,402 - backend.managers.project_crud - INFO - project AC-01 status -> SPLIT
+2025-12-06 01:48:24,406 - backend.engine.file_ops - INFO - [FileOps] run_splitting completed for AC-01
+2025-12-06 01:48:35,661 - backend.engine.workers - INFO - [OCR] Processing: Scan_0001_split_0_1764956904.jpg
+2025-12-06 01:49:10,820 - backend.engine.workers - INFO - [CPU Worker] Started for AC-01
+2025-12-06 01:49:10,829 - backend.managers.project_crud - INFO - project AC-01 status -> PROCESSING
+2025-12-06 01:49:10,837 - backend.engine.workers - INFO - [OCR] Processing: Scan_0001_split_0_1764956904.jpg
+2025-12-06 01:49:16,498 - backend.engine.workers - INFO - [OCR] Processing: Scan_0001_split_1_1764956904.jpg
+2025-12-06 01:49:22,280 - backend.engine.workers - INFO - [OCR] Processing: Scan_0001_split_3_1764956904.jpg
+2025-12-06 01:49:28,269 - backend.engine.workers - INFO - [CPU Worker] Finished for AC-01
+2025-12-06 01:49:33,881 - backend.engine.workers - INFO - [GPU Worker] Started for AC-01
+2025-12-06 01:49:33,894 - backend.engine.workers - INFO - [LLM] Structuring: Scan_0001_split_0_1764956904.jpg
+2025-12-06 01:50:11,806 - backend.engine.workers - INFO - [LLM] Structuring: Scan_0001_split_1_1764956904.jpg
+2025-12-06 01:50:54,430 - backend.engine.workers - INFO - [LLM] Structuring: Scan_0001_split_3_1764956904.jpg
+2025-12-06 01:51:26,097 - backend.engine.workers - INFO - [GPU Worker] Finished for AC-01
+2025-12-06 01:55:16,220 - backend.managers.project_crud - INFO - project AC-01 status -> ARCHIVED
+2025-12-06 01:55:16,222 - backend.engine.export - INFO - archive_to_excel completed: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\AC-01\AC-01_archive_1764957315.xlsx
+2025-12-06 01:55:20,194 - backend.managers.project_crud - INFO - project AC-01 status -> SEALED
+2025-12-06 01:56:10,557 - backend.routers.projects - INFO - Received add_files request for AC-01, type=raw, files=1
+2025-12-06 01:56:10,559 - backend.routers.projects - INFO - Saving temp file to C:\Users\tange\AppData\Local\Temp\tmps4yvugd6\手寫收據20251118.3.png
+2025-12-06 01:56:10,588 - backend.routers.projects - INFO - Calling engine.add_project_files with ['C:\\Users\\tange\\AppData\\Local\\Temp\\tmps4yvugd6\\手寫收據20251118.3.png']
+2025-12-06 01:56:14,529 - backend.engine.core - INFO - run_split_single called for AC-01, file=手寫收據20251118.3.png
+2025-12-06 01:56:14,530 - backend.engine.file_ops - INFO - [FileOps] run_splitting started for AC-01, target_files=['手寫收據20251118.3.png']
+2025-12-06 01:56:15,712 - backend.engine.file_ops - INFO - [FileOps] Saved 1 split images for 手寫收據20251118.3.png
+2025-12-06 01:56:15,727 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued job with absolute path: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\AC-01\分割發票\手寫收據20251118.3_split_0_1764957375.jpg
+2025-12-06 01:56:15,748 - backend.managers.project_crud - INFO - project AC-01 status -> SPLIT
+2025-12-06 01:56:15,751 - backend.engine.file_ops - INFO - [FileOps] run_splitting completed for AC-01
+2025-12-06 01:56:33,507 - backend.routers.projects - INFO - Received add_files request for AC-01, type=split, files=1
+2025-12-06 01:56:33,508 - backend.routers.projects - INFO - Saving temp file to C:\Users\tange\AppData\Local\Temp\tmpb32s_wa5\手寫收據20251118.3_split_0_1764560387.jpg
+2025-12-06 01:56:33,513 - backend.routers.projects - INFO - Calling engine.add_project_files with ['C:\\Users\\tange\\AppData\\Local\\Temp\\tmpb32s_wa5\\手寫收據20251118.3_split_0_1764560387.jpg']
+2025-12-06 01:56:33,549 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued split file with absolute path: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\AC-01\分割發票\手寫收據20251118.3_split_0_1764560387.jpg
+2025-12-07 17:58:45,243 - backend.managers.project_setup - INFO - created new project test_new_proj at C:\Users\tange\AppData\Local\Temp\tmpckl1cnz4\test_new_proj (jobs.db init)
+2025-12-07 17:58:45,385 - backend.engine.core - INFO - run_splitting called for split_proj, target_files=None
+2025-12-07 17:58:45,555 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued split file with absolute path: C:\Users\tange\AppData\Local\Temp\tmp9qcppd0z\add_split\分割發票\tmp40c63ole.jpg
+2025-12-07 17:58:45,700 - backend.managers.project_crud - INFO - project ocr_proj status -> PROCESSING
+2025-12-07 18:01:31,761 - backend.engine.workers - INFO - [OCR] Processing: Scan_0001_split_3_1764956904.jpg
+2025-12-07 21:28:56,180 - backend.managers.project_setup - INFO - created new project t0 at C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\t0 (jobs.db init)
+2025-12-07 21:29:00,439 - backend.engine.core - INFO - run_splitting called for t0, target_files=None
+2025-12-07 21:29:00,440 - backend.engine.file_ops - INFO - [FileOps] run_splitting started for t0, target_files=None
+2025-12-07 21:29:01,816 - backend.engine.file_ops - INFO - [FileOps] Saved 5 split images for 和平小宏遠3.1.png
+2025-12-07 21:29:01,830 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued job with absolute path: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\t0\分割發票\和平小宏遠3.1_split_0_1765114141.jpg
+2025-12-07 21:29:01,846 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued job with absolute path: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\t0\分割發票\和平小宏遠3.1_split_1_1765114141.jpg
+2025-12-07 21:29:01,862 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued job with absolute path: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\t0\分割發票\和平小宏遠3.1_split_2_1765114141.jpg
+2025-12-07 21:29:01,879 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued job with absolute path: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\t0\分割發票\和平小宏遠3.1_split_3_1765114141.jpg
+2025-12-07 21:29:01,896 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued job with absolute path: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\t0\分割發票\和平小宏遠3.1_split_4_1765114141.jpg
+2025-12-07 21:29:01,916 - backend.managers.project_crud - INFO - project t0 status -> SPLIT
+2025-12-07 21:29:01,920 - backend.engine.file_ops - INFO - [FileOps] run_splitting completed for t0
+2025-12-07 21:29:28,576 - backend.engine.workers - INFO - [CPU Worker] Started for t0
+2025-12-07 21:29:28,583 - backend.managers.project_crud - INFO - project t0 status -> PROCESSING
+2025-12-07 21:29:28,592 - backend.engine.workers - INFO - [OCR] Processing: 和平小宏遠3.1_split_0_1765114141.jpg
+2025-12-07 21:29:56,605 - backend.engine.workers - INFO - [OCR] Processing: 和平小宏遠3.1_split_1_1765114141.jpg
+2025-12-07 21:30:06,669 - backend.engine.workers - INFO - [OCR] Processing: 和平小宏遠3.1_split_2_1765114141.jpg
+2025-12-07 21:30:16,224 - backend.engine.workers - INFO - [OCR] Processing: 和平小宏遠3.1_split_3_1765114141.jpg
+2025-12-07 21:30:27,417 - backend.engine.workers - INFO - [OCR] Processing: 和平小宏遠3.1_split_4_1765114141.jpg
+2025-12-07 21:30:38,292 - backend.engine.workers - INFO - [CPU Worker] Finished for t0
+2025-12-07 21:35:10,558 - backend.engine.workers - INFO - [GPU Worker] Started for t0
+2025-12-07 21:35:10,575 - backend.engine.workers - INFO - [LLM] Structuring: 和平小宏遠3.1_split_0_1765114141.jpg
+2025-12-07 21:35:53,233 - backend.engine.workers - INFO - [LLM] Structuring: 和平小宏遠3.1_split_1_1765114141.jpg
+2025-12-07 21:36:17,731 - backend.engine.workers - INFO - [LLM] Structuring: 和平小宏遠3.1_split_2_1765114141.jpg
+2025-12-07 21:36:43,813 - backend.engine.workers - INFO - [LLM] Structuring: 和平小宏遠3.1_split_3_1765114141.jpg
+2025-12-07 21:37:10,338 - backend.engine.workers - INFO - [LLM] Structuring: 和平小宏遠3.1_split_4_1765114141.jpg
+2025-12-07 21:37:36,787 - backend.engine.workers - INFO - [GPU Worker] Finished for t0
+2025-12-07 21:37:56,353 - backend.engine.workers - INFO - [OCR] Processing: 和平小宏遠3.1_split_0_1765114141.jpg
+2025-12-07 21:52:23,376 - backend.engine.workers - INFO - [OCR] Processing: 和平小宏遠3.1_split_1_1765114141.jpg
+2025-12-07 21:58:10,424 - backend.managers.project_crud - INFO - project ocr_proj status -> PROCESSING
+2025-12-07 21:59:58,627 - backend.engine.workers - INFO - [OCR] Processing: 和平小宏遠3.1_split_2_1765114141.jpg
+2025-12-07 22:00:09,148 - backend.engine.workers - INFO - [OCR] ✓ Completed: 和平小宏遠3.1_split_2_1765114141.jpg
+2025-12-07 22:00:25,602 - backend.engine.workers - INFO - [LLM] Structuring: 和平小宏遠3.1_split_2_1765114141.jpg
+2025-12-07 22:00:52,709 - backend.engine.workers - INFO - [LLM] ✓ Completed: 和平小宏遠3.1_split_2_1765114141.jpg
+2025-12-07 22:31:41,857 - backend.managers.project_setup - INFO - created new project T1 at C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\T1 (jobs.db init)
+2025-12-07 22:31:46,542 - backend.engine.core - INFO - run_splitting called for T1, target_files=None
+2025-12-07 22:31:46,543 - backend.engine.file_ops - INFO - [FileOps] run_splitting started for T1, target_files=None
+2025-12-07 22:31:47,918 - backend.engine.file_ops - INFO - [FileOps] Saved 2 split images for 收據20251121.1.png
+2025-12-07 22:31:47,933 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued job with absolute path: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\T1\分割發票\收據20251121.1_split_0_1765117907.jpg
+2025-12-07 22:31:47,950 - backend.engine.file_ops - DEBUG - [FileOps] Enqueued job with absolute path: C:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\GA實作專案\T1\分割發票\收據20251121.1_split_1_1765117907.jpg
+2025-12-07 22:31:47,967 - backend.managers.project_crud - INFO - project T1 status -> SPLIT
+2025-12-07 22:31:47,970 - backend.engine.file_ops - INFO - [FileOps] run_splitting completed for T1
+2025-12-07 22:31:54,902 - backend.routers.projects - ERROR - Error getting job details: No item with that key

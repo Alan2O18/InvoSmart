@@ -1,0 +1,21 @@
+{
+  "project_manager_settings": {
+    "global_db_path": "C:/Users/tange/OneDrive/Desktop/all project/py for NKNU GA/GA實作專案/main_db.db",
+    "workspace_root": "C:/Users/tange/OneDrive/Desktop/all project/py for NKNU GA/GA實作專案"
+  },
+  "ocr_settings": {
+    "language": "chinese_cht",
+    "use_angle_cls": true
+  },
+  "llm_settings": {
+    "model_name": "qwen3:1.7b",
+    "temperature": 0.0
+  },
+  "excel_settings": {
+    "main_sheet_name": "主要",
+    "details_sheet_name": "細節品項"
+  },
+  "task_manager_settings": {
+    "db_name": "jobs.db"
+  }
+}
