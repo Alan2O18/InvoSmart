@@ -56,7 +56,7 @@ class TestFullProjectLifecycle:
             tm = engine.get_task_manager("lifecycle_proj")
             jobs = tm.list_jobs()
             assert len(jobs) == 1
-            assert jobs[0]["status"] == "pending"
+            assert jobs[0]["status"] == "ready"
             assert jobs[0]["stage"] == "ocr"
             
             # 5. Run OCR (mocked worker - synchronous for test)

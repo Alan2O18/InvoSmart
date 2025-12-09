@@ -6,11 +6,27 @@ import pytest
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 
-# Mock ollama globally before any imports
-sys.modules["ollama"] = MagicMock()
-sys.modules["paddleocr"] = MagicMock()
-sys.modules["paddle"] = MagicMock() # Just in case
-sys.modules["cv2"] = MagicMock()
+# ============================================================================
+# Lazy Loading Protection for Heavy Dependencies
+# Only mock when the module hasn't been loaded yet (for API/Engine tests)
+# Processing tests can load real modules if needed
+# ============================================================================
+
+def _create_lazy_mock(module_name):
+    """Create a mock that can be configured by tests."""
+    mock = MagicMock()
+    mock._is_test_mock = True
+    return mock
+
+# Only mock if not already imported (allows processing tests to use real modules)
+if "ollama" not in sys.modules:
+    sys.modules["ollama"] = _create_lazy_mock("ollama")
+
+if "paddleocr" not in sys.modules:
+    sys.modules["paddleocr"] = _create_lazy_mock("paddleocr")
+
+if "paddle" not in sys.modules:
+    sys.modules["paddle"] = _create_lazy_mock("paddle")
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -81,3 +97,23 @@ def real_engine_with_temp_workspace(temp_workspace):
     engine.task_managers = {}
     
     return engine
+
+@pytest.fixture(scope="function")
+def fresh_ollama_mock():
+    """
+    Provides a fresh, reset ollama mock for tests that need it.
+    Use this fixture when testing LLM-related processing logic.
+    """
+    mock_ollama = sys.modules.get("ollama")
+    if mock_ollama and hasattr(mock_ollama, "_is_test_mock"):
+        # Reset all mock state
+        mock_ollama.reset_mock()
+        mock_ollama.list.return_value = []
+        mock_ollama.chat.reset_mock()
+        mock_ollama.chat.side_effect = None
+        mock_ollama.chat.return_value = {"message": {"content": "{}"}}
+    yield mock_ollama
+    # Cleanup after test
+    if mock_ollama and hasattr(mock_ollama, "_is_test_mock"):
+        mock_ollama.chat.side_effect = None
+        mock_ollama.chat.reset_mock()
