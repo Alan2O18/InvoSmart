@@ -1,0 +1,127 @@
+import axios from 'axios'
+
+const api = axios.create({
+  baseURL: 'http://localhost:8000',
+  headers: {}
+})
+
+export default {
+  // =====================
+  // Projects CRUD
+  // =====================
+  getProjects() {
+    return api.get('/api/projects/')
+  },
+  createProject(formData) {
+    return api.post('/api/projects/', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  getProject(projectId) {
+    return api.get(`/api/projects/${projectId}`)
+  },
+  updateProject(projectId, metadata) {
+    return api.put(`/api/projects/${projectId}`, metadata)
+  },
+  deleteProject(projectId) {
+    return api.delete(`/api/projects/${projectId}`)
+  },
+
+  // =====================
+  // Jobs
+  // =====================
+  getProjectJobs(projectId) {
+    return api.get(`/api/projects/${projectId}/jobs`)
+  },
+  deleteJob(projectId, jobId) {
+    return api.delete(`/api/projects/${projectId}/jobs/${jobId}`)
+  },
+
+  // =====================
+  // Files & Processing
+  // =====================
+  addFiles(projectId, formData) {
+    return api.post(`/api/projects/${projectId}/add_files`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  getRawFiles(projectId) {
+    return api.get(`/api/projects/${projectId}/raw_files`)
+  },
+  deleteRawFile(projectId, filename) {
+    return api.delete(`/api/projects/${projectId}/raw_files/${filename}`)
+  },
+  rotateImage(projectId, filename, angle) {
+    return api.post(`/api/projects/${projectId}/rotate/${filename}?angle=${angle}`)
+  },
+
+  // =====================
+  // Pipeline Actions
+  // =====================
+  runSplit(projectId) {
+    return api.post(`/api/projects/${projectId}/run_split`)
+  },
+  runSplitSingle(projectId, filename) {
+    return api.post(`/api/projects/${projectId}/split/${filename}`)
+  },
+  runOCR(projectId) {
+    return api.post(`/api/projects/${projectId}/run_ocr`)
+  },
+  runSingleOCR(projectId, jobId) {
+    return api.post(`/api/projects/${projectId}/jobs/${jobId}/ocr`)
+  },
+  runLLM(projectId) {
+    return api.post(`/api/projects/${projectId}/run_llm`)
+  },
+  runSingleLLM(projectId, jobId) {
+    return api.post(`/api/projects/${projectId}/jobs/${jobId}/llm`)
+  },
+
+  // =====================
+  // Export & Archive
+  // =====================
+  runExport(projectId) {
+    return api.post(`/api/projects/${projectId}/run_export`)
+  },
+  runArchive(projectId) {
+    return api.post(`/api/projects/${projectId}/run_archive`)
+  },
+  regenerateProject(projectId, excelPath) {
+    const formData = new FormData()
+    formData.append('excel_path', excelPath)
+    return api.post(`/api/projects/${projectId}/regenerate`, formData)
+  },
+
+  // =====================
+  // Activity Info
+  // =====================
+  updateActivityInfo(projectId, info) {
+    return api.post(`/api/projects/${projectId}/activity_info`, info)
+  },
+
+  // =====================
+  // Groups
+  // =====================
+  listGroups() {
+    return api.get('/api/projects/groups/list')
+  },
+  upsertGroup(groupName, leaderName) {
+    return api.post('/api/projects/groups', { group_name: groupName, leader_name: leaderName })
+  },
+  deleteGroup(groupName) {
+    return api.delete(`/api/projects/groups/${groupName}`)
+  },
+
+  // =====================
+  // Manual Correction
+  // =====================
+  getJobDetails(projectId, jobId) {
+    return api.get(`/api/projects/${projectId}/jobs/${jobId}/details`)
+  },
+  saveManualText(projectId, jobId, manualText) {
+    return api.put(`/api/projects/${projectId}/jobs/${jobId}/manual`, { manual_text: manualText })
+  },
+  regenerateFromManual(projectId, jobId) {
+    return api.post(`/api/projects/${projectId}/jobs/${jobId}/regenerate_from_manual`)
+  }
+}
