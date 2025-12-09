@@ -15,27 +15,6 @@ from .workers import start_cpu_worker, start_gpu_worker
 from .file_ops import FileOps
 from .export import ExportHandler
 
-# Configure file-based logging
-LOG_DIR = Path(__file__).parent.parent.parent / "logs"
-LOG_DIR.mkdir(exist_ok=True)
-LOG_FILE = LOG_DIR / "engine.log"
-
-# Set up file handler
-file_handler = logging.FileHandler(LOG_FILE, encoding='utf-8')
-file_handler.setLevel(logging.DEBUG)
-file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-
-# Set up console handler
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-
-# Configure root logger for backend
-backend_logger = logging.getLogger('backend')
-backend_logger.setLevel(logging.DEBUG)
-backend_logger.addHandler(file_handler)
-backend_logger.addHandler(console_handler)
-
 logger = logging.getLogger(__name__)
 
 class Engine:
@@ -91,12 +70,14 @@ class Engine:
         """
         Start CPU worker for OCR.
         """
+        logger.info(f"[OCR] 開始處理專案: {project_id}")
         try:
             tm = self.get_task_manager(project_id)
             
             thread_name = f"CPU-{project_id}"
             if any(t.name == thread_name for t in threading.enumerate()):
-                 return {"status": "ocr_already_running"}
+                logger.warning(f"[OCR] 專案 {project_id} 已在運行中")
+                return {"status": "ocr_already_running"}
 
             cpu_thread = threading.Thread(
                 target=start_cpu_worker, 
@@ -106,21 +87,24 @@ class Engine:
             cpu_thread.start()
             
             self.project_manager.update_project_status(project_id, "PROCESSING")
+            logger.info(f"[OCR] 工作線程已啟動: {project_id}")
             return {"status": "ocr_started"}
         except Exception as e:
-            logger.error(f"Error starting OCR for {project_id}: {e}")
+            logger.error(f"[OCR] 啟動失敗 {project_id}: {e}", exc_info=True)
             raise e
 
     def run_llm(self, project_id: str):
         """
         Start GPU worker for LLM.
         """
+        logger.info(f"[LLM] 開始處理專案: {project_id}")
         try:
             tm = self.get_task_manager(project_id)
             
             thread_name = f"GPU-{project_id}"
             if any(t.name == thread_name for t in threading.enumerate()):
-                 return {"status": "llm_already_running"}
+                logger.warning(f"[LLM] 專案 {project_id} 已在運行中")
+                return {"status": "llm_already_running"}
 
             gpu_thread = threading.Thread(
                 target=start_gpu_worker, 
@@ -129,9 +113,10 @@ class Engine:
             )
             gpu_thread.start()
             
+            logger.info(f"[LLM] 工作線程已啟動: {project_id}")
             return {"status": "llm_started"}
         except Exception as e:
-            logger.error(f"Error starting LLM for {project_id}: {e}")
+            logger.error(f"[LLM] 啟動失敗 {project_id}: {e}", exc_info=True)
             raise e
 
     # --- Delegated Methods ---
@@ -145,13 +130,17 @@ class Engine:
         return res
 
     def run_splitting(self, project_id: str, target_files: Optional[list[str]] = None):
-        logger.info(f"run_splitting called for {project_id}, target_files={target_files}")
-        return self.file_ops.run_splitting(project_id, target_files)
+        logger.info(f"[分割] 開始處理專案: {project_id}, 目標檔案={target_files}")
+        result = self.file_ops.run_splitting(project_id, target_files)
+        logger.info(f"[分割] 完成: {project_id}")
+        return result
 
     def run_split_single(self, project_id: str, filename: str):
         """Split a single raw file."""
-        logger.info(f"run_split_single called for {project_id}, file={filename}")
-        return self.file_ops.run_splitting(project_id, target_files=[filename])
+        logger.info(f"[分割] 單檔處理: {project_id}/{filename}")
+        result = self.file_ops.run_splitting(project_id, target_files=[filename])
+        logger.info(f"[分割] 單檔完成: {filename}")
+        return result
 
     def get_raw_files(self, project_id: str):
         return self.file_ops.get_raw_files(project_id)

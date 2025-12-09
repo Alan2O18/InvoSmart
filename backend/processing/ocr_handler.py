@@ -1,11 +1,14 @@
 # processing/ocr_handler.py
+import logging
 import numpy as np
 from paddleocr import PaddleOCR
+
+logger = logging.getLogger(__name__)
 
 
 class OCRHandler:
     def __init__(self, config: dict):
-        print("[OCR] 正在初始化 PaddleOCR 引擎...")
+        logger.debug("正在初始化 PaddleOCR 引擎...")
         self.config = config
         try:
             self.engine = PaddleOCR(
@@ -14,8 +17,9 @@ class OCRHandler:
                 ),
                 lang=config["ocr_settings"].get("language", "chinese_cht"),
             )
-            print("[OCR] 引擎初始化完畢。")
+            logger.debug("PaddleOCR 引擎初始化完畢")
         except Exception as e:
+            logger.error(f"初始化 PaddleOCR 失敗: {e}", exc_info=True)
             raise RuntimeError(f"初始化 PaddleOCR 失敗: {e}")
 
     def do_paddleocr(self, image_array: np.ndarray) -> list[dict]:
@@ -23,7 +27,7 @@ class OCRHandler:
         使用 PaddleOCR 辨识文字，并返回一个包含文字和坐标的字典列表。
         每个字典的格式为: {'text': '识别的文字', 'box': [x_min, y_min, x_max, y_max]}
         """
-        print("[INFO] Station 1: Performing OCR with PaddleOCR...")
+        logger.debug("執行 PaddleOCR 辨識...")
         result_dict = self.engine.predict(image_array)
         result_dict = result_dict[0]
 
@@ -45,7 +49,7 @@ class OCRHandler:
                     {"text": text, "box": [x_min, y_min, x_max, y_max]}
                 )
 
-        print(f"[INFO] OCR found and structured {len(structured_results)} text boxes.")
+        logger.debug(f"OCR 辨識完成，共 {len(structured_results)} 個文字區塊")
         return structured_results
 
     def reconstruct_layout(self, structured_ocr_data: list[dict]) -> str:

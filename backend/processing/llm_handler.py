@@ -5,9 +5,12 @@ LLM Handler - Unified module for text correction and data extraction.
 This module combines the functionality of the former text_corrector.py and
 data_extractor.py into a single cohesive module for LLM-based processing.
 """
+import logging
 import ollama
 import json
 import re
+
+logger = logging.getLogger(__name__)
 
 
 class LLMHandler:
@@ -25,15 +28,13 @@ class LLMHandler:
             config: Configuration dictionary with 'llm_settings' key containing model settings.
         """
         self.model_name = config["llm_settings"].get("model_name", "qwen3:1.7b")
-        print(f"[LLM] Initializing with model: {self.model_name}...")
+        logger.debug(f"初始化 LLM 模型: {self.model_name}")
 
         try:
             ollama.list()
-            print("[INFO] Ollama service is running.")
+            logger.debug("Ollama 服務運行中")
         except Exception:
-            print(
-                "[WARN] Ollama service is not running. Please start Ollama manually and rerun the script."
-            )
+            logger.error("Ollama 服務未啟動，請先啟動 Ollama 再重試")
             raise SystemError("Ollama Service Not Running")
 
         self.config = config
@@ -53,7 +54,7 @@ class LLMHandler:
         Returns:
             Corrected text in Traditional Chinese.
         """
-        print("\n[INFO] Calling LLM to correct OCR/semantic errors in text...")
+        logger.debug("呼叫 LLM 進行 OCR/語意錯誤校正...")
         prompt = f"""
         [INST]
         You are a meticulous data correction robot. Your input is pre-formatted text from a Taiwanese e-invoice, which may contain OCR recognition errors.
@@ -81,10 +82,10 @@ class LLMHandler:
                 options={"temperature": 0.0},
             )
             corrected_text = response["message"]["content"]
-            print("[INFO] Text correction successful.")
+            logger.debug("文字校正成功")
             return corrected_text
         except Exception as e:
-            print(f"[ERROR] Text correction failed: {e}")
+            logger.error(f"文字校正失敗: {e}", exc_info=True)
             # On failure, return the original text to allow data extraction to proceed
             return pre_formatted_text
 
@@ -103,7 +104,7 @@ class LLMHandler:
             - items: List of items with description, quantity, price
             - total_amount: Total invoice amount
         """
-        print("\n[INFO] Calling LLM to extract structured data from text...")
+        logger.debug("呼叫 LLM 進行結構化資料擷取...")
         prompt = f"""
         [INST]
         You are a data extraction robot.
@@ -140,10 +141,10 @@ class LLMHandler:
             if json_match:
                 json_string = json_match.group(0)
             parsed_data = json.loads(json_string)
-            print("[INFO] LLM data extraction successful.")
+            logger.debug("LLM 資料擷取成功")
             return parsed_data
         except Exception as e:
-            print(f"[ERROR] LLM data extraction failed: {e}")
+            logger.error(f"LLM 資料擷取失敗: {e}", exc_info=True)
             return {"error": str(e)}
 
     def structure_with_llm(self, pre_formatted_text: str) -> dict:
@@ -173,9 +174,7 @@ class LLMHandler:
         }
 
         if "error" in structured_data:
-            print(
-                f"[WARN] Data extraction produced an error, but returning combined structure."
-            )
+            logger.warning("資料擷取產生錯誤，但仍返回合併結構")
 
         return final_output
 

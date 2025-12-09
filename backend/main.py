@@ -6,6 +6,10 @@ import os
 # Add the parent directory to sys.path to allow imports from the root
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Initialize logging BEFORE other imports
+from backend.utils.logger import setup_logging
+setup_logging()
+
 from backend.routers import router as projects_router, websocket
 
 from fastapi.staticfiles import StaticFiles

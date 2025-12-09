@@ -8,6 +8,7 @@ ReceiptSplitter (refactored)
 - contour_validator.py: 輪廓驗證
 - perspective_transform.py: 透視變換
 """
+import logging
 import cv2
 import numpy as np
 from typing import List, Dict
@@ -15,6 +16,8 @@ from typing import List, Dict
 from backend.processing.image_preprocessor import ImagePreprocessor
 from backend.processing.contour_validator import ContourValidator
 from backend.processing.perspective_transform import PerspectiveTransformer
+
+logger = logging.getLogger(__name__)
 
 
 class ReceiptSplitter:
@@ -179,7 +182,7 @@ class ReceiptSplitter:
                 final_contours.append(cand)
                 processed_centers.append(cand["center"])
 
-        print(f"-> 篩選後保留 {len(final_contours)} 個有效輪廓。")
+        logger.debug(f"篩選後保留 {len(final_contours)} 個有效輪廓")
 
         # 5. 除錯顯示
         if debug:

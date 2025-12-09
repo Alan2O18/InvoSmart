@@ -6,12 +6,7 @@ from typing import Optional, Dict, Any
 from .project_crud import ProjectCRUD
 from .project_setup import ProjectSetup
 
-logger = logging.getLogger("ProjectManagerV4")
-logger.setLevel(logging.DEBUG)
-if not logger.handlers:
-    ch = logging.StreamHandler()
-    ch.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(message)s"))
-    logger.addHandler(ch)
+logger = logging.getLogger(__name__)
 
 class ProjectManager:
     def __init__(self, config: Dict):
