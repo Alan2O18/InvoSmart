@@ -237,8 +237,8 @@ class TestEngineFileOps:
 class TestEngineProcessing:
     """Tests for OCR and LLM processing."""
     
-    def test_run_ocr_starts_worker(self, real_engine_with_temp_workspace):
-        """Test that run_ocr starts a worker thread."""
+    def test_run_ocr_queues_jobs(self, real_engine_with_temp_workspace):
+        """Test that run_ocr queues jobs to the global OCR queue."""
         engine = real_engine_with_temp_workspace
         
         # Setup project with job
@@ -249,26 +249,20 @@ class TestEngineProcessing:
         tm = engine.get_task_manager("ocr_proj")
         tm.enqueue("test.jpg", "job1")
         
-        # Mock the worker
-        from backend.engine import core
+        # Global Worker 架構：run_ocr 只是將任務加入佇列
+        res = engine.run_ocr("ocr_proj")
+        assert res["status"] == "ocr_queued"
+        assert res["queued_count"] == 1
         
-        def mock_worker(tm, project_id, handler):
-            task = tm.claim_for_ocr()
-            if task:
-                tm.complete_ocr(task["job_id"], {"text": "Mock OCR"})
+        # 確認任務已加入佇列
+        assert engine.ocr_queue.qsize() >= 1
         
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(core, "start_cpu_worker", mock_worker)
-            res = engine.run_ocr("ocr_proj")
-            assert res["status"] == "ocr_started"
-            
-            time.sleep(0.5)
-            
-            job = tm.get_job("job1")
-            assert job["stage"] == "llm"
+        # 確認 job 狀態為 pending
+        job = tm.get_job("job1")
+        assert job["status"] == "pending"
 
-    def test_run_llm_starts_worker(self, real_engine_with_temp_workspace):
-        """Test that run_llm starts a worker thread."""
+    def test_run_llm_queues_jobs(self, real_engine_with_temp_workspace):
+        """Test that run_llm queues jobs to the global LLM queue."""
         engine = real_engine_with_temp_workspace
         
         # Setup project with LLM-stage job
@@ -280,20 +274,16 @@ class TestEngineProcessing:
         tm.enqueue("test.jpg", "job1")
         tm.complete_ocr("job1", {"text": "OCR result"})  # Move to LLM stage
         
-        from backend.engine import core
+        # Global Worker 架構：run_llm 只是將任務加入佇列
+        res = engine.run_llm("llm_proj")
+        assert res["status"] == "llm_queued"
+        assert res["queued_count"] == 1
         
-        def mock_worker(tm, project_id, handler):
-            task = tm.claim_for_llm()
-            if task and task != "all_task_done":
-                tm.complete_llm(task["job_id"], {"structured": {}})
-        
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(core, "start_gpu_worker", mock_worker)
-            res = engine.run_llm("llm_proj")
-            assert res["status"] == "llm_started"
+        # 確認任務已加入佇列
+        assert engine.llm_queue.qsize() >= 1
 
     def test_run_single_ocr(self, real_engine_with_temp_workspace):
-        """Test single-job OCR processing."""
+        """Test single-job OCR processing queues to global queue."""
         engine = real_engine_with_temp_workspace
         
         # Setup
@@ -304,19 +294,20 @@ class TestEngineProcessing:
         tm = engine.get_task_manager("single_ocr")
         tm.enqueue("test.jpg", "single_job")
         
-        # Mock process_ocr_task
-        from backend.engine import workers
+        # Global Worker 架構：run_single_ocr 將任務加入佇列
+        res = engine.run_single_ocr("single_ocr", "single_job")
+        assert res["status"] == "queued"
+        assert res["job_id"] == "single_job"
         
-        def mock_process(tm, task, handler, auto_advance=True):
-            tm.complete_ocr(task["job_id"], {"text": "Mock"}, advance_to_stage_llm=auto_advance)
+        # 確認任務已加入佇列
+        assert engine.ocr_queue.qsize() >= 1
         
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(workers, "process_ocr_task", mock_process)
-            res = engine.run_single_ocr("single_ocr", "single_job")
-            assert res["status"] == "single_ocr_started"
+        # 確認 job 狀態為 pending
+        job = tm.get_job("single_job")
+        assert job["status"] == "pending"
 
     def test_run_single_llm(self, real_engine_with_temp_workspace):
-        """Test single-job LLM processing."""
+        """Test single-job LLM processing queues to global queue."""
         engine = real_engine_with_temp_workspace
         
         # Setup
@@ -328,15 +319,13 @@ class TestEngineProcessing:
         tm.enqueue("test.jpg", "llm_job")
         tm.complete_ocr("llm_job", {"text": "OCR"})
         
-        from backend.engine import workers
+        # Global Worker 架構：run_single_llm 將任務加入佇列
+        res = engine.run_single_llm("single_llm", "llm_job")
+        assert res["status"] == "queued"
+        assert res["job_id"] == "llm_job"
         
-        def mock_process(tm, task, handler, auto_advance=True):
-            tm.complete_llm(task["job_id"], {"structured": {}}, mark_final=auto_advance)
-        
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(workers, "process_llm_task", mock_process)
-            res = engine.run_single_llm("single_llm", "llm_job")
-            assert res["status"] == "single_llm_started"
+        # 確認任務已加入佇列
+        assert engine.llm_queue.qsize() >= 1
 
 
 # ============================================================================

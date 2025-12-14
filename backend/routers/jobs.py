@@ -1,18 +1,18 @@
 # Jobs Router - Job 管理端點
 import logging
 import sqlite3
-from fastapi import APIRouter, HTTPException
-from backend.engine import engine
+from fastapi import APIRouter, HTTPException, Depends
+from backend.dependencies import get_engine
+from backend.engine.core import Engine
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.get("/{project_id}/jobs")
-def get_project_jobs(project_id: str):
+def get_project_jobs(project_id: str, engine: Engine = Depends(get_engine)):
     """Get all jobs for a project."""
     try:
-        # Auto-sync status before returning jobs
         engine.project_manager.sync_status_to_db(project_id)
         
         root = engine.project_manager._project_root(project_id)
@@ -35,7 +35,7 @@ def get_project_jobs(project_id: str):
 
 
 @router.get("/{project_id}/jobs/{job_id}/details")
-def get_job_details(project_id: str, job_id: str):
+def get_job_details(project_id: str, job_id: str, engine: Engine = Depends(get_engine)):
     """Get full job details for the editor view."""
     try:
         tm = engine.get_task_manager(project_id)
@@ -51,7 +51,7 @@ def get_job_details(project_id: str, job_id: str):
 
 
 @router.delete("/{project_id}/jobs/{job_id}")
-def delete_job(project_id: str, job_id: str):
+def delete_job(project_id: str, job_id: str, engine: Engine = Depends(get_engine)):
     """Delete a job."""
     try:
         return engine.delete_job(project_id, job_id)
@@ -61,7 +61,7 @@ def delete_job(project_id: str, job_id: str):
 
 
 @router.post("/{project_id}/jobs/{job_id}/ocr")
-def run_single_ocr(project_id: str, job_id: str):
+def run_single_ocr(project_id: str, job_id: str, engine: Engine = Depends(get_engine)):
     """Run OCR for a single job."""
     try:
         return engine.run_single_ocr(project_id, job_id)
@@ -71,7 +71,7 @@ def run_single_ocr(project_id: str, job_id: str):
 
 
 @router.post("/{project_id}/jobs/{job_id}/llm")
-def run_single_llm(project_id: str, job_id: str):
+def run_single_llm(project_id: str, job_id: str, engine: Engine = Depends(get_engine)):
     """Run LLM for a single job."""
     try:
         return engine.run_single_llm(project_id, job_id)

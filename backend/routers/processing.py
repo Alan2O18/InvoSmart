@@ -1,14 +1,15 @@
 # Processing Router - 處理操作端點
 import logging
-from fastapi import APIRouter, HTTPException, Form
-from backend.engine import engine
+from fastapi import APIRouter, HTTPException, Form, Depends
+from backend.dependencies import get_engine
+from backend.engine.core import Engine
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
 @router.post("/{project_id}/run_split")
-def run_split(project_id: str):
+def run_split(project_id: str, engine: Engine = Depends(get_engine)):
     """Run split for all raw files in project."""
     try:
         return engine.run_splitting(project_id)
@@ -18,7 +19,7 @@ def run_split(project_id: str):
 
 
 @router.post("/{project_id}/split/{filename}")
-def run_split_single(project_id: str, filename: str):
+def run_split_single(project_id: str, filename: str, engine: Engine = Depends(get_engine)):
     """Run split for a single file."""
     try:
         return engine.run_split_single(project_id, filename)
@@ -28,7 +29,7 @@ def run_split_single(project_id: str, filename: str):
 
 
 @router.post("/{project_id}/run_ocr")
-def run_ocr(project_id: str):
+def run_ocr(project_id: str, engine: Engine = Depends(get_engine)):
     """Run OCR for all jobs in project."""
     try:
         return engine.run_ocr(project_id)
@@ -38,7 +39,7 @@ def run_ocr(project_id: str):
 
 
 @router.post("/{project_id}/run_llm")
-def run_llm(project_id: str):
+def run_llm(project_id: str, engine: Engine = Depends(get_engine)):
     """Run LLM for all jobs in project."""
     try:
         return engine.run_llm(project_id)
@@ -48,7 +49,7 @@ def run_llm(project_id: str):
 
 
 @router.post("/{project_id}/run_export")
-def run_export(project_id: str):
+def run_export(project_id: str, engine: Engine = Depends(get_engine)):
     """Export project to Excel."""
     try:
         return engine.run_excel(project_id)
@@ -58,7 +59,7 @@ def run_export(project_id: str):
 
 
 @router.post("/{project_id}/run_archive")
-def run_archive(project_id: str):
+def run_archive(project_id: str, engine: Engine = Depends(get_engine)):
     """Archive project."""
     try:
         return engine.archive_project(project_id)
@@ -68,7 +69,7 @@ def run_archive(project_id: str):
 
 
 @router.post("/{project_id}/regenerate")
-def regenerate_project(project_id: str, excel_path: str = Form(...)):
+def regenerate_project(project_id: str, excel_path: str = Form(...), engine: Engine = Depends(get_engine)):
     """Regenerate project from archived Excel."""
     try:
         return engine.regenerate_project(project_id, excel_path)

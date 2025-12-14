@@ -4,8 +4,20 @@
     "workspace_root": "C:/Users/tange/OneDrive/Desktop/all project/py for NKNU GA/GA實作專案"
   },
   "ocr_settings": {
+    "engine": "ppstructure",
     "language": "chinese_cht",
-    "use_angle_cls": true
+    "use_angle_cls": true,
+    "use_gpu": false
+  },
+  "ppstructure_settings": {
+    "table": true,
+    "ocr": true,
+    "layout": true,
+    "show_log": false
+  },
+  "text_processing": {
+    "enable_traditional_conversion": true,
+    "opencc_config": "s2twp"
   },
   "llm_settings": {
     "model_name": "qwen3:1.7b",

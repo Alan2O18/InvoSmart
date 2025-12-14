@@ -13,7 +13,10 @@
 
 ### 後端
 *   **框架**：FastAPI（Python）
-*   **OCR 引擎**：PaddleOCR
+*   **OCR 引擎**：PaddleOCR（支援基本 OCR 和 PP-Structure 兩種模式）
+  *   **基本模式**：傳統文字識別和版面重建
+  *   **PP-Structure 模式**：結構化文檔分析，支援表格識別和自動旋轉校正
+*   **文字處理**：Markdownify（HTML 轉 Markdown）、OpenCC（繁簡轉換）
 *   **圖片處理**：OpenCV、NumPy
 *   **資料庫**：SQLite（每個專案獨立）
 *   **任務管理**：基於執行緒的工作佇列（CPU 用於 OCR，GPU 用於 LLM）
@@ -71,12 +74,67 @@ AI_AGENT_LAB/
 
 1.  **活動管理**：建立、檢視和管理發票處理活動（專案）。
 2.  **圖片分割**：自動將掃描的發票頁面分割為單獨的發票圖片。
-3.  **OCR 處理**：使用 PaddleOCR 從圖片中提取文字。
+3.  **OCR 處理**：使用 PaddleOCR 從圖片中提取文字，支援基本模式和 PP-Structure 模式。
 4.  **LLM 結構化**：使用 LLM 將 OCR 文字轉換為結構化的 JSON 資料。
 5.  **匯出**：將處理後的資料匯出至 Excel。
 6.  **原始檔案管理**：檢視、分割和刪除原始上傳的檔案。
 7.  **工作管理**：監控狀態、旋轉圖片和刪除個別工作。
 8.  **自動狀態同步**：系統會根據實際處理進度自動更新活動狀態。
+
+## OCR 引擎配置
+
+本系統支援兩種 OCR 引擎模式，可在 `config.json` 中配置：
+
+### 1. 基本 OCR 模式（傳統）
+- 適用於簡單的文字識別場景
+- 較快速，資源消耗較少
+- 使用自定義版面重建演算法
+
+**配置方式**：
+```json
+{
+  "ocr_settings": {
+    "engine": "basic",
+    "language": "chinese_cht",
+    "use_angle_cls": true
+  }
+}
+```
+
+### 2. PP-Structure 模式（推薦）
+- **結構化文檔分析**：能識別表格、標題等文檔結構
+- **自動旋轉校正**：自動偵測並校正文字旋轉角度
+- **HTML 轉 Markdown**：將識別結果轉換為結構化的 Markdown 格式
+- **繁簡轉換**：自動將簡體中文轉換為繁體中文（台灣用語）
+- 適用於包含表格的收據、發票
+
+**配置方式**：
+```json
+{
+  "ocr_settings": {
+    "engine": "ppstructure",
+    "language": "chinese_cht",
+    "use_angle_cls": true,
+    "use_gpu": false
+  },
+  "ppstructure_settings": {
+    "table": true,
+    "ocr": true,
+    "layout": true,
+    "show_log": false
+  },
+  "text_processing": {
+    "enable_traditional_conversion": true,
+    "opencc_config": "s2twp.json"
+  }
+}
+```
+
+**PP-Structure 優勢**：
+- 更準確的表格識別
+- 保留文檔結構層次
+- 自動處理旋轉文字
+- 統一輸出為繁體中文
 
 ## API 端點
 

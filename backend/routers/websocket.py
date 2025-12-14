@@ -1,12 +1,15 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import asyncio
 import sqlite3
-from backend.engine import engine
+from backend.dependencies import get_engine
 
 router = APIRouter()
 
+
 def get_jobs(project_id: str):
+    """Get jobs for a project (called from websocket, uses global engine)."""
     try:
+        engine = get_engine()
         root = engine.project_manager._project_root(project_id)
         db_path = root / "jobs.db"
         if not db_path.exists():
@@ -24,14 +27,15 @@ def get_jobs(project_id: str):
     except Exception:
         return []
 
+
 @router.websocket("/ws/{project_id}")
 async def websocket_endpoint(websocket: WebSocket, project_id: str):
     await websocket.accept()
     try:
         while True:
-            # Fetch data
             jobs = get_jobs(project_id)
             try:
+                engine = get_engine()
                 progress = engine.project_manager.get_project_status(project_id)
             except:
                 progress = {}
@@ -41,7 +45,6 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
                 "progress": progress
             })
             
-            # Poll every 1 second
             await asyncio.sleep(1)
             
     except WebSocketDisconnect:

@@ -4,8 +4,9 @@ import shutil
 import tempfile
 import logging
 from typing import List
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
-from backend.engine import engine
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
+from backend.dependencies import get_engine
+from backend.engine.core import Engine
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -14,8 +15,9 @@ router = APIRouter()
 @router.post("/{project_id}/add_files")
 def add_files(
     project_id: str,
-    type: str = Form(...),  # 'raw' or 'split'
-    files: List[UploadFile] = File(...)
+    type: str = Form(...),
+    files: List[UploadFile] = File(...),
+    engine: Engine = Depends(get_engine)
 ):
     """Add files to project."""
     logger.info(f"Received add_files request for {project_id}, type={type}, files={len(files)}")
@@ -41,7 +43,7 @@ def add_files(
 
 
 @router.post("/{project_id}/rotate/{filename}")
-def rotate_image(project_id: str, filename: str, angle: int = 90):
+def rotate_image(project_id: str, filename: str, angle: int = 90, engine: Engine = Depends(get_engine)):
     """Rotate an image by specified angle."""
     try:
         return engine.rotate_image(project_id, filename, angle)
@@ -51,7 +53,7 @@ def rotate_image(project_id: str, filename: str, angle: int = 90):
 
 
 @router.get("/{project_id}/raw_files")
-def get_raw_files(project_id: str):
+def get_raw_files(project_id: str, engine: Engine = Depends(get_engine)):
     """Get list of raw files in project."""
     try:
         return engine.get_raw_files(project_id)
@@ -61,7 +63,7 @@ def get_raw_files(project_id: str):
 
 
 @router.delete("/{project_id}/raw_files/{filename}")
-def delete_raw_file(project_id: str, filename: str):
+def delete_raw_file(project_id: str, filename: str, engine: Engine = Depends(get_engine)):
     """Delete a raw file from project."""
     try:
         return engine.delete_raw_file(project_id, filename)

@@ -82,6 +82,40 @@ class TaskManager:
     def mark_llm_stage_as_pending(self) -> int:
         """Mark all ready LLM jobs as pending. Returns count of updated jobs."""
         return self._state_machine.mark_llm_stage_as_pending()
+    
+    def mark_pending_for_ocr(self, job_id: str) -> bool:
+        """
+        將 Job 標記為 pending 並設置 stage 為 ocr。
+        用於 Global Worker 架構中，將任務加入佇列前的狀態更新。
+        """
+        # 注意：不需要額外的鎖，因為 update_job 內部已經有鎖保護
+        result = self._repository.update_job(
+            job_id,
+            status='pending',
+            stage='ocr',
+            ocr_start_at=None,
+            ocr_done_at=None
+        )
+        if result:
+            self._repository.emit_event(job_id, "marked_pending_ocr", {})
+        return result is not None
+    
+    def mark_pending_for_llm(self, job_id: str) -> bool:
+        """
+        將 Job 標記為 pending 並設置 stage 為 llm。
+        用於 Global Worker 架構中，將任務加入佇列前的狀態更新。
+        """
+        # 注意：不需要額外的鎖，因為 update_job 內部已經有鎖保護
+        result = self._repository.update_job(
+            job_id,
+            status='pending',
+            stage='llm',
+            llm_start_at=None,
+            llm_done_at=None
+        )
+        if result:
+            self._repository.emit_event(job_id, "marked_pending_llm", {})
+        return result is not None
 
     def delete_job(self, job_id: str) -> bool:
         """Delete a job."""

@@ -58,6 +58,8 @@ class LLMHandler:
         prompt = f"""
         [INST]
         You are a meticulous data correction robot. Your input is pre-formatted text from a Taiwanese e-invoice, which may contain OCR recognition errors.
+        
+        **IMPORTANT: The input may be in Markdown format with structured elements like tables. Please preserve this formatting structure.**
 
         **Primary Directive: ALL text in your output MUST be in Traditional Chinese (繁體中文). This is a non-negotiable rule.**
 
@@ -66,7 +68,8 @@ class LLMHandler:
             - **Example 1 (Visual Error)**: Correct `每報紙` to `海報紙`.
             - **Example 2 (Simplified Chinese)**: Convert `圆头笔` to `圓頭筆`.
             - **Example 3 (Common OCR Mistakes)**: Correct `电话` to `電話`.
-        2.  **Output**: Return ONLY the full, corrected invoice text as a single block of plain text. Do NOT include any other explanations, formatting, or surrounding text like "Here is the corrected text:".
+        2.  **Preserve Structure**: If the input contains Markdown tables or other structured formatting, maintain that structure in your output.
+        3.  **Output**: Return ONLY the full, corrected invoice text. If input is Markdown, output should also be Markdown with the same structure. Do NOT include any other explanations or surrounding text like "Here is the corrected text:".
 
         <pre-formatted_invoice_text>
         {pre_formatted_text}
@@ -109,6 +112,9 @@ class LLMHandler:
         [INST]
         You are a data extraction robot.
         Your input is a clean, corrected text from a Taiwanese e-invoice.
+        
+        **IMPORTANT: The input may be in Markdown format with tables. Use the structured format to improve extraction accuracy.**
+        
         Your ONLY task is to extract the specified fields and return them in a single, valid JSON object.
         Ensure all text in the output is in Traditional Chinese.
 

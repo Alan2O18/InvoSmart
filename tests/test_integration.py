@@ -2,6 +2,7 @@
 Integration Use Case Tests
 
 Tests end-to-end workflows that combine multiple Engine/API operations.
+Updated for Global Worker + Dependency Injection architecture.
 """
 import pytest
 import os
@@ -10,6 +11,7 @@ import tempfile
 from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 from backend.main import app
+from backend import dependencies
 
 client = TestClient(app)
 
@@ -23,9 +25,9 @@ client = TestClient(app)
 class TestFullProjectLifecycle:
     """Tests the complete project processing lifecycle."""
     
-    def test_complete_workflow_engine(self, real_engine_with_temp_workspace):
-        """Test full lifecycle through Engine."""
-        engine = real_engine_with_temp_workspace
+    def test_complete_workflow_engine(self, test_engine):
+        """Test full lifecycle through Engine (Global Worker architecture)."""
+        engine = test_engine
         
         # 1. Create project
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
@@ -59,41 +61,32 @@ class TestFullProjectLifecycle:
             assert jobs[0]["status"] == "ready"
             assert jobs[0]["stage"] == "ocr"
             
-            # 5. Run OCR (mocked worker - synchronous for test)
-            from backend.engine import core
+            # 5. Run OCR (Global Worker architecture: just queues, doesn't process)
+            res = engine.run_ocr("lifecycle_proj")
+            assert res["status"] == "ocr_queued"
+            assert res["queued_count"] == 1
             
-            def mock_ocr_worker(tm, proj_id, handler):
-                task = tm.claim_for_ocr()
-                if task:
-                    tm.complete_ocr(task["job_id"], {"text": "Invoice #123\nTotal: $100"})
+            # Verify job marked as pending
+            job = tm.get_job("job_0")
+            assert job["status"] == "pending"
             
-            with pytest.MonkeyPatch.context() as mp:
-                mp.setattr(core, "start_cpu_worker", mock_ocr_worker)
-                res = engine.run_ocr("lifecycle_proj")
-                assert res["status"] == "ocr_started"
-            
-            time.sleep(0.5)
+            # Manually complete OCR for testing (simulate worker)
+            tm.complete_ocr("job_0", {"text": "Invoice #123\nTotal: $100"})
             
             # 6. Verify OCR completed, job advanced to LLM
             job = tm.get_job("job_0")
             assert job["stage"] == "llm"
             assert "Invoice" in job["ocr_result_json"]
             
-            # 7. Run LLM (mocked worker - synchronous for test)
-            def mock_llm_worker(tm, proj_id, handler):
-                task = tm.claim_for_llm()
-                if task and task != "all_task_done":
-                    tm.complete_llm(task["job_id"], {
-                        "corrected_full_text": "Invoice #123\nTotal: $100",
-                        "structured_data": {"invoice_no": "123", "total": 100}
-                    })
+            # 7. Run LLM (Global Worker architecture: just queues)
+            res = engine.run_llm("lifecycle_proj")
+            assert res["status"] == "llm_queued"
             
-            with pytest.MonkeyPatch.context() as mp:
-                mp.setattr(core, "start_gpu_worker", mock_llm_worker)
-                res = engine.run_llm("lifecycle_proj")
-                assert res["status"] == "llm_started"
-            
-            time.sleep(0.5)
+            # Manually complete LLM for testing
+            tm.complete_llm("job_0", {
+                "corrected_full_text": "Invoice #123\nTotal: $100",
+                "structured_data": {"invoice_no": "123", "total": 100}
+            })
             
             # 8. Verify LLM completed
             job = tm.get_job("job_0")
@@ -124,9 +117,9 @@ class TestFullProjectLifecycle:
 class TestPartialReprocessing:
     """Tests reprocessing specific jobs."""
     
-    def test_single_job_reprocessing(self, real_engine_with_temp_workspace):
-        """Test OCR/LLM on a single job."""
-        engine = real_engine_with_temp_workspace
+    def test_single_job_reprocessing(self, test_engine):
+        """Test OCR/LLM on a single job (Global Worker architecture)."""
+        engine = test_engine
         
         # Setup project with multiple jobs
         engine.project_manager.project_crud.register_project("partial_proj", "Partial", str(engine.project_manager.workspace_root / "partial_proj"))
@@ -142,29 +135,24 @@ class TestPartialReprocessing:
         tm.complete_ocr("job1", {"text": "OCR1"})
         tm.complete_ocr("job2", {"text": "OCR2"})
         
-        # Now run single OCR on job3
-        from backend.engine import workers
+        # Now run single OCR on job3 (Global Worker: just queues)
+        res = engine.run_single_ocr("partial_proj", "job3")
+        assert res["status"] == "queued"
+        assert res["job_id"] == "job3"
         
-        ocr_called = []
-        def mock_ocr(tm, task, handler, auto_advance=True):
-            ocr_called.append(task["job_id"])
-            tm.complete_ocr(task["job_id"], {"text": f"SingleOCR_{task['job_id']}"}, advance_to_stage_llm=auto_advance)
-        
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(workers, "process_ocr_task", mock_ocr)
-            res = engine.run_single_ocr("partial_proj", "job3")
-            assert res["status"] == "single_ocr_started"
-        
-        time.sleep(0.5)
-        
-        # Verify job3 processed
+        # Verify job3 marked as pending
         job3 = tm.get_job("job3")
-        # Note: auto_advance=False in run_single_ocr, so stage might still be 'ocr'
+        assert job3["status"] == "pending"
+        
+        # Manually complete for verification
+        tm.complete_ocr("job3", {"text": "SingleOCR_job3"}, advance_to_stage_llm=False)
+        
+        job3 = tm.get_job("job3")
         assert job3["ocr_result_json"] is not None
 
-    def test_single_llm_reprocessing(self, real_engine_with_temp_workspace):
-        """Test LLM on a single job that was already OCR'd."""
-        engine = real_engine_with_temp_workspace
+    def test_single_llm_reprocessing(self, test_engine):
+        """Test LLM on a single job that was already OCR'd (Global Worker architecture)."""
+        engine = test_engine
         
         # Setup project
         engine.project_manager.project_crud.register_project("single_llm_proj", "LLM", str(engine.project_manager.workspace_root / "single_llm_proj"))
@@ -175,15 +163,15 @@ class TestPartialReprocessing:
         tm.enqueue("img.jpg", "target_job")
         tm.complete_ocr("target_job", {"text": "OCR text to reprocess"})
         
-        from backend.engine import workers
+        # Run single LLM (Global Worker: just queues)
+        res = engine.run_single_llm("single_llm_proj", "target_job")
+        assert res["status"] == "queued"
+        assert res["job_id"] == "target_job"
         
-        def mock_llm(tm, task, handler, auto_advance=True):
-            tm.complete_llm(task["job_id"], {"reprocessed": True}, mark_final=auto_advance)
-        
-        with pytest.MonkeyPatch.context() as mp:
-            mp.setattr(workers, "process_llm_task", mock_llm)
-            res = engine.run_single_llm("single_llm_proj", "target_job")
-            assert res["status"] == "single_llm_started"
+        # Verify job marked as pending for LLM
+        job = tm.get_job("target_job")
+        assert job["status"] == "pending"
+        assert job["stage"] == "llm"
 
 
 # ============================================================================
@@ -195,9 +183,9 @@ class TestPartialReprocessing:
 class TestGroupManagementFlow:
     """Tests group management workflow."""
     
-    def test_group_lifecycle(self, real_engine_with_temp_workspace):
+    def test_group_lifecycle(self, test_engine):
         """Test full group lifecycle."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # 1. Create groups
         engine.project_manager.upsert_group("教學組", "Alice")
@@ -238,9 +226,9 @@ class TestGroupManagementFlow:
 class TestFileManagementFlow:
     """Tests file management workflow."""
     
-    def test_file_lifecycle(self, real_engine_with_temp_workspace):
+    def test_file_lifecycle(self, test_engine):
         """Test raw file lifecycle."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Setup project
         engine.project_manager.project_crud.register_project("file_proj", "File", str(engine.project_manager.workspace_root / "file_proj"))
@@ -303,13 +291,13 @@ class TestAPIFullWorkflow:
         res = client.post("/api/projects/api_proj/run_split")
         assert res.status_code == 200
         
-        # 4. Run OCR
-        mock.run_ocr.return_value = {"status": "ocr_started"}
+        # 4. Run OCR (updated for Global Worker)
+        mock.run_ocr.return_value = {"status": "ocr_queued", "queued_count": 1}
         res = client.post("/api/projects/api_proj/run_ocr")
         assert res.status_code == 200
         
-        # 5. Run LLM
-        mock.run_llm.return_value = {"status": "llm_started"}
+        # 5. Run LLM (updated for Global Worker)
+        mock.run_llm.return_value = {"status": "llm_queued", "queued_count": 1}
         res = client.post("/api/projects/api_proj/run_llm")
         assert res.status_code == 200
         

@@ -1,8 +1,9 @@
 # Correction Router - 人工修正端點
 import logging
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from backend.engine import engine
+from backend.dependencies import get_engine
+from backend.engine.core import Engine
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -13,7 +14,7 @@ class ManualTextRequest(BaseModel):
 
 
 @router.put("/{project_id}/jobs/{job_id}/manual")
-def save_manual_text(project_id: str, job_id: str, request: ManualTextRequest):
+def save_manual_text(project_id: str, job_id: str, request: ManualTextRequest, engine: Engine = Depends(get_engine)):
     """Save user's manual correction text."""
     try:
         tm = engine.get_task_manager(project_id)
@@ -29,7 +30,7 @@ def save_manual_text(project_id: str, job_id: str, request: ManualTextRequest):
 
 
 @router.post("/{project_id}/jobs/{job_id}/regenerate_from_manual")
-def regenerate_from_manual(project_id: str, job_id: str):
+def regenerate_from_manual(project_id: str, job_id: str, engine: Engine = Depends(get_engine)):
     """Regenerate LLM result using manual OCR text."""
     try:
         tm = engine.get_task_manager(project_id)
@@ -41,10 +42,7 @@ def regenerate_from_manual(project_id: str, job_id: str):
         if not manual_text:
             raise HTTPException(status_code=400, detail="No manual text to process")
         
-        # Call LLM handler directly with manual text
         llm_result = engine.llm_handler.structure_with_llm(manual_text)
-        
-        # Save the new LLM result
         tm.complete_llm(job_id, llm_result, mark_final=True)
         
         return {"status": "regenerated", "job_id": job_id, "llm_result": llm_result}

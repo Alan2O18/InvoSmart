@@ -5,9 +5,10 @@ import tempfile
 import logging
 import json
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from pydantic import BaseModel
-from backend.engine import engine
+from backend.dependencies import get_engine
+from backend.engine.core import Engine
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -19,7 +20,7 @@ class ProjectCreate(BaseModel):
 
 
 @router.get("/")
-def list_projects():
+def list_projects(engine: Engine = Depends(get_engine)):
     """List all projects."""
     return engine.project_manager.list_projects()
 
@@ -28,7 +29,8 @@ def list_projects():
 def create_project(
     project_id: str = Form(...),
     metadata: str = Form(None),  # JSON string
-    files: List[UploadFile] = File(...)
+    files: List[UploadFile] = File(...),
+    engine: Engine = Depends(get_engine)
 ):
     """Create a new project with uploaded files."""
     temp_dir = tempfile.mkdtemp()
@@ -46,7 +48,6 @@ def create_project(
         if metadata:
             try:
                 meta_dict = json.loads(metadata)
-                # Extract 'name' field from metadata for the database name column
                 activity_name = meta_dict.get('name') or meta_dict.get('projectName')
             except:
                 pass
@@ -61,16 +62,13 @@ def create_project(
 
 
 @router.put("/{project_id}")
-def update_project(project_id: str, metadata: dict):
+def update_project(project_id: str, metadata: dict, engine: Engine = Depends(get_engine)):
     """Update project metadata."""
     try:
-        # Extract 'name' from metadata if present to update database name field
         activity_name = metadata.get('name') or metadata.get('projectName')
         if activity_name:
-            # Update ONLY the name field without touching status or other fields
             existing = engine.project_manager.project_crud.get_project(project_id)
             if existing:
-                # Direct SQL update to avoid resetting status
                 conn = engine.project_manager.project_crud._conn_global()
                 try:
                     import time
@@ -83,7 +81,6 @@ def update_project(project_id: str, metadata: dict):
                 finally:
                     conn.close()
         
-        # Also update metadata
         return engine.project_manager.update_metadata(project_id, metadata)
     except Exception as e:
         logger.error(f"Error updating project: {e}")
@@ -91,7 +88,7 @@ def update_project(project_id: str, metadata: dict):
 
 
 @router.delete("/{project_id}")
-def delete_project(project_id: str):
+def delete_project(project_id: str, engine: Engine = Depends(get_engine)):
     """Delete a project."""
     try:
         return engine.project_manager.delete_project(project_id)
@@ -101,10 +98,9 @@ def delete_project(project_id: str):
 
 
 @router.get("/{project_id}")
-def get_project_status(project_id: str):
+def get_project_status(project_id: str, engine: Engine = Depends(get_engine)):
     """Get project status and details."""
     try:
-        # Auto-sync status to database before returning
         engine.project_manager.sync_status_to_db(project_id)
         return engine.project_manager.get_project_status(project_id)
     except Exception as e:
@@ -113,7 +109,7 @@ def get_project_status(project_id: str):
 
 
 @router.post("/{project_id}/activity_info")
-def update_activity_info(project_id: str, info: dict):
+def update_activity_info(project_id: str, info: dict, engine: Engine = Depends(get_engine)):
     """Update project activity info."""
     try:
         return engine.project_manager.update_activity_info(project_id, info)

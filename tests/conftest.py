@@ -8,8 +8,7 @@ from pathlib import Path
 
 # ============================================================================
 # Lazy Loading Protection for Heavy Dependencies
-# Only mock when the module hasn't been loaded yet (for API/Engine tests)
-# Processing tests can load real modules if needed
+# Only mock when the module hasn't been loaded yet
 # ============================================================================
 
 def _create_lazy_mock(module_name):
@@ -18,7 +17,7 @@ def _create_lazy_mock(module_name):
     mock._is_test_mock = True
     return mock
 
-# Only mock if not already imported (allows processing tests to use real modules)
+# Only mock if not already imported
 if "ollama" not in sys.modules:
     sys.modules["ollama"] = _create_lazy_mock("ollama")
 
@@ -34,103 +33,144 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 print("sys.executable", sys.executable)
 print("which python", shutil.which("python"))
 
+# Import after mocking
 from backend.main import app
-from backend.engine import engine
+from backend import dependencies
+
+
+# ============================================================================
+# Core Fixtures
+# ============================================================================
 
 @pytest.fixture(scope="function")
 def temp_workspace():
     """Creates a temporary workspace and cleans it up after the test."""
     test_dir = tempfile.mkdtemp()
-    yield test_dir
+    yield Path(test_dir)
     shutil.rmtree(test_dir, ignore_errors=True)
 
-@pytest.fixture(scope="function")
-def mock_engine_for_api():
-    """
-    Patches the engine instance across all router modules for API tests.
-    Returns the mock object to configure return values.
-    """
-    from contextlib import ExitStack
-    
-    # Need to patch engine in all router modules
-    router_modules = [
-        "backend.routers.projects",
-        "backend.routers.files",
-        "backend.routers.processing",
-        "backend.routers.jobs",
-        "backend.routers.correction",
-        "backend.routers.groups",
-    ]
-    
-    with ExitStack() as stack:
-        # Create shared mock
-        mock = MagicMock()
-        mock.project_manager.list_projects.return_value = []
-        mock.project_manager.get_project_status.return_value = {}
-        mock.project_manager.list_groups.return_value = []
-        
-        # Patch all router modules to use the same mock
-        for module in router_modules:
-            stack.enter_context(patch(f"{module}.engine", mock))
-        
-        yield mock
 
-@pytest.fixture(scope="function")
-def real_engine_with_temp_workspace(temp_workspace):
-    """
-    Configures the real Engine singleton to use a temporary workspace.
-    Mocks heavy handlers (OCR, LLM) but keeps core logic.
-    """
-    # Configure paths
-    workspace_root = Path(temp_workspace)
-    global_db_path = workspace_root / "projects.db"
-    
-    # Update Engine's ProjectManager config
-    engine.project_manager.workspace_root = workspace_root
-    engine.project_manager.global_db_path = global_db_path
-    
-    # Update sub-components
-    engine.project_manager.project_crud.global_db_path = global_db_path
-    engine.project_manager.project_setup.workspace_root = workspace_root
-    
-    # Ensure DB exists
-    engine.project_manager.project_crud._ensure_global_db()
-    
-    # Mock heavy handlers
-    engine.ocr_handler = MagicMock()
-    engine.ocr_handler.process_image.return_value = "Mock OCR Text"
-    
-    engine.llm_handler = MagicMock()
-    engine.llm_handler.structure_with_llm.return_value = {
+@pytest.fixture
+def mock_ocr_handler():
+    """Mock OCR handler for testing."""
+    mock = MagicMock()
+    mock.do_paddleocr.return_value = [{"text": "test", "box": [0, 0, 100, 100]}]
+    mock.reconstruct_layout.return_value = "Mock OCR Text"
+    mock.process_receipt.return_value = "Mock Receipt Text"
+    return mock
+
+
+@pytest.fixture
+def mock_llm_handler():
+    """Mock LLM handler for testing."""
+    mock = MagicMock()
+    mock.structure_with_llm.return_value = {
         "corrected_full_text": "Mock Corrected",
         "structured_data": {"Vendor": "TestVendor"}
     }
+    return mock
+
+
+@pytest.fixture
+def mock_receipt_splitter():
+    """Mock receipt splitter for testing."""
+    mock = MagicMock()
+    mock.split_scanned_images.return_value = ["split_1.jpg"]
+    return mock
+
+
+@pytest.fixture
+def test_engine(temp_workspace, mock_ocr_handler, mock_llm_handler, mock_receipt_splitter):
+    """
+    創建測試用 Engine 實例。
     
-    engine.receipt_splitter = MagicMock()
-    engine.receipt_splitter.split_scanned_images.return_value = ["split_1.jpg"]
+    特點：
+    - 使用臨時工作區
+    - 注入 mock handlers
+    - 不啟動 Workers (start_workers=False)
+    - 自動設置為全局實例供 Depends 使用
+    """
+    from backend.engine.core import Engine
+    from backend.managers import ProjectManager
     
-    # Reset state if needed (though we are using the same instance)
-    engine.active_workers = {}
-    engine.task_managers = {}
+    # 創建使用臨時目錄的 ProjectManager
+    pm_config = {
+        "workspace_root": str(temp_workspace),
+        "global_db_path": str(temp_workspace / "projects.db")
+    }
+    project_manager = ProjectManager(config=pm_config)
     
-    return engine
+    # 創建 Engine，注入所有依賴
+    engine = Engine(
+        config={
+            "project_manager_settings": pm_config,
+            "ocr_settings": {"language": "chinese_cht", "use_angle_cls": True},
+            "llm_settings": {"model_name": "test-model"}
+        },
+        ocr_handler=mock_ocr_handler,
+        llm_handler=mock_llm_handler,
+        project_manager=project_manager,
+        receipt_splitter=mock_receipt_splitter,
+        start_workers=False  # 關鍵：不啟動 Workers
+    )
+    
+    # 設置為全局實例（供 FastAPI Depends 使用）
+    dependencies.set_engine(engine)
+    
+    yield engine
+    
+    # 清理：重置全局實例
+    dependencies.reset_engine()
+
+
+# 保持向後兼容的別名
+@pytest.fixture
+def real_engine_with_temp_workspace(test_engine):
+    """Alias for test_engine (backward compatibility)."""
+    return test_engine
+
+
+@pytest.fixture
+def mock_engine_for_api():
+    """
+    Patches the engine for API tests using dependency injection.
+    """
+    from contextlib import ExitStack
+    
+    mock = MagicMock()
+    mock.project_manager.list_projects.return_value = []
+    mock.project_manager.get_project_status.return_value = {}
+    mock.project_manager.list_groups.return_value = []
+    
+    # 設置為全局實例
+    dependencies.set_engine(mock)
+    
+    yield mock
+    
+    # 清理
+    dependencies.reset_engine()
+
+
+@pytest.fixture
+def client(test_engine):
+    """FastAPI TestClient with injected engine."""
+    from fastapi.testclient import TestClient
+    return TestClient(app)
+
 
 @pytest.fixture(scope="function")
 def fresh_ollama_mock():
     """
     Provides a fresh, reset ollama mock for tests that need it.
-    Use this fixture when testing LLM-related processing logic.
     """
     mock_ollama = sys.modules.get("ollama")
     if mock_ollama and hasattr(mock_ollama, "_is_test_mock"):
-        # Reset all mock state
         mock_ollama.reset_mock()
         mock_ollama.list.return_value = []
         mock_ollama.chat.reset_mock()
         mock_ollama.chat.side_effect = None
         mock_ollama.chat.return_value = {"message": {"content": "{}"}}
     yield mock_ollama
-    # Cleanup after test
     if mock_ollama and hasattr(mock_ollama, "_is_test_mock"):
         mock_ollama.chat.side_effect = None
         mock_ollama.chat.reset_mock()
