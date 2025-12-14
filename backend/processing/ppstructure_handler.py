@@ -1,320 +1,307 @@
-# processing/ppstructure_handler.py
+# backend/processing/ppstructure_handler.py
 """
-PP-Structure Handler - Advanced OCR processing using PaddleOCR's enhanced configuration.
+PP-Structure Handler - Advanced Document Analysis
 
-This module provides enhanced OCR capabilities including:
-- Advanced layout analysis and text detection
-- Automatic text rotation detection and correction
-- Structured output formatting to Markdown
-- Simplified to Traditional Chinese conversion
-
-Note: This implementation uses PaddleOCR with enhanced configuration instead of the
-unavailable PPStructure API.
+This module integrates PP-StructureV3 for structured document analysis.
 """
+import os
 import logging
 import numpy as np
-from paddleocr import PaddleOCR
+import cv2
+import json
 from markdownify import markdownify as md
 from opencc import OpenCC
 
-logger = logging.getLogger(__name__)
+# Set environment variable to bypass potential network checks or blocking source checks
+os.environ["DISABLE_MODEL_SOURCE_CHECK"] = "True"
 
+logger = logging.getLogger(__name__)
 
 class PPStructureHandler:
     """
-    Advanced OCR handler using PaddleOCR for receipt processing.
-    
-    Uses enhanced PaddleOCR configuration to provide better document understanding
-    compared to basic OCR, especially for structured documents like receipts.
+    Advanced OCR handler using PPStructureV3 for structured output.
     """
 
     def __init__(self, config: dict):
-        """
-        Initialize the enhanced PaddleOCR engine.
-        
-        Args:
-            config: Configuration dictionary with 'ocr_settings' and 'text_processing' keys.
-        """
-        logger.debug("正在初始化增強型 PaddleOCR 引擎...")
         self.config = config
+        self.engine = None
+        self.is_v3 = False
+        self.fallback_ocr = False
         
-        # Get settings from config
-        ocr_settings = config.get("ocr_settings", {})
-        
+        # Initialize OpenCC
         try:
-            # Initialize PaddleOCR with minimal settings for new API (v3.2+)
-            # Note: Many old parameters are no longer supported in new API
-            lang = ocr_settings.get("language", "ch")
-            if lang == "chinese_cht":
-                lang = "ch"  # Use 'ch' for Chinese
-            
-            self.engine = PaddleOCR(
-                use_angle_cls=ocr_settings.get("use_angle_cls", True),
-                lang=lang,
-            )
-            logger.debug("增強型 PaddleOCR 引擎初始化完畢")
-            
-            # Initialize OpenCC for Simplified to Traditional conversion
             text_processing = config.get("text_processing", {})
             opencc_config = text_processing.get("opencc_config", "s2twp")
-            # Remove .json suffix if present (OpenCC handles this internally)
             if opencc_config.endswith('.json'):
                 opencc_config = opencc_config[:-5]
             self.converter = OpenCC(opencc_config)
-            logger.debug(f"OpenCC 轉換器初始化完畢 (配置: {opencc_config})")
-            
         except Exception as e:
-            logger.error(f"初始化增強型 PaddleOCR 失敗: {e}", exc_info=True)
-            raise RuntimeError(f"初始化增強型 PaddleOCR 失敗: {e}")
+            logger.error(f"Failed to initialize OpenCC: {e}")
+            self.converter = None
+
+    def _init_engine(self):
+        """Lazy initialization of the OCR/Structure engine."""
+        if self.engine:
+            return
+
+        logger.info("Initializing PPStructure Engine (Lazy Load)...")
+        
+        try:
+            import paddleocr
+            
+            def init_v3(args):
+                logger.debug(f"Attempting PPStructureV3 init with args: {args}")
+                return paddleocr.PPStructureV3(**args)
+
+            try:
+                # Attempt 1: Safe arguments
+                lang = 'ch'
+                try:
+                    self.engine = init_v3({"show_log": True, "lang": lang})
+                    self.is_v3 = True
+                    logger.info("PPStructureV3 initialized successfully (Standard Mode)")
+                    return
+                except Exception as e:
+                    logger.warning(f"PPStructureV3 standard init failed: {e}")
+
+                # Attempt 2: Minimal arguments
+                try:
+                    self.engine = init_v3({"lang": lang})
+                    self.is_v3 = True
+                    logger.info("PPStructureV3 initialized successfully (Minimal Mode)")
+                    return
+                except Exception as e:
+                     logger.warning(f"PPStructureV3 minimal init failed: {e}")
+
+                # Attempt 3: No arguments
+                self.engine = paddleocr.PPStructureV3()
+                self.is_v3 = True
+                logger.info("PPStructureV3 initialized successfully (Default Mode)")
+                
+            except AttributeError:
+                logger.warning("PPStructureV3 not found, trying PPStructure (v2)...")
+                from paddleocr import PPStructure
+                try:
+                    self.engine = PPStructure(show_log=True, image_orientation=True)
+                except:
+                     self.engine = PPStructure(image_orientation=True)
+                self.is_v3 = False 
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize PPStructure: {e}", exc_info=True)
+            logger.warning("Falling back to standard PaddleOCR...")
+            try:
+                from paddleocr import PaddleOCR
+                try:
+                    self.engine = PaddleOCR(use_angle_cls=True, lang='ch')
+                except:
+                    self.engine = PaddleOCR(lang='ch')
+                self.fallback_ocr = True
+            except Exception as e2:
+                logger.critical(f"Critical: Failed to initialize any OCR engine: {e2}")
+                raise RuntimeError("OCR Engine initialization failed completely.")
 
     def do_ppstructure(self, image_array: np.ndarray) -> list:
-        """
-        Perform enhanced OCR analysis on the image.
+        """Run the engine prediction."""
+        self._init_engine()
         
-        Returns PaddleOCR results: list of [bbox, (text, confidence)]
-        
-        Args:
-            image_array: NumPy array of the image.
-            
-        Returns:
-            List of OCR results from PaddleOCR.
-        """
-        logger.debug("執行增強型 OCR 分析...")
+        logger.debug(f"Running prediction (Structure: {not self.fallback_ocr}, V3: {self.is_v3})...")
         try:
-            # Use predict method for new PaddleOCR API (v3.2+)
-            result = self.engine.predict(image_array)
-            # result is typically a dict with 'rec_texts', 'dt_polys' etc.
-            # or a list with one element (for single image)
-            if isinstance(result, list) and len(result) > 0:
-                result = result[0]  # Get the actual OCR results
-            logger.debug("OCR 分析完成")
-            return result if result else {}
-        except Exception as e:
-            logger.error(f"OCR 分析失敗: {e}", exc_info=True)
-            return {}
+            if self.fallback_ocr:
+                result = self.engine.ocr(image_array, cls=True)
+                return result[0] if result else []
+            else:
+                # V3 Prediction
+                if self.is_v3 and hasattr(self.engine, 'predict'):
+                    logger.debug("Using .predict()")
+                    result_obj = self.engine.predict(image_array)
+                else:
+                    logger.debug("Using __call__")
+                    result_obj = self.engine(image_array)
 
-    def ppstructure_to_markdown(self, ocr_result) -> str:
-        """
-        Convert PaddleOCR results to clean markdown format.
+                # DEBUG LOGGING REMOVED to reduce clutter, assuming flow is correct based on previous logs
+                
+                # Handle Generator
+                if hasattr(result_obj, '__iter__') and not isinstance(result_obj, (list, dict, str, np.ndarray)):
+                     result_list = list(result_obj)
+                else:
+                     result_list = result_obj
+
+                final_regions = []
+                
+                if isinstance(result_list, list):
+                    if len(result_list) == 0:
+                        return []
+                        
+                    first = result_list[0]
+                    
+                    try:
+                        # Correct path for V3 Layout Parsing Result: parsing_res_list
+                        # Check attribute first (LayoutParsingResultV2 object)
+                        if hasattr(first, 'parsing_res_list'):
+                            final_regions = first.parsing_res_list
+                        # Check dict key
+                        elif isinstance(first, dict) and 'parsing_res_list' in first:
+                            final_regions = first['parsing_res_list']
+                        # Check for other potential keys just in case
+                        elif isinstance(first, dict) and ('res' in first and 'type' in first):
+                            final_regions = result_list
+                        elif isinstance(first, list):
+                            final_regions = first
+                        else:
+                            # Fallback: maybe just iterate it?
+                            pass
+                            
+                    except Exception as e:
+                        logger.error(f"Error inspecting first item: {e}")
+
+                logging.info(f"Extracted {len(final_regions)} regions")
+                return final_regions
+
+        except Exception as e:
+            logger.error(f"Prediction failed: {e}", exc_info=True)
+            return []
+
+    def ppstructure_to_markdown(self, regions) -> str:
+        """Convert structured regions to markdown."""
+        if not regions:
+            logger.warning("ppstructure_to_markdown received empty regions")
+            return ""
+
+        # Helper to safely get attribute or key
+        def get_val(obj, key, default=None):
+            if isinstance(obj, dict):
+                return obj.get(key, default)
+            return getattr(obj, key, default)
+
+        # Sort regions by vertical position (center Y)
+        def get_center_y(region):
+            try:
+                bbox = get_val(region, 'bbox') or get_val(region, 'layout_bbox')
+                if bbox and len(bbox) >= 4:
+                     return (bbox[1] + bbox[3]) / 2
+                return 0
+            except:
+                return 0
+
+        try:
+            regions = sorted(regions, key=get_center_y)
+        except Exception as e:
+            logger.warning(f"Sorting regions failed: {e}")
+
+        markdown_parts = []
         
-        This method processes OCR results and reconstructs the layout:
-        - Sorts text by vertical position (top to bottom)
-        - Groups text on the same line
-        - Preserves reading order (left to right)
-        
-        Args:
-            ocr_result: OCR results from PaddleOCR predict().
-                New format (dict): {'dt_polys': [...], 'rec_texts': [...]}
-            
-        Returns:
-            Formatted text string representing the document.
-        """
-        logger.debug("將 OCR 結果格式化...")
+        for i, region in enumerate(regions):
+            try:
+                # Extract basic info using helper
+                # Keys for LayoutBlock: label, content. For dict: type, res/text
+                r_type = get_val(region, 'label') or get_val(region, 'type') or ''
+                r_type = r_type.lower()
+                
+                # Content might be in 'content' (LayoutBlock) or 'res'/'rec_text' (dict)
+                # For table, we look for html
+                res = get_val(region, 'content') or get_val(region, 'res') or get_val(region, 'rec_text')
+                
+                # Special handling for Table HTML in LayoutBlock?
+                # Usually LayoutBlock has 'html' attribute if it's a table?
+                html_content = get_val(region, 'html')
+                
+                # Debug first item keys if object
+                if i == 0:
+                     logger.info(f"Region 0 Type: {type(region)}")
+                     logger.info(f"Region 0 Dir: {dir(region)}")
+
+                # Text handling
+                text_content = ""
+                
+                if r_type == 'table':
+                    # Priority: 1. explicit html attr, 2. html in res dict, 3. html string in res
+                    raw_html = html_content
+                    if not raw_html:
+                        if isinstance(res, dict) and 'html' in res:
+                            raw_html = res['html']
+                        elif isinstance(res, str) and '<table' in res:
+                            raw_html = res
+                    
+                    if raw_html:
+                        try:
+                            md_table = md(raw_html)
+                            markdown_parts.append(md_table)
+                        except:
+                             markdown_parts.append(f"```html\n{raw_html}\n```")
+                    else:
+                        logger.warning(f"Table region found but no HTML content. Res: {res}")
+                
+                else: # Text, Title, Header, etc.
+                     if isinstance(res, list): # List of dicts or strings
+                          lines = []
+                          for item in res:
+                               if isinstance(item, dict): lines.append(item.get('text', ''))
+                               elif isinstance(item, str): lines.append(item)
+                          text_content = " ".join(lines)
+                     elif isinstance(res, dict): # Sometimes res is dict with 'text'?
+                          text_content = res.get('text', '')
+                     elif isinstance(res, str):
+                          text_content = res
+                     
+                     if r_type in ['title', 'doc_title', 'section_header']:
+                          text_content = f"## {text_content}"
+                     
+                     if text_content and text_content.strip():
+                          markdown_parts.append(text_content)
+
+            except Exception as e:
+                logger.error(f"Error processing region {i}: {e}")
+                continue
+
+        return "\n\n".join(markdown_parts)
+
+    def ocr_to_markdown(self, ocr_result) -> str:
+        """Convert basic OCR result (fallback) to simple markdown."""
         if not ocr_result:
             return ""
-        
-        # Handle new PaddleOCR format (dict with dt_polys and rec_texts)
-        if isinstance(ocr_result, dict):
-            dt_polys = ocr_result.get('dt_polys', [])
-            rec_texts = ocr_result.get('rec_texts', [])
-            
-            if not dt_polys or not rec_texts:
-                return ""
-            
-            # Build structured data from dict format
-            structured_data = []
-            for poly, text in zip(dt_polys, rec_texts):
-                if not text:
-                    continue
-                # poly is numpy array of shape (4, 2)
-                y_coords = [point[1] for point in poly]
-                x_coords = [point[0] for point in poly]
-                y_min = min(y_coords)
-                y_max = max(y_coords)
-                x_min = min(x_coords)
-                
-                structured_data.append({
-                    'text': text,
-                    'y_min': y_min,
-                    'y_max': y_max,
-                    'x_min': x_min,
-                    'y_center': (y_min + y_max) / 2
-                })
-        else:
-            # Handle old list format for backwards compatibility
-            structured_data = []
-            for item in ocr_result:
-                if len(item) >= 2:
-                    bbox = item[0]
-                    text_info = item[1]
-                    text = text_info[0] if isinstance(text_info, (list, tuple)) else text_info
-                    
-                    y_coords = [point[1] for point in bbox]
-                    x_coords = [point[0] for point in bbox]
-                    y_min = min(y_coords)
-                    y_max = max(y_coords)
-                    x_min = min(x_coords)
-                    
-                    structured_data.append({
-                        'text': text,
-                        'y_min': y_min,
-                        'y_max': y_max,
-                        'x_min': x_min,
-                        'y_center': (y_min + y_max) / 2
-                    })
-        
-        if not structured_data:
-            return ""
-        
-        # Sort by vertical position
-        structured_data.sort(key=lambda x: x['y_center'])
-        
-        # Calculate median height for line grouping
-        heights = [item['y_max'] - item['y_min'] for item in structured_data]
-        median_height = sorted(heights)[len(heights) // 2] if heights else 10
-        y_threshold = median_height * 0.6  # Threshold for same line
-        
-        # Group into lines
         lines = []
-        current_line = [structured_data[0]]
-        
-        for i in range(1, len(structured_data)):
-            prev_y = current_line[0]['y_center']
-            curr_y = structured_data[i]['y_center']
-            
-            if abs(curr_y - prev_y) <= y_threshold:
-                # Same line
-                current_line.append(structured_data[i])
-            else:
-                # New line - sort current line by x position and add
-                current_line.sort(key=lambda x: x['x_min'])
-                lines.append(" ".join([item['text'] for item in current_line]))
-                current_line = [structured_data[i]]
-        
-        # Don't forget the last line
-        if current_line:
-            current_line.sort(key=lambda x: x['x_min'])
-            lines.append(" ".join([item['text'] for item in current_line]))
-        
-        result_text = "\n".join(lines)
-        logger.debug(f"格式化完成，共 {len(lines)} 行")
-        return result_text
+        for line in ocr_result:
+            try:
+                text = line[1][0]
+                lines.append(text)
+            except:
+                continue
+        return "\n".join(lines)
 
     def convert_to_traditional(self, text: str) -> str:
-        """
-        Convert Simplified Chinese to Traditional Chinese (Taiwan variant).
-        
-        Uses OpenCC with 's2twp.json' config which handles:
-        - Character conversion (簡體 → 繁體)
-        - Vocabulary/phrase conversion (Taiwan preferences)
-        
-        Args:
-            text: Text that may contain Simplified Chinese.
-            
-        Returns:
-            Text converted to Traditional Chinese.
-        """
-        if not text:
-            return ""
-        
-        logger.debug("執行繁簡轉換...")
+        """Convert text to Traditional Chinese."""
+        if not text or not self.converter:
+            return text
         try:
-            # Check if conversion is enabled
-            text_processing = self.config.get("text_processing", {})
-            if not text_processing.get("enable_traditional_conversion", True):
-                logger.debug("繁簡轉換已停用，返回原文")
-                return text
-            
-            converted_text = self.converter.convert(text)
-            logger.debug("繁簡轉換完成")
-            return converted_text
-            
+            return self.converter.convert(text)
         except Exception as e:
-            logger.error(f"繁簡轉換失敗: {e}", exc_info=True)
-            # Return original text if conversion fails
+            logger.error(f"Conversion failed: {e}")
             return text
 
     def process_receipt(self, image_array: np.ndarray) -> str:
-        """
-        Complete pipeline to process a receipt image.
-        
-        This is the main entry point that combines all processing steps:
-        1. PP-Structure analysis (with automatic rotation detection)
-        2. Convert results to Markdown
-        3. Convert to Traditional Chinese
-        
-        Args:
-            image_array: NumPy array of the receipt image.
-            
-        Returns:
-            Cleaned Markdown text in Traditional Chinese.
-        """
-        logger.info("開始處理收據圖片...")
-        
-        # Step 1: Run PP-Structure analysis
-        ppstructure_result = self.do_ppstructure(image_array)
-        
-        if not ppstructure_result:
-            logger.warning("PP-Structure 未返回任何結果")
-            return ""
-        
-        # Step 2: Convert to Markdown
-        markdown_text = self.ppstructure_to_markdown(ppstructure_result)
-        
-        if not markdown_text:
-            logger.warning("Markdown 轉換結果為空")
-            return ""
-        
-        # Step 3: Convert to Traditional Chinese
-        traditional_text = self.convert_to_traditional(markdown_text)
-        
-        logger.info("收據處理完成")
-        return traditional_text
-
-
-if __name__ == "__main__":
-    import cv2
-    
-    def cv_imread_chinese(filepath: str) -> np.ndarray:
-        """支援中文路徑的 OpenCV 圖像讀取。"""
+        """Main entry point."""
         try:
-            cv_img = cv2.imdecode(np.fromfile(filepath, dtype=np.uint8), -1)
-            if cv_img is None:
-                raise ValueError("cv2.imdecode returned None")
-            return cv_img
+            result = self.do_ppstructure(image_array)
+            if not result:
+                logger.warning("do_ppstructure returned empty result")
+                return ""
+
+            if self.fallback_ocr:
+                md_text = self.ocr_to_markdown(result)
+            else:
+                md_text = self.ppstructure_to_markdown(result)
+
+            logger.info(f"Generated Markdown length: {len(md_text)}")
+            
+            final_text = self.convert_to_traditional(md_text)
+            return final_text
+
         except Exception as e:
-            raise IOError(f"讀取圖片失敗: {filepath}. 錯誤: {e}")
-    
-    # Test configuration
-    test_config = {
-        "ocr_settings": {
-            "language": "ch",
-            "use_angle_cls": True,
-            "use_gpu": False
-        },
-        "ppstructure_settings": {
-            "table": True,
-            "ocr": True,
-            "layout": True,
-            "show_log": True
-        },
-        "text_processing": {
-            "enable_traditional_conversion": True,
-            "opencc_config": "s2twp"
-        }
-    }
-    
-    # Initialize handler
-    handler = PPStructureHandler(test_config)
-    
-    # Test with an image (replace with actual path)
-    test_image_path = "test_receipt.jpg"
-    try:
-        image = cv_imread_chinese(test_image_path)
-        result = handler.process_receipt(image)
-        print("=" * 50)
-        print("處理結果:")
-        print("=" * 50)
-        print(result)
-    except Exception as e:
-        print(f"測試失敗: {e}")
+            logger.error(f"process_receipt failed: {e}", exc_info=True)
+            return ""
+
+# Test block
+if __name__ == "__main__":
+    handler = PPStructureHandler({"ocr_settings": {}})
+    print("Handler initialized.")
