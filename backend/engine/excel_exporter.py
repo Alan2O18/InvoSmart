@@ -75,8 +75,29 @@ class ExcelExporter:
             filename = (
                 row.get("image_path") and Path(row.get("image_path")).name or None
             )
-            cpu_time = (row.get("ocr_done_at") or 0) - (row.get("ocr_start_at") or 0)
-            gpu_time = (row.get("llm_done_at") or 0) - (row.get("llm_start_at") or 0)
+            
+            # Parse stats from JSON fields
+            cpu_time = 0
+            gpu_time = 0
+            try:
+                ocr_stats = row.get("ocr_stats")
+                if ocr_stats:
+                    ocr_stats_data = json.loads(ocr_stats) if isinstance(ocr_stats, str) else ocr_stats
+                    cpu_time = ocr_stats_data.get("total_time_s", 0)
+            except (json.JSONDecodeError, TypeError):
+                pass
+            try:
+                llm_stats = row.get("llm_stats")
+                if llm_stats:
+                    llm_stats_data = json.loads(llm_stats) if isinstance(llm_stats, str) else llm_stats
+                    # llm_stats is an array, sum up all stages
+                    if isinstance(llm_stats_data, list):
+                        gpu_time = sum(s.get("total_time_s", 0) for s in llm_stats_data)
+                    else:
+                        gpu_time = llm_stats_data.get("total_time_s", 0)
+            except (json.JSONDecodeError, TypeError):
+                pass
+            
             total = None
             try:
                 if row.get("created_at") and row.get("updated_at"):
@@ -99,15 +120,14 @@ class ExcelExporter:
                 except json.JSONDecodeError:
                     parsed_llm = {}
 
-            # The main text body is always in 'corrected_full_text'
-            if "corrected_full_text" in parsed_llm:
-                llm_body_text = parsed_llm.get("corrected_full_text")
+            # Generate text from flat structure or use existing text
+            llm_body_text = self._generate_text_from_llm_result(parsed_llm)
 
             # The "人工修正" column is only populated if the status is 'human_correct'
             if job_status == 'human_correct':
                 human_correction_text = llm_body_text
 
-            # extract_structured_data handles the {"structured_data": ...} nesting
+            # extract_structured_data handles flat structure
             structured = extract_structured_data(raw_llm)
             if not structured and isinstance(raw_ocr, str) and raw_ocr.strip():
                 structured = extract_structured_data(raw_ocr)
@@ -205,3 +225,37 @@ class ExcelExporter:
 
         logger.info("archive_to_excel completed: %s", str(out_path))
         return str(out_path)
+    
+    def _generate_text_from_llm_result(self, parsed_llm: dict) -> str:
+        """從扁平 LLM 結果生成文字摘要"""
+        if not parsed_llm:
+            return ""
+        
+        lines = []
+        
+        header = parsed_llm.get("header", {})
+        if header.get("supplier"):
+            lines.append(f"# {header['supplier']}")
+        if header.get("invoice_id"):
+            lines.append(f"發票號碼: {header['invoice_id']}")
+        if header.get("date"):
+            lines.append(f"日期: {header['date']}")
+        
+        items = parsed_llm.get("items", [])
+        if items:
+            lines.append("")
+            lines.append("| 品名 | 數量 | 單價 | 小計 |")
+            lines.append("|------|------|------|------|")
+            for item in items:
+                name = item.get("name", item.get("description", ""))
+                qty = item.get("qty", item.get("quantity", ""))
+                price = item.get("price", "")
+                total = item.get("total", "")
+                lines.append(f"| {name} | {qty} | {price} | {total} |")
+        
+        summary = parsed_llm.get("summary", {})
+        if summary.get("total"):
+            lines.append("")
+            lines.append(f"**合計**: {summary['total']}")
+        
+        return "\n".join(lines)

@@ -1,6 +1,6 @@
 # Backend 架構分析報告
 
-> **文檔版本**: 2024-12-14
+> **文檔版本**: 2025-12-20
 > **目的**: 提供完整的後端架構分析，幫助開發者理解各模組功能與修改程式
 
 ## 目錄結構總覽
@@ -10,7 +10,7 @@ backend/
 ├── main.py                 # FastAPI 應用程式入口
 ├── engine/                 # 核心業務邏輯層
 │   ├── core.py            # Engine 單例 - 系統核心協調器
-│   ├── workers.py         # OCR/LLM 背景處理工作線程
+│   ├── workers.py         # Unified/Legacy Worker 背景處理
 │   ├── file_ops.py        # 檔案操作（分割、上傳、旋轉）
 │   └── export.py          # 匯出功能 Facade
 ├── managers/              # 專案與任務管理層
@@ -21,13 +21,18 @@ backend/
 │   ├── project_crud.py    # 專案 CRUD 操作
 │   └── project_setup.py   # 專案初始化設定
 ├── processing/            # 影像與文字處理層
-│   ├── ocr_handler.py     # 基本 PaddleOCR 處理器
-│   ├── ppstructure_handler.py # 增強型 OCR 處理器
-│   ├── llm_handler.py     # LLM 文字校正與資料擷取
-│   ├── receipt_splitter.py # 發票分割 Facade
-│   ├── image_preprocessor.py # 影像預處理
-│   ├── contour_validator.py # 輪廓驗證
-│   └── perspective_transform.py # 透視變換
+│   ├── receipt_processor.py # ReceiptProcessorV2 (主要流水線)
+│   ├── rapidocr_handler.py  # RapidOCR (ONNX) 處理器
+│   ├── vision_handler.py    # Qwen VLM 視覺處理器
+│   ├── audit_handler.py     # 稽核與交叉驗證
+│   ├── llm_handler.py       # LLM 文字校正與資料擷取
+│   ├── qr_handler.py        # QR Code 解碼與解析
+│   ├── keyword_classifier.py # 收據分類器
+│   ├── gemma_corrector.py    # Gemma 自動修正器
+│   ├── data_validator.py     # 資料邏輯驗算
+│   ├── ocr_handler.py        # (Legacy) PaddleOCR 處理器
+│   ├── ppstructure_handler.py # (Legacy) PPStructure 處理器
+│   └── receipt_splitter.py   # 發票分割 Facade
 ├── routers/               # API 路由層
 │   ├── projects.py        # 專案相關 API
 │   ├── files.py           # 檔案操作 API
@@ -50,7 +55,7 @@ backend/
 **職責**:
 - 系統核心協調器，管理所有子系統
 - 提供統一的 API 給 routers 調用
-- 管理 OCR/LLM 工作線程的生命週期
+- 管理 Shared Queue 與 Worker Loop
 
 **關鍵屬性**:
 ```python
@@ -58,91 +63,72 @@ class Engine:
     _instance = None  # 單例實例
     
     # 核心組件
-    self.ocr_handler      # OCRHandler 或 PPStructureHandler
+    self.ocr_handler      # RapidOCRHandler / OCRHandler
     self.llm_handler      # LLMHandler
+    self.receipt_processor # ReceiptProcessorV2
     self.project_manager  # ProjectManager
-    self.file_ops         # FileOps
-    self.export_handler   # ExportHandler
     
-    # 狀態管理
-    self.task_managers: Dict[str, TaskManager]  # 每個專案一個
-    self.tm_lock          # TaskManager 快取鎖
-    self.ocr_worker_lock  # 全局 OCR 處理鎖
-    self.llm_worker_lock  # 全局 LLM 處理鎖
+    # 全局佇列 (Global Worker Mode)
+    self.ocr_queue        # OCR 任務佇列
+    self.llm_queue        # LLM 任務佇列
+    self.unified_queue    # 統一處理佇列 (推薦)
 ```
 
-**關鍵方法**:
-| 方法 | 說明 |
-|------|------|
-| `get_task_manager(project_id)` | 取得專案的 TaskManager（單例快取） |
-| `run_ocr(project_id)` | 啟動批次 OCR 處理 |
-| `run_llm(project_id)` | 啟動批次 LLM 處理 |
-| `run_single_ocr(project_id, job_id)` | 單一 Job OCR 處理 |
-| `run_single_llm(project_id, job_id)` | 單一 Job LLM 處理 |
-| `run_splitting(project_id)` | 執行發票分割 |
+### 1.2 workers.py - Global Worker Loop
 
-> [!IMPORTANT]
-> **OCR 線程安全問題**：PaddleOCR 不是線程安全的。目前使用 `ocr_worker_lock` 確保跨專案也只有一個 OCR 任務同時處理。
+**架構變更**: 2025-12 改為 Global Worker 架構，取代了每個專案單獨的 Worker 線程。
 
----
+**優勢**:
+- 減少 context switching 開銷
+- 避免大量線程競爭資源
+- 統一的任務調度與優先級管理
 
-### 1.2 workers.py - 背景工作線程
-
-**職責**: 實際執行 OCR 和 LLM 處理的背景線程
-
-**核心函數**:
-
-#### `start_cpu_worker(tm, project_id, ocr_handler, global_lock)`
-```
-Worker 主迴圈:
+#### `global_receipt_worker_loop(engine)` (Unified Mode)
+```python
 while True:
-    task = tm.claim_for_ocr()  ← 從佇列獲取任務
-    if not task: break         ← 沒任務就結束
-    process_ocr_task(...)      ← 處理任務
+    # 1. 從統一佇列獲取任務
+    task = engine.unified_queue.get()
+    
+    # 2. 獲取對應專案的 TaskManager
+    tm = engine.get_task_manager(task.project_id)
+    
+    # 3. 執行完整處理流水線
+    try:
+        # OCR -> 分類 ->(電子/手寫/其他) -> 驗算 -> 自動修正
+        result = engine.receipt_processor.process(image)
+        tm.complete_job(task.job_id, result)
+    except Exception as e:
+        tm.fail_job(task.job_id, str(e))
 ```
 
-#### `process_ocr_task(tm, task, ocr_handler, global_lock)`
-```
-1. 讀取圖片
-2. with global_lock:          ← 全局鎖確保線程安全
-       執行 OCR 
-3. tm.complete_ocr(...)       ← 回報完成
-```
-
-**重要設計決策**:
-- Worker 通過 `claim_for_ocr()` 獲取任務（原子操作）
-- 處理完成後通過 `complete_ocr()` 更新狀態
-- Worker 結束條件：沒有可處理的任務
+#### `global_ocr_worker_loop` & `global_llm_worker_loop` (Legacy Mode)
+- 僅在 `config.use_unified_worker = false` 時啟用
+- 分別處理 OCR 和 LLM 佇列
+- 舊有的兩階段處理邏輯
 
 ---
 
-### 1.3 Single OCR/LLM 流程
+### 1.3 任務調度流程
 
-> [!WARNING]
-> **當前問題**: `run_single_ocr` 的實作可能存在問題，需要仔細驗證 Worker 是否正確啟動。
-
-**預期流程**:
 ```mermaid
 sequenceDiagram
     participant F as 前端
     participant E as Engine
-    participant TM as TaskManager
-    participant W as Worker
+    participant Q as GlobalQueue
+    participant W as GlobalWorker
     
-    F->>E: run_single_ocr(job_id)
-    E->>TM: 標記 job 為 pending
-    E->>W: 確保 Worker 運行
-    E-->>F: 返回 {status: queued}
+    F->>E: run_ocr(project_id) (或 run_all)
+    E->>Q: Enqueue All Ready Jobs
+    E-->>F: {status: queued, count: N}
     
-    loop Worker 處理
-        W->>TM: claim_for_ocr()
-        TM-->>W: task (或 None)
-        W->>W: process_ocr_task()
-        W->>TM: complete_ocr()
+    loop Worker Loop
+        W->>Q: get_task()
+        Q-->>W: task
+        W->>W: ReceiptProcessor.process()
+        W->>DB: update_job_status(done)
     end
     
-    F->>TM: 輪詢 job 狀態
-    TM-->>F: job 狀態更新
+    F->>DB: Polling status
 ```
 
 ---

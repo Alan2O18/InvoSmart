@@ -44,7 +44,6 @@ class JobStateMachine:
             job_id = row["job_id"]
             cur.execute(
                 """UPDATE jobs SET status='running', 
-                   ocr_start_at=strftime('%s','now'), 
                    updated_at=strftime('%s','now') 
                    WHERE job_id=?""",
                 (job_id,),
@@ -97,7 +96,6 @@ class JobStateMachine:
             job_id = row["job_id"]
             cur.execute(
                 """UPDATE jobs SET status='running', 
-                   llm_start_at=strftime('%s','now'), 
                    updated_at=strftime('%s','now') 
                    WHERE job_id=?""",
                 (job_id,),
@@ -140,7 +138,7 @@ class JobStateMachine:
         """
         Atomically reset a job to 'running' for a specific stage and return it.
         This prevents other workers from claiming it.
-        Also clears completion timestamps to allow proper rerun.
+        Also clears stats to allow proper rerun.
         """
         with self.repo.lock:
             conn = self.repo._get_conn()
@@ -153,12 +151,12 @@ class JobStateMachine:
                 conn.close()
                 return None
             
-            # Update status and clear timestamps based on stage
+            # Update status and clear stats based on stage
             now = int(time.time())
             if stage == 'ocr':
                 cur.execute(
                     """UPDATE jobs SET status='running', stage=?, updated_at=?, 
-                       ocr_done_at=NULL, llm_done_at=NULL, 
+                       ocr_stats=NULL, llm_stats=NULL, 
                        ocr_result_json=NULL, llm_result_json=NULL 
                        WHERE job_id=?""",
                     (stage, now, job_id)
@@ -166,7 +164,7 @@ class JobStateMachine:
             elif stage == 'llm':
                 cur.execute(
                     """UPDATE jobs SET status='running', stage=?, updated_at=?, 
-                       llm_done_at=NULL, llm_result_json=NULL 
+                       llm_stats=NULL, llm_result_json=NULL 
                        WHERE job_id=?""",
                     (stage, now, job_id)
                 )
@@ -202,63 +200,65 @@ class JobStateMachine:
     # Completion Operations
     # ---------------------
     def complete_ocr(
-        self, job_id: str, ocr_result: Dict[str, Any], advance_to_stage_llm: bool = True
+        self, job_id: str, ocr_result: Dict[str, Any], advance_to_stage_llm: bool = True,
+        stats: Optional[Dict[str, Any]] = None
     ) -> bool:
         """Mark OCR stage as complete and optionally advance to LLM stage."""
         with self.repo.lock:
             conn = self.repo._get_conn()
             cur = conn.cursor()
-            now = int(time.time())
             ocr_json = json.dumps(ocr_result, ensure_ascii=False)
+            stats_json = json.dumps(stats, ensure_ascii=False) if stats else None
             
             if advance_to_stage_llm:
                 cur.execute(
-                    """UPDATE jobs SET ocr_result_json=?, ocr_done_at=?, 
+                    """UPDATE jobs SET ocr_result_json=?, ocr_stats=?, 
                        stage='llm', status='ready', updated_at=strftime('%s','now') 
                        WHERE job_id=?""",
-                    (ocr_json, now, job_id),
+                    (ocr_json, stats_json, job_id),
                 )
             else:
                 cur.execute(
-                    """UPDATE jobs SET ocr_result_json=?, ocr_done_at=?, 
+                    """UPDATE jobs SET ocr_result_json=?, ocr_stats=?, 
                        status='ready', updated_at=strftime('%s','now') 
                        WHERE job_id=?""",
-                    (ocr_json, now, job_id),
+                    (ocr_json, stats_json, job_id),
                 )
             conn.commit()
             conn.close()
             
-            self.repo.emit_event(job_id, "ocr_completed", {"ocr_done_at": now})
+            self.repo.emit_event(job_id, "ocr_completed", {"stats": stats})
             return True
 
     def complete_llm(
-        self, job_id: str, llm_result: Dict[str, Any], mark_final: bool = True
+        self, job_id: str, llm_result: Dict[str, Any], mark_final: bool = True,
+        stats: Optional[Dict[str, Any]] = None
     ) -> bool:
         """Mark LLM stage as complete and optionally finalize the job."""
         with self.repo.lock:
             conn = self.repo._get_conn()
             cur = conn.cursor()
-            now = int(time.time())
             llm_json = json.dumps(llm_result, ensure_ascii=False)
+            stats_json = json.dumps(stats, ensure_ascii=False) if stats else None
             
             if mark_final:
                 cur.execute(
-                    """UPDATE jobs SET llm_result_json=?, llm_done_at=?, 
+                    """UPDATE jobs SET llm_result_json=?, llm_stats=?, 
                        status='done', stage='finalize', updated_at=strftime('%s','now') 
                        WHERE job_id=?""",
-                    (llm_json, now, job_id),
+                    (llm_json, stats_json, job_id),
                 )
             else:
                 cur.execute(
-                    """UPDATE jobs SET llm_result_json=?, llm_done_at=?, 
+                    """UPDATE jobs SET llm_result_json=?, llm_stats=?, 
                        status='pending', updated_at=strftime('%s','now') 
                        WHERE job_id=?""",
-                    (llm_json, now, job_id),
+                    (llm_json, stats_json, job_id),
                 )
             conn.commit()
             conn.close()
             
-            self.repo.emit_event(job_id, "llm_completed", {"llm_done_at": now})
+            self.repo.emit_event(job_id, "llm_completed", {"stats": stats})
             return True
 
     def fail_job(self, job_id: str, reason: str = "") -> None:

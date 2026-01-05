@@ -247,7 +247,8 @@ const getOCRBadgeClass = (job) => {
 }
 
 const getLLMStatusText = (job) => {
-  // Priority: active status first, then done status
+  // Priority: failed first, then active status, then done status
+  if (job.status === 'failed') return '✗ Failed';
   if (job.status === 'running' && job.stage === 'llm') return 'Running';
   if (job.status === 'pending' && job.stage === 'llm') return 'Pending';
   if (isLLMDone(job)) return '✓ Done';
@@ -257,7 +258,8 @@ const getLLMStatusText = (job) => {
 }
 
 const getLLMBadgeClass = (job) => {
-  // Priority: active status first
+  // Priority: failed first
+  if (job.status === 'failed') return 'danger';
   if (job.status === 'running' && job.stage === 'llm') return 'pending';
   if (job.status === 'pending' && job.stage === 'llm') return 'pending';
   if (isLLMDone(job)) return 'success';
@@ -315,7 +317,8 @@ const deleteRawFile = async (file) => {
 const runOCR = async () => {
   loading.value = true
   try { 
-    await api.runOCR(projectId); 
+    // Use runOcrOnly to separate OCR from LLM
+    await api.runOcrOnly(projectId); 
     // Immediate poll to show pending status
     setTimeout(() => fetchProjectData(), 100);
   } 
@@ -394,7 +397,8 @@ const rotateImage = async (job, angle) => {
 const runSingleOCR = async (job) => {
   loading.value = true;
   try {
-    await api.runSingleOCR(projectId, job.job_id);
+    // Use runSingleOcrOnly
+    await api.runSingleOcrOnly(projectId, job.job_id);
     await fetchProjectData();
   } catch (e) {
     alert('Error running OCR: ' + e);
@@ -583,6 +587,7 @@ th {
 .badge.warning { background: #d97706; color: white; }
 .badge.pending { background: #4b5563; color: #d1d5db; }
 .badge.info { background: #0ea5e9; color: white; }
+.badge.danger { background: #dc2626; color: white; }
 
 .status-cell {
     display: flex;

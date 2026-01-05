@@ -1,71 +1,97 @@
 import json
 from typing import Optional, Dict, Any
 
+
 def extract_structured_data(raw_text_or_json: Optional[str]) -> Dict[str, Any]:
     """
-    輸入可能是空、json string 或已序列化字串
-    目標：回傳 dict，格式盡量包含：
-        supplier, invoice_id, date, items (list of dict with description, quantity, price), total_amount
-    支援的來源範例：
-    {"corrected_full_text": "...", "structured_data": {"supplier": "...", "items":[{...}] , "total_amount": 123}}
-    也支援 llm 直接回 {"supplier":..., "items":[...]}
+    從 llm_result_json 提取結構化資料。
+    
+    支援新格式（扁平結構）：
+    {"receipt_type": "...", "header": {...}, "items": [...], "summary": {...}}
+    
+    Args:
+        raw_text_or_json: JSON 字串或已解析的 dict
+        
+    Returns:
+        正規化的結構化資料 dict
     """
     if not raw_text_or_json:
         return {}
+    
     parsed = None
     if isinstance(raw_text_or_json, str):
         s = raw_text_or_json.strip()
         try:
             parsed = json.loads(s)
         except Exception:
-            # 不是 JSON 就回空
             return {}
     elif isinstance(raw_text_or_json, dict):
         parsed = raw_text_or_json
     else:
         return {}
 
-    out = {}
-    # 優先尋找 structured_data 欄位
-    sd = parsed.get("structured_data") if isinstance(parsed, dict) else None
-    if isinstance(sd, dict):
-        out.update(sd)
-    else:
-        # 若沒有 structured_data，直接嘗試 top-level
-        out.update(parsed if isinstance(parsed, dict) else {})
+    if not isinstance(parsed, dict):
+        return {}
 
-    # normalize items: 期望 items 為 list of dict
-    items = out.get("items") or out.get("lines") or out.get("details") or []
+    out = {}
+    
+    # 從 header 提取 supplier, invoice_id, date
+    header = parsed.get("header", {})
+    if isinstance(header, dict):
+        out["supplier"] = header.get("supplier", "")
+        out["invoice_id"] = header.get("invoice_id", "")
+        out["date"] = header.get("date", "")
+        out["tax_id"] = header.get("tax_id", "")
+    else:
+        # 相容頂層欄位
+        out["supplier"] = parsed.get("supplier", "")
+        out["invoice_id"] = parsed.get("invoice_id", "")
+        out["date"] = parsed.get("date", "")
+    
+    # 從 summary 提取 total
+    summary = parsed.get("summary", {})
+    if isinstance(summary, dict):
+        out["total_amount"] = summary.get("total", 0)
+    else:
+        out["total_amount"] = parsed.get("total_amount", parsed.get("total", 0))
+
+    # 正規化 items
+    items = parsed.get("items", [])
     normalized_items = []
     if isinstance(items, list):
         for it in items:
             if isinstance(it, dict):
-                # 嘗試把數字轉成基本型別
-                desc = it.get("description") or it.get("desc") or ""
-                qty = it.get("quantity") or it.get("qty") or it.get("數量") or None
-                price = (
-                    it.get("price")
-                    or it.get("amount")
-                    or it.get("price_nt")
-                    or None
-                )
-                # 嘗試轉型
+                # 支援新格式 name/qty 和舊格式 description/quantity
+                desc = it.get("name") or it.get("description") or ""
+                qty = it.get("qty") or it.get("quantity")
+                price = it.get("price")
+                total = it.get("total")
+                
                 try:
                     qty = int(qty) if qty is not None and qty != "" else None
                 except Exception:
                     qty = None
                 try:
-                    price = (
-                        float(price) if price is not None and price != "" else None
-                    )
+                    price = float(price) if price is not None and price != "" else None
                 except Exception:
                     price = None
-                normalized_items.append(
-                    {"description": desc, "quantity": qty, "price": price}
-                )
+                    
+                normalized_items.append({
+                    "description": desc,
+                    "quantity": qty,
+                    "price": price,
+                    "total": total
+                })
             else:
-                normalized_items.append(
-                    {"description": str(it), "quantity": None, "price": None}
-                )
+                normalized_items.append({
+                    "description": str(it),
+                    "quantity": None,
+                    "price": None,
+                    "total": None
+                })
     out["items"] = normalized_items
+    
+    # 其他欄位
+    out["receipt_type"] = parsed.get("receipt_type", "")
+    
     return out

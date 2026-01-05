@@ -28,18 +28,22 @@ class TestParser:
         assert result == {}
 
     def test_extract_structured_data_with_structured_data_field(self):
-        """Test extraction from nested structure."""
+        """Test extraction from new flat structure."""
         from backend.utils.parser import extract_structured_data
         
+        # 新格式使用 header 和 summary
         data = {
-            "corrected_full_text": "校正後文字",
-            "structured_data": {
+            "receipt_type": "電子發票",
+            "header": {
                 "supplier": "測試供應商",
                 "invoice_id": "AB12345678",
-                "items": [
-                    {"description": "商品A", "quantity": 2, "price": 100.0}
-                ],
-                "total_amount": 200.0
+                "date": "2024-12-19"
+            },
+            "items": [
+                {"name": "商品A", "qty": 2, "price": 100.0, "total": 200.0}
+            ],
+            "summary": {
+                "total": 200.0
             }
         }
         
@@ -53,13 +57,16 @@ class TestParser:
         assert result["items"][0]["price"] == 100.0
 
     def test_extract_structured_data_flat_structure(self):
-        """Test extraction from flat JSON structure."""
+        """Test extraction from legacy flat JSON structure."""
         from backend.utils.parser import extract_structured_data
         
+        # 舊格式相容：頂層 supplier
         data = {
-            "supplier": "測試供應商",
+            "header": {
+                "supplier": "測試供應商"
+            },
             "items": [
-                {"desc": "商品B", "qty": 3, "price": 50.5}
+                {"name": "商品B", "qty": 3, "price": 50.5}
             ]
         }
         
@@ -76,11 +83,11 @@ class TestParser:
         from backend.utils.parser import extract_structured_data
         
         data = {
-            "supplier": "測試",
-            "lines": [  # Alternative field name
-                {"description": "A", "quantity": "2", "price": "100.5"},  # String numbers
-                {"desc": "B", "qty": 3},  # Missing price
-                {"description": "C"},  # Missing qty and price
+            "header": {"supplier": "測試"},
+            "items": [
+                {"name": "A", "qty": "2", "price": "100.5"},  # String numbers
+                {"name": "B", "qty": 3},  # Missing price
+                {"name": "C"},  # Missing qty and price
             ]
         }
         

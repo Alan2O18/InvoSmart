@@ -38,6 +38,16 @@ def run_ocr(project_id: str, engine: Engine = Depends(get_engine)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/{project_id}/run_ocr_only")
+def run_ocr_only(project_id: str, engine: Engine = Depends(get_engine)):
+    """Run OCR only, without LLM processing."""
+    try:
+        return engine.run_ocr_only(project_id)
+    except Exception as e:
+        logger.error(f"Error running OCR only: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/{project_id}/run_llm")
 def run_llm(project_id: str, engine: Engine = Depends(get_engine)):
     """Run LLM for all jobs in project."""

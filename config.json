@@ -3,17 +3,22 @@
     "global_db_path": "C:/Users/tange/OneDrive/Desktop/all project/py for NKNU GA/GA實作專案/main_db.db",
     "workspace_root": "C:/Users/tange/OneDrive/Desktop/all project/py for NKNU GA/GA實作專案"
   },
-  "ocr_settings": {
-    "engine": "ppstructure",
-    "language": "chinese_cht",
-    "use_angle_cls": true,
-    "use_gpu": false
+  "vision_settings": {
+    "model_name": "qwen3-vl:2b",
+    "temperature": 0.0,
+    "streaming": true,
+    "debug": true,
+    "timeout": 120,
+    "think_mode": true,
+    "num_predict": 4096,
+    "num_ctx": 8192,
+    "repeat_penalty": 1.2,
+    "top_p": 0.3
   },
-  "ppstructure_settings": {
-    "table": true,
-    "ocr": true,
-    "layout": true,
-    "show_log": false
+  "ocr_settings": {
+    "engine": "rapidocr",
+    "language": "chinese_cht",
+    "use_angle_cls": true
   },
   "text_processing": {
     "enable_traditional_conversion": true,
@@ -21,7 +26,16 @@
   },
   "llm_settings": {
     "model_name": "qwen3:1.7b",
-    "temperature": 0.0
+    "temperature": 0.0,
+    "think_mode": true,
+    "num_predict": 2048
+  },
+  "gemma_settings": {
+    "model_name": "gemma3:4b",
+    "temperature": 0.1,
+    "streaming": true,
+    "num_predict": 4096,
+    "num_ctx": 8192
   },
   "excel_settings": {
     "main_sheet_name": "主要",

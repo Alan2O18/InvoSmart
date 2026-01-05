@@ -34,13 +34,11 @@ def regenerate_from_manual(project_id: str, job_id: str, engine: Engine = Depend
     """Regenerate LLM result using manual OCR text."""
     try:
         tm = engine.get_task_manager(project_id)
-        details = tm.get_job_details(job_id)
-        if not details:
-            raise HTTPException(status_code=404, detail="Job not found")
         
-        manual_text = details.get("manual_ocr_text")
+        # 使用優先級邏輯獲取 OCR 文字 (manual > ocr_result)
+        manual_text = tm.get_ocr_for_regenerate(job_id)
         if not manual_text:
-            raise HTTPException(status_code=400, detail="No manual text to process")
+            raise HTTPException(status_code=400, detail="No OCR text available for regeneration")
         
         llm_result = engine.llm_handler.structure_with_llm(manual_text)
         tm.complete_llm(job_id, llm_result, mark_final=True)

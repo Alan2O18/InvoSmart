@@ -80,6 +80,38 @@ def mock_receipt_splitter():
 
 
 @pytest.fixture
+def mock_rapidocr():
+    """Mock RapidOCR handler wrapper."""
+    mock = MagicMock()
+    mock.do_ocr.return_value = ([], {})
+    mock.get_high_confidence_text.return_value = []
+    return mock
+
+@pytest.fixture
+def mock_vision_handler():
+    """Mock VisionHandler."""
+    mock = MagicMock()
+    mock.image_to_markdown.return_value = ("# Markdown", {})
+    mock.describe_image.return_value = ("Description", {})
+    return mock
+
+@pytest.fixture
+def mock_qr_handler():
+    """Mock QRHandler."""
+    mock = MagicMock()
+    mock.detect_and_decode.return_value = (None, None)
+    return mock
+
+@pytest.fixture
+def mock_audit_handler():
+    """Mock AuditHandler."""
+    mock = MagicMock()
+    mock.audit_electronic.return_value = {"is_valid": True}
+    mock.audit_traditional.return_value = {"is_valid": True}
+    return mock
+
+
+@pytest.fixture
 def test_engine(temp_workspace, mock_ocr_handler, mock_llm_handler, mock_receipt_splitter):
     """
     創建測試用 Engine 實例。

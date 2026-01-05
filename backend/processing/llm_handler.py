@@ -27,8 +27,12 @@ class LLMHandler:
         Args:
             config: Configuration dictionary with 'llm_settings' key containing model settings.
         """
-        self.model_name = config["llm_settings"].get("model_name", "qwen3:1.7b")
-        logger.debug(f"初始化 LLM 模型: {self.model_name}")
+        llm_settings = config.get("llm_settings", {})
+        self.model_name = llm_settings.get("model_name", "qwen3:1.7b")
+        self.think_mode = llm_settings.get("think_mode", True)
+        self.num_predict = llm_settings.get("num_predict", 2048)
+        
+        logger.debug(f"初始化 LLM 模型: {self.model_name}, think={self.think_mode}")
 
         try:
             ollama.list()
@@ -38,6 +42,75 @@ class LLMHandler:
             raise SystemError("Ollama Service Not Running")
 
         self.config = config
+    
+    def call_with_thinking(self, prompt: str) -> tuple[str, dict]:
+        """
+        使用思考模式調用 LLM
+        
+        Args:
+            prompt: 提示詞
+            
+        Returns:
+            tuple: (LLM 輸出, 統計資料)
+        """
+        import time
+        logger.debug("[LLM] 使用思考模式調用...")
+        
+        start_time = time.time()
+        first_token_time = None
+        
+        try:
+            chunks = []
+            thinking_chunks = []
+            token_count = 0
+            
+            stream = ollama.chat(
+                model=self.model_name,
+                messages=[{"role": "user", "content": prompt}],
+                options={
+                    "temperature": 0.0,
+                    "num_predict": self.num_predict
+                },
+                stream=True,
+                think=self.think_mode
+            )
+            
+            for chunk in stream:
+                if first_token_time is None:
+                    first_token_time = time.time()
+                
+                message = chunk.get("message", {})
+                content = message.get("content", "")
+                thinking = message.get("thinking", "")
+                
+                if content:
+                    chunks.append(content)
+                    token_count += 1
+                if thinking:
+                    thinking_chunks.append(thinking)
+                
+                if chunk.get("done", False):
+                    break
+            
+            result = "".join(chunks)
+            total_time = time.time() - start_time
+            ttft = (first_token_time - start_time) if first_token_time else 0
+            
+            stats = {
+                "processor": "LLM",
+                "model": self.model_name,
+                "total_time_s": round(total_time, 2),
+                "ttft_s": round(ttft, 2),
+                "generation_tokens": token_count,
+                "generation_speed_tps": round(token_count / total_time, 2) if total_time > 0 else 0
+            }
+            
+            logger.debug(f"[LLM] 完成: content={len(result)} 字元, thinking={len(''.join(thinking_chunks))} 字元")
+            return result, stats
+            
+        except Exception as e:
+            logger.error(f"[LLM] 調用失敗: {e}", exc_info=True)
+            return "", {}
 
     def _correct_text(self, pre_formatted_text: str) -> str:
         """
@@ -163,26 +236,19 @@ class LLMHandler:
             pre_formatted_text: Raw OCR text to process.
             
         Returns:
-            Dictionary containing:
-            - corrected_full_text: The corrected text
-            - structured_data: Extracted structured invoice data
+            Dictionary containing flat structured data:
+            - receipt_type, header, items, summary (as per json_schema.md)
         """
         # 1. Correct the text
         corrected_text = self._correct_text(pre_formatted_text)
 
         # 2. Extract structured data from the corrected text
-        structured_data = self._extract_data(corrected_text)
+        extracted = self._extract_data(corrected_text)
 
-        # 3. Combine the results into the desired final format
-        final_output = {
-            "corrected_full_text": corrected_text,
-            "structured_data": structured_data,
-        }
+        if "error" in extracted:
+            logger.warning("資料擷取產生錯誤，但仍返回結構")
 
-        if "error" in structured_data:
-            logger.warning("資料擷取產生錯誤，但仍返回合併結構")
-
-        return final_output
+        return extracted
 
     def regenerate_from_corrected_text(self, corrected_text: str) -> dict:
         """

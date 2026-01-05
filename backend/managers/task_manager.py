@@ -60,16 +60,18 @@ class TaskManager:
         return self._state_machine.reset_and_claim(job_id, stage)
 
     def complete_ocr(
-        self, job_id: str, ocr_result: Dict[str, Any], advance_to_stage_llm: bool = True
+        self, job_id: str, ocr_result: Dict[str, Any], advance_to_stage_llm: bool = True,
+        stats: Dict[str, Any] = None
     ) -> bool:
         """Complete OCR stage."""
-        return self._state_machine.complete_ocr(job_id, ocr_result, advance_to_stage_llm)
+        return self._state_machine.complete_ocr(job_id, ocr_result, advance_to_stage_llm, stats)
 
     def complete_llm(
-        self, job_id: str, llm_result: Dict[str, Any], mark_final: bool = True
+        self, job_id: str, llm_result: Dict[str, Any], mark_final: bool = True,
+        stats: Dict[str, Any] = None
     ) -> bool:
         """Complete LLM stage."""
-        return self._state_machine.complete_llm(job_id, llm_result, mark_final)
+        return self._state_machine.complete_llm(job_id, llm_result, mark_final, stats)
 
     def fail_job(self, job_id: str, reason: str = "") -> None:
         """Mark job as failed."""
@@ -88,13 +90,11 @@ class TaskManager:
         將 Job 標記為 pending 並設置 stage 為 ocr。
         用於 Global Worker 架構中，將任務加入佇列前的狀態更新。
         """
-        # 注意：不需要額外的鎖，因為 update_job 內部已經有鎖保護
         result = self._repository.update_job(
             job_id,
             status='pending',
             stage='ocr',
-            ocr_start_at=None,
-            ocr_done_at=None
+            ocr_stats=None
         )
         if result:
             self._repository.emit_event(job_id, "marked_pending_ocr", {})
@@ -105,13 +105,11 @@ class TaskManager:
         將 Job 標記為 pending 並設置 stage 為 llm。
         用於 Global Worker 架構中，將任務加入佇列前的狀態更新。
         """
-        # 注意：不需要額外的鎖，因為 update_job 內部已經有鎖保護
         result = self._repository.update_job(
             job_id,
             status='pending',
             stage='llm',
-            llm_start_at=None,
-            llm_done_at=None
+            llm_stats=None
         )
         if result:
             self._repository.emit_event(job_id, "marked_pending_llm", {})
@@ -181,6 +179,29 @@ class TaskManager:
             except:
                 pass
             
+            # 取得 stats
+            ocr_stats = None
+            llm_stats = None
+            manual_json_text = None
+            
+            try:
+                ocr_stats = row["ocr_stats"]
+            except (KeyError, IndexError): pass
+            
+            try:
+                llm_stats = row["llm_stats"]
+            except (KeyError, IndexError): pass
+            
+            try:
+                manual_json_text = row["manual_json_text"]
+            except (KeyError, IndexError): pass
+
+            # 嘗試取得 edit_mode
+            edit_mode = None
+            try:
+                edit_mode = row["edit_mode"]
+            except (KeyError, IndexError): pass
+
             return {
                 "job_id": row["job_id"],
                 "image_path": row["image_path"],
@@ -189,9 +210,11 @@ class TaskManager:
                 "ocr_result": ocr_result,
                 "llm_result": llm_result,
                 "manual_ocr_text": row["manual_ocr_text"],
+                "manual_json_text": manual_json_text,
+                "edit_mode": edit_mode,
                 "manual_updated_at": row["manual_updated_at"],
-                "ocr_done_at": row["ocr_done_at"],
-                "llm_done_at": row["llm_done_at"],
+                "ocr_stats": ocr_stats,
+                "llm_stats": llm_stats,
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }
@@ -214,3 +237,78 @@ class TaskManager:
             if affected > 0:
                 self._repository.emit_event(job_id, "manual_text_saved", {"timestamp": now})
             return affected > 0
+
+    def save_manual_json(self, job_id: str, json_data: dict) -> bool:
+        """儲存人工編輯的 JSON 結果"""
+        with self._repository.lock:
+            conn = self._repository._get_conn()
+            cur = conn.cursor()
+            now = int(time.time())
+            
+            json_text = json.dumps(json_data, ensure_ascii=False)
+            
+            try:
+                cur.execute(
+                    """UPDATE jobs SET manual_json_text=?, manual_updated_at=?, updated_at=? 
+                       WHERE job_id=?""",
+                    (json_text, now, now, job_id)
+                )
+            except sqlite3.OperationalError:
+                # 若欄位不存在 (在某些舊測試環境)，嘗試不更新該欄位
+                return False
+                
+            conn.commit()
+            affected = cur.rowcount
+            conn.close()
+            
+            if affected > 0:
+                self._repository.emit_event(job_id, "manual_json_saved", {"timestamp": now})
+            return affected > 0
+
+    def get_display_result(self, job_id: str) -> Optional[dict]:
+        """
+        獲取顯示用的結果
+        優先級: manual_json_text → llm_result_json
+        """
+        job = self._repository.get_job(job_id)
+        if not job:
+            return None
+        
+        # 優先使用人工 JSON
+        if job.get("manual_json_text"):
+            try:
+                return json.loads(job["manual_json_text"])
+            except:
+                pass
+        
+        # 其次使用 LLM 結果
+        if job.get("llm_result_json"):
+            try:
+                return json.loads(job["llm_result_json"])
+            except:
+                pass
+        
+        return None
+
+    def get_ocr_for_regenerate(self, job_id: str) -> str:
+        """
+        獲取 LLM 重新生成用的 OCR 文字
+        優先級: manual_ocr_text → ocr_result_json.text
+        """
+        job = self._repository.get_job(job_id)
+        if not job:
+            return ""
+        
+        # 優先使用人工 OCR 文字
+        if job.get("manual_ocr_text"):
+            return job["manual_ocr_text"]
+        
+        # 其次使用 OCR 結果
+        if job.get("ocr_result_json"):
+            try:
+                ocr_result = json.loads(job["ocr_result_json"])
+                return ocr_result.get("text", "")
+            except:
+                pass
+        
+        return ""

@@ -81,10 +81,21 @@ class RegenerationHandler:
                 # Regenerate structured data from LLM
                 structured_part = llm_handler.regenerate_from_corrected_text(manual_correction)
                 
-                # Construct the final JSON object in the desired format
+                # Construct the final JSON object in the new flat format
                 final_json_obj = {
-                    "corrected_full_text": manual_correction,
-                    "structured_data": structured_part
+                    "receipt_type": structured_part.get("receipt_type", ""),
+                    "header": structured_part.get("header", {}),
+                    "items": structured_part.get("items", []),
+                    "summary": structured_part.get("summary", {}),
+                    "audit": {
+                        "confidence": 1.0,
+                        "issues": [],
+                        "corrections": [{
+                            "source": "human",
+                            "timestamp": int(time.time()),
+                            "description": "人工修正"
+                        }]
+                    }
                 }
                 final_json_str = json.dumps(final_json_obj, ensure_ascii=False)
 

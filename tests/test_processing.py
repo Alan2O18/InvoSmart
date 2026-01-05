@@ -195,15 +195,21 @@ class TestLLMHandler:
 圓頭筆 x3 50元
 合計: 200元"""
         
+        # 新格式使用 header/items/summary
         extracted_data = {
-            "supplier": "全家便利超商",
-            "invoice_id": "AB12345678",
-            "date": "2025-12-09",
+            "receipt_type": "電子發票",
+            "header": {
+                "supplier": "全家便利超商",
+                "invoice_id": "AB12345678",
+                "date": "2025-12-09"
+            },
             "items": [
-                {"description": "海報紙", "quantity": 2, "price": 100.0},
-                {"description": "圓頭筆", "quantity": 3, "price": 50.0}
+                {"name": "海報紙", "qty": 2, "price": 100.0, "total": 200.0},
+                {"name": "圓頭筆", "qty": 3, "price": 50.0, "total": 150.0}
             ],
-            "total_amount": 200.0
+            "summary": {
+                "total": 200.0
+            }
         }
         
         # Setup side_effect for sequential calls: _correct_text then _extract_data
@@ -226,11 +232,11 @@ class TestLLMHandler:
         
         result = handler.structure_with_llm(ocr_input)
         
-        assert "corrected_full_text" in result
-        assert "structured_data" in result
-        assert result["corrected_full_text"] == corrected_text
-        assert result["structured_data"]["supplier"] == "全家便利超商"
-        assert len(result["structured_data"]["items"]) == 2
+        # 新格式驗證：直接返回扁平結構
+        assert "header" in result
+        assert "items" in result
+        assert result["header"]["supplier"] == "全家便利超商"
+        assert len(result["items"]) == 2
 
     @patch('backend.processing.llm_handler.ollama')
     def test_regenerate_from_corrected_text(self, mock_ollama):

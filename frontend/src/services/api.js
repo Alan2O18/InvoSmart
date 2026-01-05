@@ -67,8 +67,14 @@ export default {
   runOCR(projectId) {
     return api.post(`/api/projects/${projectId}/run_ocr`)
   },
+  runOcrOnly(projectId) {
+    return api.post(`/api/projects/${projectId}/run_ocr_only`)
+  },
   runSingleOCR(projectId, jobId) {
     return api.post(`/api/projects/${projectId}/jobs/${jobId}/ocr`)
+  },
+  runSingleOcrOnly(projectId, jobId) {
+    return api.post(`/api/projects/${projectId}/jobs/${jobId}/ocr_only`)
   },
   runLLM(projectId) {
     return api.post(`/api/projects/${projectId}/run_llm`)
@@ -121,7 +127,23 @@ export default {
   saveManualText(projectId, jobId, manualText) {
     return api.put(`/api/projects/${projectId}/jobs/${jobId}/manual`, { manual_text: manualText })
   },
+  saveManualJson(projectId, jobId, jsonData) {
+    return api.put(`/api/projects/${projectId}/jobs/${jobId}/json`, { json_data: jsonData })
+  },
   regenerateFromManual(projectId, jobId) {
     return api.post(`/api/projects/${projectId}/jobs/${jobId}/regenerate_from_manual`)
+  },
+
+  // =====================
+  // Suggestions (Autocomplete)
+  // =====================
+  getSuggestions(category, query = '', limit = 20) {
+    return api.get(`/api/suggestions`, { params: { category, q: query, limit } })
+  },
+  addSuggestion(category, value) {
+    return api.post(`/api/suggestions`, { category, value })
+  },
+  bulkAddSuggestions(category, values) {
+    return api.post(`/api/suggestions/bulk`, { category, values })
   }
 }

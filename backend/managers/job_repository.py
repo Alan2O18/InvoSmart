@@ -19,19 +19,20 @@ CREATE TABLE IF NOT EXISTS jobs (
   image_path TEXT NOT NULL,
   status TEXT NOT NULL,        -- ready, pending, running, done, failed
   stage TEXT NOT NULL,         -- e.g. load, ocr, llm, finalize
-  ocr_start_at REAL,
-  ocr_done_at REAL,
-  llm_start_at REAL,
-  llm_done_at REAL,
   ocr_result_json TEXT,
   llm_result_json TEXT,
+  ocr_stats TEXT,              -- OCR 效能統計 (JSON)
+  llm_stats TEXT,              -- LLM 效能統計 (JSON 陣列)
   manual_ocr_text TEXT,        -- User-edited OCR text for corrections
+  manual_json_text TEXT,       -- User-edited JSON result
+  edit_mode TEXT,              -- Current edit mode: 'ocr' | 'json'
   manual_updated_at REAL,      -- Last manual edit timestamp
   created_at REAL DEFAULT (strftime('%s','now')),
   updated_at REAL DEFAULT (strftime('%s','now'))
 );
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 """
+
 
 EVENTS_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS events (
@@ -79,9 +80,27 @@ class JobRepository:
         except sqlite3.OperationalError:
             cur.execute("ALTER TABLE jobs ADD COLUMN manual_ocr_text TEXT")
             cur.execute("ALTER TABLE jobs ADD COLUMN manual_updated_at REAL")
+
+        # Migration: add manual_json_text and edit_mode
+        try:
+            cur.execute("SELECT manual_json_text FROM jobs LIMIT 1")
+        except sqlite3.OperationalError:
+            cur.execute("ALTER TABLE jobs ADD COLUMN manual_json_text TEXT")
+            try:
+                cur.execute("ALTER TABLE jobs ADD COLUMN edit_mode TEXT")
+            except sqlite3.OperationalError:
+                pass
+        
+        # Migration: add stats columns if they don't exist
+        try:
+            cur.execute("SELECT ocr_stats FROM jobs LIMIT 1")
+        except sqlite3.OperationalError:
+            cur.execute("ALTER TABLE jobs ADD COLUMN ocr_stats TEXT")
+            cur.execute("ALTER TABLE jobs ADD COLUMN llm_stats TEXT")
         
         conn.commit()
         conn.close()
+
 
     # ---------------------
     # CRUD Operations

@@ -77,4 +77,38 @@ def run_single_llm(project_id: str, job_id: str, engine: Engine = Depends(get_en
         return engine.run_single_llm(project_id, job_id)
     except Exception as e:
         logger.error(f"Error running single LLM: {e}")
+    except Exception as e:
+        logger.error(f"Error running single LLM: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{project_id}/jobs/{job_id}/ocr_only")
+def run_single_ocr_only(project_id: str, job_id: str, engine: Engine = Depends(get_engine)):
+    """Run OCR only for a single job."""
+    try:
+        return engine.run_single_ocr_only(project_id, job_id)
+    except Exception as e:
+        logger.error(f"Error running single OCR only: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+from pydantic import BaseModel
+
+class ManualJsonRequest(BaseModel):
+    json_data: dict
+
+
+@router.put("/{project_id}/jobs/{job_id}/json")
+def save_manual_json(project_id: str, job_id: str, request: ManualJsonRequest, engine: Engine = Depends(get_engine)):
+    """Save user's manual JSON edit."""
+    try:
+        tm = engine.get_task_manager(project_id)
+        success = tm.save_manual_json(job_id, request.json_data)
+        if not success:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return {"status": "saved", "job_id": job_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving manual JSON: {e}")
         raise HTTPException(status_code=500, detail=str(e))
