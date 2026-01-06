@@ -81,44 +81,58 @@ class TestQRHandler:
         assert result["total"] == 26
 
     # ============================================================================
-    # Detection Tests (Mocked pyzbar)
+    # Detection Tests (Mocked QReader)
     # ============================================================================
 
-    @patch("backend.processing.qr_handler.pyzbar_decode")
-    def test_detect_and_decode_success(self, mock_decode):
-        """Test successful detection and decoding."""
-        # Mock the Decoded object from pyzbar
-        mock_obj = MagicMock()
-        mock_obj.data.decode.return_value = "AB123456781130115123400000064000000640000000012345678..."
-        mock_decode.return_value = [mock_obj]
+    @patch("backend.processing.qr_handler.QReader")
+    def test_detect_and_decode_success(self, MockQReader):
+        """Test successful detection and decoding with QReader."""
+        # Setup mock
+        mock_instance = MockQReader.return_value
+        # QReader.detect_and_decode returns a tuple/list of strings
+        valid_qr = "AB123456781130115123400000064000000000000000012345678aabbccddeeffgghhiijjkk"
+        mock_instance.detect_and_decode.return_value = (valid_qr,)
         
-        # Mock image
+        # We need to force reload handler to use the mock class during init
+        # But we can just assign the mock if __init__ checked the original class
+        # Alternatively, create handler inside the patch scope
+        handler = QRHandler({})
+        # Ensure qreader is our mock
+        handler.qreader = mock_instance
+        
         img = np.zeros((100, 100, 3), dtype=np.uint8)
         
-        result = self.handler.detect_and_decode(img)
+        result = handler.detect_and_decode(img)
         
         assert result is not None
         assert result["invoice_id"] == "AB12345678"
-        assert result["raw_data"] == mock_obj.data.decode.return_value
+        assert result["raw_data"] == valid_qr
 
-    @patch("backend.processing.qr_handler.pyzbar_decode")
-    def test_detect_and_decode_no_qr(self, mock_decode):
+    @patch("backend.processing.qr_handler.QReader")
+    def test_detect_and_decode_no_qr(self, MockQReader):
         """Test no QR code detected."""
-        mock_decode.return_value = []
+        mock_instance = MockQReader.return_value
+        mock_instance.detect_and_decode.return_value = ()
+        
+        handler = QRHandler({})
+        handler.qreader = mock_instance
+        
         img = np.zeros((100, 100, 3), dtype=np.uint8)
         
-        result = self.handler.detect_and_decode(img)
+        result = handler.detect_and_decode(img)
         assert result is None
 
-    @patch("backend.processing.qr_handler.pyzbar_decode")
-    def test_detect_and_decode_corrupted_qr(self, mock_decode):
+    @patch("backend.processing.qr_handler.QReader")
+    def test_detect_and_decode_corrupted_qr(self, MockQReader):
         """Test detected QR but invalid content."""
-        mock_obj = MagicMock()
-        mock_obj.data.decode.return_value = "JUNK_DATA"
-        mock_decode.return_value = [mock_obj]
+        mock_instance = MockQReader.return_value
+        mock_instance.detect_and_decode.return_value = ("JUNK_DATA",)
+        
+        handler = QRHandler({})
+        handler.qreader = mock_instance
         
         img = np.zeros((100, 100, 3), dtype=np.uint8)
         
-        result = self.handler.detect_and_decode(img)
+        result = handler.detect_and_decode(img)
         # Should return None because parsing failed
         assert result is None

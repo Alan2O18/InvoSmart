@@ -1,6 +1,8 @@
 # backend/processing/qr_handler.py
 """
-QR Code Handler - 台灣電子發票 QR Code 解碼器
+QR Code Handler - 台灣電子發票 QR Code 解碼器 (使用 QReader)
+
+使用 QReader (YOLOv8 + pyzbar) 增強對模糊、傾斜、低對比度 QR Code 的辨識能力。
 
 電子發票 QR Code 格式說明：
 - 左側 QR Code：包含發票號碼、日期、賣方統編、總金額等
@@ -13,27 +15,22 @@ import numpy as np
 import cv2
 from typing import Optional
 
-logger = logging.getLogger(__name__)
-
-# 嘗試導入 pyzbar，如果失敗則標記為不可用
 try:
-    from pyzbar.pyzbar import decode as pyzbar_decode
-    from pyzbar.pyzbar import ZBarSymbol
-    PYZBAR_AVAILABLE = True
+    from qreader import QReader
+    QREADER_AVAILABLE = True
 except ImportError:
-    PYZBAR_AVAILABLE = False
-    logger.warning("pyzbar 未安裝，QR Code 解碼功能不可用")
+    QREADER_AVAILABLE = False
+    logger = logging.getLogger(__name__)
+    logger.warning("QReader 未安裝，請執行 `pip install qreader`")
+
+logger = logging.getLogger(__name__)
 
 
 class QRHandler:
     """
     台灣電子發票 QR Code 解碼器
     
-    電子發票包含兩個 QR Code：
-    - 左 QR：發票基本資訊（明文）
-    - 右 QR：品項明細（加密，需解密金鑰）
-    
-    本處理器專注於解碼左 QR 取得可驗證的發票資訊。
+    使用 QReader 進行增強型偵測與解碼。
     """
 
     def __init__(self, config: dict):
@@ -44,12 +41,23 @@ class QRHandler:
             config: 配置字典
         """
         self.config = config
-        if not PYZBAR_AVAILABLE:
-            logger.warning("QRHandler 初始化：pyzbar 不可用，將無法解碼 QR Code")
+        self.qreader = None
+        
+        if QREADER_AVAILABLE:
+            try:
+                # 初始化 QReader (model_size='n' for speed/nano, or 's' for small)
+                # 使用 'n' (nano) 以求速度與準確度的平衡，若需要更高準確度可改為 's'
+                logger.info("正在初始化 QReader (YOLOv8)...")
+                self.qreader = QReader(model_size='n')
+                logger.info("QReader 初始化完成")
+            except Exception as e:
+                logger.error(f"QReader 初始化失敗: {e}")
+        else:
+            logger.warning("QRHandler: QReader 模組不可用")
 
     def detect_and_decode(self, image_array: np.ndarray) -> Optional[dict]:
         """
-        偵測並解碼電子發票 QR Code
+        偵測並解碼電子發票 QR Code (左側 QR)
         
         Args:
             image_array: OpenCV 格式的圖片陣列 (BGR)
@@ -61,43 +69,40 @@ class QRHandler:
                     "date": "2024-01-15",
                     "seller_id": "12345678",
                     "total": 150,
-                    "buyer_id": "",  # 可能為空
+                    "buyer_id": "",
                     "random_code": "1234",
                     "raw_data": "原始 QR 字串"
                 }
             None: 未偵測到 QR Code 或解碼失敗
         """
-        if not PYZBAR_AVAILABLE:
-            logger.debug("pyzbar 不可用，跳過 QR 解碼")
+        if not self.qreader:
             return None
 
         try:
-            # 確保圖片是灰階（pyzbar 在灰階下效果更好）
+            # QReader 預期 RGB 格式
             if len(image_array.shape) == 3:
-                gray = cv2.cvtColor(image_array, cv2.COLOR_BGR2GRAY)
+                image_rgb = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
             else:
-                gray = image_array
+                image_rgb = cv2.cvtColor(image_array, cv2.COLOR_GRAY2RGB)
 
-            # 嘗試解碼 QR Code
-            decoded_objects = pyzbar_decode(gray, symbols=[ZBarSymbol.QRCODE])
+            # 偵測並解碼 (return_detections=False 預設只返回解碼文字列表)
+            decoded_texts = self.qreader.detect_and_decode(image=image_rgb)
             
-            if not decoded_objects:
-                logger.debug("未偵測到 QR Code")
+            if not decoded_texts:
+                logger.debug("未偵測到此圖片的 QR Code")
                 return None
 
-            # 尋找符合台灣電子發票格式的 QR Code
-            for obj in decoded_objects:
-                try:
-                    raw_data = obj.data.decode('utf-8')
-                    parsed = self._parse_taiwan_einvoice_qr(raw_data)
-                    if parsed:
-                        logger.info(f"成功解碼電子發票 QR Code: {parsed.get('invoice_id', 'N/A')}")
-                        return parsed
-                except Exception as e:
-                    logger.debug(f"解析 QR 資料失敗: {e}")
+            # 遍歷解碼結果，尋找符合電子發票格式的
+            for text in decoded_texts:
+                if not text:
                     continue
+                    
+                parsed = self._parse_taiwan_einvoice_qr(text)
+                if parsed:
+                    logger.info(f"成功解碼電子發票 QR Code: {parsed.get('invoice_id', 'N/A')}")
+                    return parsed
 
-            logger.debug("偵測到 QR Code 但非電子發票格式")
+            logger.debug(f"偵測到 {len(decoded_texts)} 個 QR Code，但無有效電子發票格式")
             return None
 
         except Exception as e:
@@ -186,18 +191,12 @@ class QRHandler:
             }
 
         except Exception as e:
-            logger.debug(f"解析電子發票 QR 格式失敗: {e}")
+            # logger.debug(f"解析電子發票 QR 格式失敗(非目標格式): {e}")
             return None
 
     def is_electronic_invoice(self, image_array: np.ndarray) -> bool:
         """
-        快速檢查圖片是否為電子發票（有 QR Code）
-        
-        Args:
-            image_array: OpenCV 格式的圖片陣列
-            
-        Returns:
-            bool: True 如果偵測到電子發票 QR Code
+        快速檢查圖片是否為電子發票
         """
         result = self.detect_and_decode(image_array)
         return result is not None
@@ -211,22 +210,43 @@ class QRHandler:
             
         Returns:
             list: QR Code 邊界框列表 [(x, y, w, h), ...]
+            注意：QReader detection 返回的是 (x1, y1, x2, y2)
         """
-        if not PYZBAR_AVAILABLE:
+        if not self.qreader:
             return []
 
         try:
+             # QReader 預期 RGB
             if len(image_array.shape) == 3:
-                gray = cv2.cvtColor(image_array, cv2.COLOR_BGR2GRAY)
+                image_rgb = cv2.cvtColor(image_array, cv2.COLOR_BGR2RGB)
             else:
-                gray = image_array
+                image_rgb = cv2.cvtColor(image_array, cv2.COLOR_GRAY2RGB)
 
-            decoded_objects = pyzbar_decode(gray, symbols=[ZBarSymbol.QRCODE])
+            # return_detections=True returns list of tuples (decoded_text, bbox_tuple)
+            # where bbox_tuple might be None or (x1, y1, x2, y2)
+            # Note: QReader API may vary; handle robustly
+            detections = self.qreader.detect_and_decode(image=image_rgb, return_detections=True)
             
             locations = []
-            for obj in decoded_objects:
-                rect = obj.rect
-                locations.append((rect.left, rect.top, rect.width, rect.height))
+            if not detections:
+                return locations
+                
+            for item in detections:
+                try:
+                    # Handle both tuple and list formats
+                    if isinstance(item, (tuple, list)) and len(item) >= 2:
+                        text, bbox = item[0], item[1]
+                    else:
+                        continue
+                        
+                    if bbox is not None and len(bbox) >= 4:
+                        x1, y1, x2, y2 = map(int, bbox[:4])
+                        w = x2 - x1
+                        h = y2 - y1
+                        locations.append((x1, y1, w, h))
+                except (ValueError, TypeError, IndexError) as e:
+                    logger.debug(f"Skipping invalid detection item: {e}")
+                    continue
             
             return locations
 
@@ -238,6 +258,9 @@ class QRHandler:
 # 測試用
 if __name__ == "__main__":
     import sys
+    
+    # 設定 logger
+    logging.basicConfig(level=logging.INFO)
     
     if len(sys.argv) < 2:
         print("Usage: python qr_handler.py <image_path>")

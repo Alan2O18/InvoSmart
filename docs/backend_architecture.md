@@ -1,6 +1,6 @@
 # Backend 架構分析報告
 
-> **文檔版本**: 2025-12-20
+> **文檔版本**: 2026-01-05
 > **目的**: 提供完整的後端架構分析，幫助開發者理解各模組功能與修改程式
 
 ## 目錄結構總覽
@@ -26,12 +26,10 @@ backend/
 │   ├── vision_handler.py    # Qwen VLM 視覺處理器
 │   ├── audit_handler.py     # 稽核與交叉驗證
 │   ├── llm_handler.py       # LLM 文字校正與資料擷取
+│   ├── prompts_config.py    # LLM Prompt 配置 (fstring)
 │   ├── qr_handler.py        # QR Code 解碼與解析
 │   ├── keyword_classifier.py # 收據分類器
-│   ├── gemma_corrector.py    # Gemma 自動修正器
-│   ├── data_validator.py     # 資料邏輯驗算
-│   ├── ocr_handler.py        # (Legacy) PaddleOCR 處理器
-│   ├── ppstructure_handler.py # (Legacy) PPStructure 處理器
+│   ├── python_validator.py   # Python 資料驗算
 │   └── receipt_splitter.py   # 發票分割 Facade
 ├── routers/               # API 路由層
 │   ├── projects.py        # 專案相關 API
@@ -226,24 +224,16 @@ CREATE TABLE jobs (
 
 ## 3. Processing 層（影像與文字處理）
 
-### 3.1 OCR Handler 比較
+### 3.1 RapidOCR Handler
 
-| 特性 | OCRHandler | PPStructureHandler |
-|------|------------|-------------------|
-| 套件 | PaddleOCR | PaddleOCR (增強配置) |
-| 主方法 | `do_paddleocr()` | `process_receipt()` |
-| 版面重建 | `reconstruct_layout()` | `ppstructure_to_markdown()` |
-| 繁簡轉換 | ❌ | ✅ (OpenCC) |
-| 表格識別 | ❌ | ⚠️ (API 不可用) |
+**主要 OCR 處理器**，使用 ONNX Runtime 執行推論。
 
-**配置切換** (`config.json`):
-```json
-{
-  "ocr_settings": {
-    "engine": "ppstructure"  // 或 "basic"
-  }
-}
-```
+| 方法 | 說明 |
+|------|------|
+| `do_ocr()` | 執行 OCR，返回結構化結果與統計 |
+| `to_plain_text()` | 重組版面為純文字 |
+| `get_high_confidence_text()` | 過濾低信心度結果 |
+| `extract_numbers()` | 提取數字資訊 |
 
 ---
 
@@ -376,14 +366,14 @@ pytest tests/ -v
 ### 7.2 手動測試 OCR 流程
 
 ```python
-# 直接測試 OCR handler
-from backend.processing.ocr_handler import OCRHandler
-from backend.utils.utils import cv_imread_chinese
+# 直接測試 RapidOCR handler
+from backend.processing.rapidocr_handler import RapidOCRHandler
+import cv2
 
-handler = OCRHandler(config)
-image = cv_imread_chinese("path/to/image.png")
-result = handler.do_paddleocr(image)
-text = handler.reconstruct_layout(result)
+handler = RapidOCRHandler({})
+image = cv2.imread("path/to/image.png")
+result, stats = handler.do_ocr(image)
+text = handler.to_plain_text(result)
 print(text)
 ```
 

@@ -37,47 +37,89 @@ class PythonValidator:
         self.tolerance = self.config.get("tolerance", 1)  # 誤差容忍值
         logger.info("PythonValidator 初始化完成")
     
-    def validate(self, data: dict) -> ValidationResult:
+    def validate(self, data: dict, ocr_confidence: float = 0.0) -> ValidationResult:
         """
-        驗算收據數據
+        驗算收據數據並計算信心度
+        
+        信心度權重 (總分 100):
+        1. 必填欄位完整度 (30%)
+        2. 數學驗算正確性 (30%)
+        3. 格式有效性 (10%)
+        4. OCR/VLM 信心度 (15%)
+        5. QR Code / 來源可靠性 (15%)
         
         Args:
             data: 收據 JSON 數據
+            ocr_confidence: OCR 引擎提供的平均信心度 (0.0-1.0)
             
         Returns:
             ValidationResult: 驗算結果
         """
         issues = []
+        scores = {
+            "fields": 0,    # max 30
+            "math": 0,      # max 30
+            "format": 0,    # max 10
+            "ocr": 0,       # max 15
+            "source": 0     # max 15
+        }
         
-        # 取得 items 和 summary
+        # 取得數據
+        header = data.get("header", {})
         items = data.get("items", [])
         summary = data.get("summary", {})
+        qr_decode = data.get("qr_decode")
+        
         reported_total = self._to_number(summary.get("total", 0))
         
-        # 1. 驗算各項小計
+        # 1. 必填欄位檢查 (30%)
+        field_issues = self._validate_required_fields(data)
+        if not field_issues:
+            scores["fields"] = 30
+        else:
+            # 依缺失比例扣分
+            scores["fields"] = max(0, 30 - len(field_issues) * 10)
+            issues.extend(field_issues)
+            
+        # 2. 數學驗算 (30%)
         item_issues = self._validate_items(items)
-        issues.extend(item_issues)
-        
-        # 2. 驗算總額
         calculated_total = sum(self._to_number(item.get("total", 0)) for item in items)
         
-        if abs(calculated_total - reported_total) > self.tolerance:
-            issues.append(
-                f"總額不符: 計算={calculated_total}, 申報={reported_total}, "
-                f"差異={abs(calculated_total - reported_total)}"
-            )
+        math_issues = item_issues[:]
+        if abs(calculated_total - reported_total) > self.tolerance and items:
+            math_issues.append(f"總額不符: 計算={calculated_total}, 申報={reported_total}")
         
-        # 3. 必填欄位檢查
-        field_issues = self._validate_required_fields(data)
-        issues.extend(field_issues)
-        
-        # 計算信心度
-        is_valid = len(issues) == 0
-        if is_valid:
-            confidence = 0.95
+        if not math_issues:
+            # 若無 items 但有總額，算一半分數；有 items 且正確才全拿
+            scores["math"] = 30 if items else 15
         else:
-            # 根據問題數量降低信心度
-            confidence = max(0.3, 0.9 - len(issues) * 0.15)
+            scores["math"] = max(0, 30 - len(math_issues) * 10)
+            issues.extend(math_issues)
+            
+        # 3. 格式有效性 (10%) - 簡單檢查
+        valid_date = self._is_valid_date(header.get("date"))
+        valid_id = bool(header.get("invoice_id") or header.get("supplier"))
+        if valid_date: scores["format"] += 5
+        if valid_id: scores["format"] += 5
+        if not valid_date and header.get("date"): issues.append("日期格式無效")
+        
+        # 4. OCR 信心度 (15%)
+        scores["ocr"] = min(15, ocr_confidence * 15 * 1.1) # 稍微放大一點
+        
+        # 5. 來源可靠性 / QR Code (15%)
+        if qr_decode:
+            scores["source"] = 15
+        elif data.get("receipt_type") == "電子發票":
+             scores["source"] = 5 # 說是電子發票但沒 QR，扣分
+        else:
+             scores["source"] = 10 # 手寫或其他，給個基本分
+             
+        # 總分計算
+        total_score = sum(scores.values())
+        confidence = round(total_score / 100.0, 2)
+        
+        # 判定是否有效
+        is_valid = len(issues) == 0 and confidence > 0.6
         
         result = ValidationResult(
             is_valid=is_valid,
@@ -88,11 +130,19 @@ class PythonValidator:
         )
         
         if issues:
-            logger.warning(f"驗算發現 {len(issues)} 個問題: {issues}")
+            logger.warning(f"驗算發現問題 (信心度 {confidence}): {issues}")
         else:
-            logger.info("驗算通過，無問題")
+            logger.info(f"驗算通過 (信心度 {confidence})")
         
         return result
+
+    def _is_valid_date(self, date_str: str) -> bool:
+        """簡單檢查日期格式 YYYY-MM-DD"""
+        if not date_str or not isinstance(date_str, str):
+            return False
+        # 允許 YYYY-MM-DD, YYYY/MM/DD, YYYYMMDD
+        import re
+        return bool(re.match(r'^\d{4}[-/]?\d{2}[-/]?\d{2}$', date_str))
     
     def _validate_items(self, items: list) -> list[str]:
         """驗算各項小計"""

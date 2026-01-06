@@ -46,11 +46,22 @@ class ProjectCRUD:
             leader_name TEXT
         );
         """
+        sql_vocab = """
+        CREATE TABLE IF NOT EXISTS vocabulary (
+            id INTEGER PRIMARY KEY,
+            category TEXT,       -- 'buyer' | 'shop' | 'item'
+            term TEXT,
+            frequency INTEGER DEFAULT 1,
+            last_seen_at REAL,
+            UNIQUE(category, term)
+        );
+        """
         conn = self._conn_global()
         try:
             conn.execute("PRAGMA journal_mode=WAL;")
             conn.execute(sql_projects)
             conn.execute(sql_groups)
+            conn.execute(sql_vocab)
             
             # Check if metadata column exists (migration for very old DBs)
             try:
@@ -210,5 +221,51 @@ class ProjectCRUD:
         try:
             conn.execute("DELETE FROM groups WHERE group_name = ?", (group_name,))
             conn.commit()
+        finally:
+            conn.close()
+
+    # --- Vocabulary Management ---
+    def add_vocabulary_term(self, category: str, term: str):
+        """新增或更新詞彙頻率"""
+        if not term or not category:
+            return
+        
+        term = term.strip()
+        now = time.time()
+        conn = self._conn_global()
+        try:
+            # Upsert logic (SQLite >= 3.24 supports ON CONFLICT)
+            # 這裡使用相容性較好的寫法
+            cur = conn.cursor()
+            cur.execute("SELECT frequency FROM vocabulary WHERE category=? AND term=?", (category, term))
+            row = cur.fetchone()
+            
+            if row:
+                new_freq = row[0] + 1
+                cur.execute(
+                    "UPDATE vocabulary SET frequency=?, last_seen_at=? WHERE category=? AND term=?", 
+                    (new_freq, now, category, term)
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO vocabulary (category, term, frequency, last_seen_at) VALUES (?, ?, 1, ?)",
+                    (category, term, now)
+                )
+            conn.commit()
+        except Exception as e:
+            logger.error(f"Error adding vocabulary {category}:{term} - {e}")
+        finally:
+            conn.close()
+
+    def search_vocabulary(self, category: str, limit: int = 100) -> list[str]:
+        """查詢高頻詞彙"""
+        conn = self._conn_global()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT term FROM vocabulary WHERE category=? ORDER BY frequency DESC LIMIT ?",
+                (category, limit)
+            )
+            return [row[0] for row in cur.fetchall()]
         finally:
             conn.close()

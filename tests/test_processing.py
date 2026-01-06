@@ -12,59 +12,11 @@ import json
 # OCRHandler Tests
 # ============================================================================
 
-class TestOCRHandler:
-    """Tests for OCR processing."""
-
-    @patch('backend.processing.ocr_handler.PaddleOCR')
-    def test_reconstruct_layout_empty(self, mock_paddle):
-        """Test layout reconstruction with empty data."""
-        from backend.processing.ocr_handler import OCRHandler
-        
-        config = {"ocr_settings": {"language": "chinese_cht", "use_angle_cls": True}}
-        handler = OCRHandler(config)
-        
-        result = handler.reconstruct_layout([])
-        assert result == ""
-
-    @patch('backend.processing.ocr_handler.PaddleOCR')
-    def test_reconstruct_layout_single_line(self, mock_paddle):
-        """Test layout reconstruction with items on same line."""
-        from backend.processing.ocr_handler import OCRHandler
-        
-        config = {"ocr_settings": {"language": "chinese_cht", "use_angle_cls": True}}
-        handler = OCRHandler(config)
-        
-        # Items with similar y-coordinates (same line)
-        ocr_data = [
-            {"text": "商品名稱", "box": [10, 100, 80, 120]},
-            {"text": "數量", "box": [90, 102, 130, 118]},
-            {"text": "價格", "box": [140, 101, 180, 119]},
-        ]
-        
-        result = handler.reconstruct_layout(ocr_data)
-        assert "商品名稱 數量 價格" in result
-
-    @patch('backend.processing.ocr_handler.PaddleOCR')
-    def test_reconstruct_layout_multiple_lines(self, mock_paddle):
-        """Test layout reconstruction with multiple lines."""
-        from backend.processing.ocr_handler import OCRHandler
-        
-        config = {"ocr_settings": {"language": "chinese_cht", "use_angle_cls": True}}
-        handler = OCRHandler(config)
-        
-        # Items on different lines
-        ocr_data = [
-            {"text": "第一行", "box": [10, 100, 80, 120]},
-            {"text": "第二行", "box": [10, 150, 80, 170]},
-            {"text": "第三行", "box": [10, 200, 80, 220]},
-        ]
-        
-        result = handler.reconstruct_layout(ocr_data)
-        lines = result.split("\n")
-        assert len(lines) == 3
-        assert "第一行" in lines[0]
-        assert "第二行" in lines[1]
-        assert "第三行" in lines[2]
+# ============================================================================
+# OCRHandler Tests (Removed - module replaced by RapidOCRHandler)
+# ============================================================================
+# TestOCRHandler and its methods were removed because backend.processing.ocr_handler.py
+# was deleted. Please use TestRapidOCRHandler if needed in the future.
 
 # ============================================================================
 # LLMHandler._correct_text Tests (was TextCorrector)

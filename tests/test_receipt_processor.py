@@ -23,7 +23,7 @@ class TestReceiptProcessorV2:
              patch('backend.processing.receipt_processor.VisionHandler') as MockVision, \
              patch('backend.processing.receipt_processor.LLMHandler') as MockLLM, \
              patch('backend.processing.receipt_processor.PythonValidator') as MockValidator, \
-             patch('backend.processing.receipt_processor.GemmaCorrector') as MockCorrector:
+             patch('backend.processing.receipt_processor.ProjectCRUD') as MockProjectCRUD:
             
             # Create sub-handler instances
             ocr = MockOCR.return_value
@@ -32,7 +32,6 @@ class TestReceiptProcessorV2:
             vision = MockVision.return_value
             llm = MockLLM.return_value
             validator = MockValidator.return_value
-            corrector = MockCorrector.return_value
             
             # Initialize processor
             config = {}
@@ -44,8 +43,7 @@ class TestReceiptProcessorV2:
                 'qr': qr,
                 'vision': vision,
                 'llm': llm,
-                'validator': validator,
-                'corrector': corrector
+                'validator': validator
             }
             
             # Common defaults
@@ -82,6 +80,10 @@ class TestReceiptProcessorV2:
         classification.confidence = 0.95
         mocks['classifier'].classify.return_value = classification
         
+        # LLM Response (electronic invoice now uses LLM to merge QR + OCR)
+        llm_json_str = '{"receipt_type": "電子發票", "header": {"supplier": "7-ELEVEN", "invoice_id": "AB12345678", "date": "2024-01-01", "tax_id": "87654321"}, "items": [], "summary": {"total": 100}}'
+        mocks['llm'].call_with_thinking.return_value = (llm_json_str, {'tokens_per_second': 10})
+        
         # Execution
         img = np.zeros((100, 100, 3), dtype=np.uint8)
         result = processor.process(img)
@@ -90,9 +92,9 @@ class TestReceiptProcessorV2:
         assert result['success'] is True
         assert result['invoice_type'] == "electronic"
         assert result['llm_result']['receipt_type'] == "電子發票"
-        # Check that data came from QR
+        # Check that data came from LLM (merged from QR + OCR)
         assert result['llm_result']['header']['invoice_id'] == "AB12345678"
-        assert result['llm_result']['header']['supplier'] == "87654321"
+        assert result['llm_result']['header']['supplier'] == "7-ELEVEN"
 
     def test_process_handwritten_receipt(self, mock_processor):
         """Test processing flow for Handwritten Receipt (VLM based)."""
@@ -178,36 +180,4 @@ class TestReceiptProcessorV2:
         assert result['success'] is False
         assert "資料提取失敗" in result['error']
 
-    def test_gemma_correction_triggered(self, mock_processor):
-        """Test that Gemma correction is triggered when validation fails."""
-        processor, mocks = mock_processor
-        
-        # Setup Handwritten flow
-        classification = MagicMock()
-        classification.receipt_type = ReceiptType.HANDWRITTEN
-        classification.confidence = 0.9  # Set confidence
-        mocks['classifier'].classify.return_value = classification
-        
-        mocks['vision'].process_handwritten.return_value = ('{"summary": {"total": 100}}', {})
-        
-        # Validation Fails
-        failed_validation = MagicMock(is_valid=False, issues=["Total mismatch"], confidence=0.5)
-        passed_validation = MagicMock(is_valid=True, issues=[], confidence=0.9)
-        # First call fails, second call (after correction) passes
-        mocks['validator'].validate.side_effect = [failed_validation, passed_validation]
-        
-        # Gemma Correction Success
-        mocks['corrector'].correct.return_value = {
-            "success": True,
-            "data": {"summary": {"total": 100}},
-            "correction": {"source": "gemma", "description": "Fixed total"},
-            "correction_time": 1.5
-        }
-        
-        img = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = processor.process(img)
-        
-        assert result['success'] is True
-        assert result['was_corrected'] is True
-        assert result['llm_result']['audit']['corrections'][0]['description'] == "Fixed total"
-        mocks['corrector'].correct.assert_called_once()
+

@@ -80,12 +80,13 @@ class VisionHandler:
         
         return base64_image
 
-    def process_handwritten(self, image_array: np.ndarray) -> tuple:
+    def process_handwritten(self, image_array: np.ndarray, prompt_context: str = "") -> tuple:
         """
         處理手寫收據 - 使用專用 prompt
         
         Args:
             image_array: OpenCV 格式的圖片陣列 (BGR)
+            prompt_context: 額外的上下文提示 (如全域詞庫)
             
         Returns:
             tuple: (result_text, stats_dict)
@@ -125,9 +126,12 @@ class VisionHandler:
         "handwritten_total_chinese": "中文大寫金額",
         "stamp_shop_name": "店章店名"
     }
-}
+}"""
 
-直接輸出 JSON，不要其他說明。"""
+            if prompt_context:
+                prompt += prompt_context
+
+            prompt += "\n\n直接輸出 JSON，不要其他說明。"
 
             if self.use_streaming:
                 result, stats = self._call_with_streaming(prompt, base64_image)

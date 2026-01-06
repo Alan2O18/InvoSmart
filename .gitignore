@@ -1,6 +1,33 @@
+# Dependencies and build
 logs
 __pycache__
 */__pycache__
-test.py
+
+# Test artifacts
 *.log
-*.txt
+.coverage
+.pytest_cache
+
+# Development temps
+*.pyc
+*.pyo
+
+# Debug and test outputs (auto-generated)
+debug*.log
+debug*.txt
+*_test_output*.txt
+*_test_result*.txt
+vlm_test_*.json
+vlm_test_*.md
+
+# Temporary scripts
+repro_*.py
+demo_*.py
+
+# IDE
+.vscode/
+.idea/
+
+# Ignore specific files
+test.py
+testB.py
