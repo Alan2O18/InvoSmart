@@ -398,11 +398,6 @@ class Engine:
 
     def run_single_llm(self, project_id: str, job_id: str):
         """將單一 Job 加入 LLM 處理佇列。"""
-        # Removed unified mode blocking
-        # if self.use_unified_worker:
-        #     logger.warning("[Single LLM] 統一模式下無需單獨調用 run_single_llm")
-        #     return {"status": "unified_mode", "message": "Use run_single_processing instead"}
-        
         try:
             tm = self.get_task_manager(project_id)
             
@@ -411,10 +406,18 @@ class Engine:
                 raise ValueError(f"Job not found: {job_id}")
             
             tm.mark_pending_for_llm(job_id)
-            self.llm_queue.put((project_id, job_id))
-            logger.info(f"[Single LLM] Job {job_id} 已加入 LLM 佇列 (queue size: {self.llm_queue.qsize()})")
             
-            return {"status": "queued", "job_id": job_id, "queue_size": self.llm_queue.qsize()}
+            # 修復：統一模式使用 task_queue
+            if self.use_unified_worker:
+                # 使用 stage_limit="llm" 告訴 worker 只執行 LLM 階段
+                self.task_queue.put((project_id, job_id, "llm"))
+                logger.info(f"[Single LLM] Job {job_id} 已加入統一佇列 (queue size: {self.task_queue.qsize()})")
+                return {"status": "queued", "job_id": job_id, "queue_size": self.task_queue.qsize()}
+            else:
+                # 舊版模式使用獨立 llm_queue
+                self.llm_queue.put((project_id, job_id))
+                logger.info(f"[Single LLM] Job {job_id} 已加入 LLM 佇列 (queue size: {self.llm_queue.qsize()})")
+                return {"status": "queued", "job_id": job_id, "queue_size": self.llm_queue.qsize()}
         except Exception as e:
             logger.error(f"Error queuing single LLM for {job_id}: {e}")
             raise e

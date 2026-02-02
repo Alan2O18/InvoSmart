@@ -221,9 +221,9 @@ if __name__ == "__main__":
     import sys
     
     test_files = [
-        "docs/virtual_regions/燕巢小宏遠4.2_split_1_1766302789_raw.json",
-        "docs/virtual_regions/手寫收據20251117_split_1_1766160419_raw.json",
-        "docs/virtual_regions/手寫收據20251117_split_0_1766302781_raw.json",
+        "dev_data/virtual_regions/燕巢小宏遠4.2_split_1_1766302789_raw.json",
+        "dev_data/virtual_regions/手寫收據20251117_split_1_1766160419_raw.json",
+        "dev_data/virtual_regions/手寫收據20251117_split_0_1766302781_raw.json",
     ]
     
     if len(sys.argv) > 1:

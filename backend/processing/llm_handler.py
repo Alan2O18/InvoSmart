@@ -143,20 +143,49 @@ class LLMHandler:
         Returns:
             校正後的繁體中文文字
         """
-        logger.debug("呼叫 LLM 進行 OCR/語意錯誤校正...")
+        logger.info("="*50)
+        logger.info("[LLM校正] 開始文字校正...")
+        logger.info(f"[LLM校正] 輸入文字 ({len(pre_formatted_text)} 字元):\n{pre_formatted_text[:500]}{'...' if len(pre_formatted_text) > 500 else ''}")
 
-        # 使用外部 prompt，fstring 格式化
+        # 使用外部 prompt
         prompt = CORRECTION_PROMPT.format(ocr_text=pre_formatted_text)
 
         try:
-            response = ollama.chat(
+            # 使用 streaming + think 模式
+            chunks = []
+            thinking_chunks = []
+            
+            stream = ollama.chat(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
                 options={"temperature": 0.0},
+                stream=True,
+                think=self.think_mode,
             )
-            corrected_text = response["message"]["content"]
-            logger.debug("文字校正成功")
+            
+            for chunk in stream:
+                message = chunk.get("message", {})
+                content = message.get("content", "")
+                thinking = message.get("thinking", "")
+                
+                if content:
+                    chunks.append(content)
+                if thinking:
+                    thinking_chunks.append(thinking)
+                    
+                if chunk.get("done", False):
+                    break
+            
+            corrected_text = "".join(chunks)
+            thinking_text = "".join(thinking_chunks)
+            
+            # 輸出思考過程到 log
+            if thinking_text:
+                logger.info(f"[LLM校正] 思考過程:\n{thinking_text[:1000]}{'...' if len(thinking_text) > 1000 else ''}")
+            
+            logger.info(f"[LLM校正] 輸出文字 ({len(corrected_text)} 字元):\n{corrected_text[:500]}{'...' if len(corrected_text) > 500 else ''}")
             return corrected_text
+            
         except Exception as e:
             logger.error(f"文字校正失敗: {e}", exc_info=True)
             return pre_formatted_text
@@ -171,25 +200,55 @@ class LLMHandler:
         Returns:
             結構化字典：supplier, invoice_id, date, items, total_amount
         """
-        logger.debug("呼叫 LLM 進行結構化資料擷取...")
+        logger.info("="*50)
+        logger.info("[LLM擷取] 開始結構化資料擷取...")
+        logger.info(f"[LLM擷取] 輸入校正文字 ({len(text)} 字元):\n{text[:500]}{'...' if len(text) > 500 else ''}")
 
-        # 使用外部 prompt，fstring 格式化
+        # 使用外部 prompt
         prompt = EXTRACTION_PROMPT.format(corrected_text=text)
 
         try:
-            response = ollama.chat(
+            # 使用 streaming + think 模式
+            chunks = []
+            thinking_chunks = []
+            
+            stream = ollama.chat(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
                 format="json",
                 options={"temperature": 0.0},
+                stream=True,
+                think=self.think_mode,
             )
-            json_string = response["message"]["content"]
+            
+            for chunk in stream:
+                message = chunk.get("message", {})
+                content = message.get("content", "")
+                thinking = message.get("thinking", "")
+                
+                if content:
+                    chunks.append(content)
+                if thinking:
+                    thinking_chunks.append(thinking)
+                    
+                if chunk.get("done", False):
+                    break
+            
+            json_string = "".join(chunks)
+            thinking_text = "".join(thinking_chunks)
+            
+            # 輸出思考過程到 log
+            if thinking_text:
+                logger.info(f"[LLM擷取] 思考過程:\n{thinking_text[:1500]}{'...' if len(thinking_text) > 1500 else ''}")
+            
             json_match = re.search(r"\{.*\}", json_string, re.DOTALL)
             if json_match:
                 json_string = json_match.group(0)
             parsed_data = json.loads(json_string)
-            logger.debug("LLM 資料擷取成功")
+            
+            logger.info(f"[LLM擷取] 輸出 JSON: {json.dumps(parsed_data, ensure_ascii=False, indent=2)[:800]}")
             return parsed_data
+            
         except Exception as e:
             logger.error(f"LLM 資料擷取失敗: {e}", exc_info=True)
             return {"error": str(e)}

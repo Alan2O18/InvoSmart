@@ -79,8 +79,8 @@ def global_receipt_worker_loop(engine):
                 image = utils.cv_imread_chinese(image_path)
                 
                 if stage_limit == "ocr":
-                    # ===== OCR-only 模式 =====
-                    logger.debug("[GlobalReceiptWorker] 執行 OCR-only 模式")
+                    # ===== OCR 階段 =====
+                    logger.info("[GlobalReceiptWorker] ===== 進入 OCR 階段 =====")
                     result = engine.receipt_processor.process_ocr_only(image)
                     
                     ocr_result = result.get("ocr_result")
@@ -93,56 +93,61 @@ def global_receipt_worker_loop(engine):
                         stats=ocr_stats,
                         advance_to_stage_llm=True  # 設定 stage='llm', status='ready'
                     )
-                    logger.info(f"[GlobalReceiptWorker] ✓ OCR Only 完成: {job_id}")
+                    logger.info(f"[GlobalReceiptWorker] ✓ OCR 階段完成: {job_id}")
                     engine.task_queue.task_done()
                     continue
-
-                # 使用統一管線處理
-                logger.debug("[GlobalReceiptWorker] 使用 ReceiptProcessor 處理...")
-                result = engine.receipt_processor.process(image)
                 
-                # 檢查是否處理失敗
-                if not result.get("success", True):
-                    # 即使失敗，也要記錄已完成的 OCR 結果
-                    ocr_result = result.get("ocr_result")
-                    ocr_stats = result.get("ocr_stats")
-                    if ocr_result:
-                        tm.complete_ocr(job_id, ocr_result, advance_to_stage_llm=False, stats=ocr_stats)
+                if stage_limit == "llm":
+                    # ===== LLM 階段 =====
+                    # 從 DB 取得 OCR 結果，使用 process_llm_only 處理
+                    logger.info("[GlobalReceiptWorker] ===== 進入 LLM 階段 =====")
                     
-                    error_msg = result.get("error", "VLM 處理失敗（無輸出）")
-                    logger.warning(f"[GlobalReceiptWorker] ✗ VLM 失敗: {job_id} - {error_msg}")
-                    tm.fail_job(job_id, error_msg)
-                    engine.task_queue.task_done()
-                    continue
-                
-                # 檢查是否有空資料（VLM/LLM 無輸出）
-                # 注意：新版 receipt_processor 返回 llm_result 而非 data
-                llm_result = result.get("llm_result", {})
-                if not llm_result or llm_result == {}:
-                    # 記錄 OCR 結果
-                    ocr_result = result.get("ocr_result")
-                    ocr_stats = result.get("ocr_stats")
-                    if ocr_result:
-                        tm.complete_ocr(job_id, ocr_result, advance_to_stage_llm=False, stats=ocr_stats)
+                    # 從 DB 取得 OCR 結果
+                    job_details = tm.get_job_details(job_id)
+                    ocr_result = job_details.get("ocr_result", {})
                     
-                    logger.warning(f"[GlobalReceiptWorker] ✗ LLM 輸出為空: {job_id}")
-                    tm.fail_job(job_id, "LLM 識別結果為空")
+                    if not ocr_result or not ocr_result.get("text"):
+                        logger.warning(f"[GlobalReceiptWorker] Job {job_id} OCR 結果為空")
+                        tm.fail_job(job_id, "OCR 結果為空，無法執行 LLM 處理")
+                        engine.task_queue.task_done()
+                        continue
+                    
+                    logger.info(f"[GlobalReceiptWorker] OCR 類型: {ocr_result.get('type')}, 文字長度: {len(ocr_result.get('text', ''))}")
+                    
+                    # 使用 process_llm_only 處理
+                    try:
+                        result = engine.receipt_processor.process_llm_only(ocr_result, image)
+                        
+                        if not result.get("success"):
+                            error_msg = result.get("error", "LLM 處理失敗")
+                            logger.warning(f"[GlobalReceiptWorker] ✗ LLM 失敗: {job_id} - {error_msg}")
+                            tm.fail_job(job_id, error_msg)
+                            engine.task_queue.task_done()
+                            continue
+                        
+                        llm_result = result.get("llm_result", {})
+                        llm_stats = result.get("llm_stats", [])
+                        
+                        # 輸出 LLM 結果到 log
+                        import json as json_module
+                        logger.info(f"[GlobalReceiptWorker] LLM 結果:\n{json_module.dumps(llm_result, ensure_ascii=False, indent=2)[:1000]}")
+                        
+                        # 完成 LLM 階段
+                        tm.complete_llm(job_id, llm_result, mark_final=True, stats=llm_stats)
+                        logger.info(f"[GlobalReceiptWorker] ✓ LLM 階段完成: {job_id}")
+                        
+                    except Exception as e:
+                        logger.error(f"[GlobalReceiptWorker] LLM 處理異常: {e}", exc_info=True)
+                        tm.fail_job(job_id, str(e))
+                    
                     engine.task_queue.task_done()
                     continue
                 
-                # 提取結果與統計
-                ocr_result = result.get("ocr_result", {})
-                ocr_stats = result.get("ocr_stats")
-                llm_result = result.get("llm_result", {})
-                llm_stats = result.get("llm_stats")
+                # ===== 未指定階段時的處理 =====
+                # 注意：正確架構下不應該走到這裡，因為任務應該明確指定是 OCR 或 LLM
+                logger.warning(f"[GlobalReceiptWorker] Job {job_id} 沒有指定階段 (stage_limit={stage_limit})，跳過")
+                engine.task_queue.task_done()
                 
-                # 完成 OCR 階段（包含 stats）
-                tm.complete_ocr(job_id, ocr_result, advance_to_stage_llm=True, stats=ocr_stats)
-                
-                # 完成 LLM 階段（包含 stats）
-                tm.complete_llm(job_id, llm_result, mark_final=True, stats=llm_stats)
-                
-                logger.info(f"[GlobalReceiptWorker] ✓ 完成: {job_id} (類型: {result.get('invoice_type', 'unknown')})")                
             except Exception as e:
                 logger.error(f"[GlobalReceiptWorker] 處理失敗 {job_id}: {e}", exc_info=True)
                 tm.fail_job(job_id, str(e))

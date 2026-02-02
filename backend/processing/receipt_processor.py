@@ -162,31 +162,71 @@ class ReceiptProcessorV2:
 
     def process_ocr_only(self, image_array: np.ndarray) -> dict:
         """
-        僅執行 OCR 和分類（不進行進階提取）
+        OCR 階段處理：圖片 → OCR → 分類 → 排版 → 返回
+        
+        - 手寫收據：使用虛擬區域分割排版
+        - 印刷品：使用簡單排版
         
         Args:
             image_array: OpenCV 格式的圖片
             
         Returns:
-            dict: 包含 ocr_result, ocr_stats, invoice_type
+            dict: 包含 ocr_result (text + type), ocr_stats
         """
+        from backend.processing.receipt_virtual_ocr import (
+            classify_text_to_regions,
+            format_regions_to_markdown
+        )
+        
         logger.info("="*50)
-        logger.info("[Pipeline] 開始 OCR-only 處理")
+        logger.info("[Pipeline] 開始 OCR 階段處理")
+        
+        h, w = image_array.shape[:2]
         
         # ===== Step 1: OCR =====
         logger.info("[Step 1] 執行 OCR...")
-        ocr_result, ocr_stats = self.ocr_handler.do_ocr(image_array)
-        ocr_text = self.ocr_handler.to_plain_text(ocr_result)
-        logger.info(f"[Step 1] OCR 完成")
+        ocr_raw, ocr_stats = self.ocr_handler.do_ocr(image_array)
+        ocr_text_simple = self.ocr_handler.to_plain_text(ocr_raw)
+        logger.info(f"[Step 1] OCR 完成，共 {len(ocr_raw)} 個區塊，{len(ocr_text_simple)} 字元")
         
         # ===== Step 2: 關鍵字分類 =====
         logger.info("[Step 2] 關鍵字分類...")
         qr_data = self.qr_handler.detect_and_decode(image_array)
         has_qr = qr_data is not None
         
-        classification = self.classifier.classify(ocr_text, has_qr_code=has_qr)
+        classification = self.classifier.classify(ocr_text_simple, has_qr_code=has_qr)
         receipt_type = classification.receipt_type
-        logger.info(f"[Step 2] 分類結果: {receipt_type.value}")
+        logger.info(f"[Step 2] 分類結果: {receipt_type.value} (信心度: {classification.confidence:.2f})")
+        
+        # ===== Step 3: 排版 (根據類型) =====
+        logger.info("[Step 3] 文字排版...")
+        
+        if receipt_type == ReceiptType.HANDWRITTEN:
+            # 手寫收據：使用虛擬區域分割
+            logger.info("[Step 3] 手寫收據，使用虛擬區域分割...")
+            
+            # 將 RapidOCR 結果轉換為 receipt_virtual_ocr 格式
+            ocr_for_classify = []
+            for item in ocr_raw:
+                box = item["box"]  # [x1, y1, x2, y2]
+                four_points = [
+                    [box[0], box[1]],
+                    [box[2], box[1]],
+                    [box[2], box[3]],
+                    [box[0], box[3]]
+                ]
+                ocr_for_classify.append([four_points, item["text"], item["confidence"]])
+            
+            regions = classify_text_to_regions(ocr_for_classify, h, w)
+            formatted_text = format_regions_to_markdown(regions)
+            
+            logger.info(f"[Step 3] 虛擬分區完成: buyer={len(regions.get('buyer', []))} date={len(regions.get('date', []))} table={len(regions.get('table', []))} stamp={len(regions.get('stamp', []))} summary={len(regions.get('summary', []))}")
+        else:
+            # 印刷品：使用簡單排版
+            logger.info("[Step 3] 印刷品，使用簡單排版...")
+            formatted_text = ocr_text_simple
+        
+        logger.info(f"[Step 3] 排版完成 ({len(formatted_text)} 字元)")
         
         # 建立 OCR result
         RECEIPT_TYPE_CHINESE = {
@@ -198,15 +238,110 @@ class ReceiptProcessorV2:
         receipt_type_chinese = RECEIPT_TYPE_CHINESE.get(receipt_type, "其他收據")
         
         ocr_result_formatted = {
-            "text": ocr_text,
+            "text": formatted_text,
             "type": receipt_type_chinese
         }
+        
+        logger.info("[Pipeline] OCR 階段完成")
         
         return {
             "success": True,
             "invoice_type": receipt_type.value,
             "ocr_result": ocr_result_formatted,
             "ocr_stats": ocr_stats
+        }
+    
+    def process_llm_only(self, ocr_result: dict, image_array: np.ndarray = None) -> dict:
+        """
+        LLM 階段處理：從 OCR 結果 → 分流處理 → 返回結構化 JSON
+        
+        Args:
+            ocr_result: {"text": "...", "type": "電子發票|免用統一發票收據|其他收據"}
+            image_array: OpenCV 格式的圖片 (電子發票需要用於 QR 掃描)
+            
+        Returns:
+            dict: 結構化的收據資料
+        """
+        logger.info("="*50)
+        logger.info("[Pipeline] 開始 LLM 階段處理")
+        
+        receipt_type_str = ocr_result.get("type", "")
+        ocr_text = ocr_result.get("text", "")
+        
+        logger.info(f"[Step 1] 收據類型: {receipt_type_str}")
+        logger.info(f"[Step 1] OCR 文字長度: {len(ocr_text)} 字元")
+        
+        # ===== Step 2: 分流處理 =====
+        logger.info("[Step 2] 分流處理...")
+        
+        llm_stats = []
+        
+        if "電子" in receipt_type_str:
+            # 電子發票: QR + LLM
+            logger.info("[Step 2] 電子發票，使用 QR + LLM 整合...")
+            
+            qr_data = None
+            if image_array is not None:
+                qr_data = self.qr_handler.detect_and_decode(image_array)
+                if qr_data:
+                    logger.info("[Step 2] QR Code 掃描成功")
+                else:
+                    logger.warning("[Step 2] QR Code 掃描失敗，使用純 LLM")
+            
+            extracted_data = self._process_electronic(qr_data, ocr_text)
+            
+        elif "手寫" in receipt_type_str or "免用" in receipt_type_str:
+            # 手寫收據: LLM 清洗
+            logger.info("[Step 2] 手寫收據，使用 LLM 清洗與提取...")
+            extracted_data = self.llm_handler.structure_with_llm(ocr_text)
+            llm_stats.append({"stage": "llm_extraction", "source": "llm_handler"})
+            
+        else:
+            # 其他: LLM 提取
+            logger.info("[Step 2] 其他收據，使用 LLM 提取...")
+            extracted_data, stats = self._process_other(ocr_text)
+            if stats:
+                stats["stage"] = "llm_extraction"
+                llm_stats.append(stats)
+        
+        if not extracted_data:
+            logger.warning("[Step 2] 提取失敗")
+            return {"error": "資料提取失敗", "llm_stats": llm_stats}
+        
+        # ===== Step 3: 驗算 =====
+        logger.info("[Step 3] Python 驗算...")
+        validation = self.validator.validate(extracted_data)
+        logger.info(f"[Step 3] 驗算結果: {'通過' if validation.is_valid else '有問題'} (信心度: {validation.confidence:.2f})")
+        
+        if validation.issues:
+            logger.warning(f"[Step 3] 發現問題: {validation.issues}")
+        
+        # ===== Step 4: 組裝結果 =====
+        logger.info("[Step 4] 組裝結果...")
+        
+        result = {
+            "receipt_type": extracted_data.get("receipt_type", receipt_type_str),
+            "header": extracted_data.get("header", {}),
+            "items": extracted_data.get("items", []),
+            "summary": extracted_data.get("summary", {}),
+            "verification": extracted_data.get("verification", {}),
+            "audit": {
+                "confidence": round(validation.confidence, 2),
+                "issues": validation.issues
+            }
+        }
+        
+        # 保留 QR 資料
+        if extracted_data.get("qr_decode"):
+            result["qr_decode"] = extracted_data["qr_decode"]
+        
+        logger.info("[Pipeline] LLM 階段完成")
+        
+        return {
+            "success": True,
+            "llm_result": result,
+            "llm_stats": llm_stats,
+            "confidence": validation.confidence
         }
     
     def _process_electronic(self, qr_data: dict, ocr_text: str) -> dict:

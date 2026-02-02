@@ -55,9 +55,17 @@ class RapidOCRHandler:
             return
 
         try:
-            logger.info("正在初始化 RapidOCR 引擎...")
-            self.engine = RapidOCR()
-            logger.info("RapidOCR 引擎初始化完成")
+            logger.info("正在初始化 RapidOCR 引擎 (PP-OCRv5 Server, max_side_len=2560)...")
+            self.engine = RapidOCR(
+                ocr_version='PP-OCRv5',
+                det_model_type='server',
+                rec_model_type='server',
+                det_limit_side_len=2560,  # 提高最大像素以增強識別精度
+                det_db_unclip_ratio = 2.0, #提高檢測範圍，降低分詞
+                det_db_box_thresh=0.15, #降低門檻，把那些寫很淡的字（如手寫日期）硬抓出來
+                det_db_thresh=0.2 #降低連通域閾值，只要有一點點像素連著就算同一個字
+            )
+            logger.info("RapidOCR 引擎初始化完成 (PP-OCRv5 Server)")
         except Exception as e:
             logger.error(f"初始化 RapidOCR 失敗: {e}", exc_info=True)
             self.engine = None

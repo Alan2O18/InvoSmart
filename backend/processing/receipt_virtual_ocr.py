@@ -1,25 +1,19 @@
 """
-Receipt Virtual Region OCR
-收據虛擬分區 OCR
+Receipt Virtual Region Formatter
+收據虛擬分區格式化工具
 
-對原圖進行一次 OCR，利用返回的座標將文字分配到各虛擬區域：
+根據 OCR 結果的座標將文字分配到各虛擬區域：
 - 買受人 (左上)
 - 日期 (右上)
 - 品項表格 (左側)
 - 店章 (右側)
 - 合計 (底部)
+
+注意：此模組不執行 OCR，只負責分區和格式化。
+OCR 由 RapidOCRHandler 在 receipt_processor.process_ocr_only() 中執行。
 """
 
-import os
-import sys
-import json
-import cv2
-import numpy as np
-from typing import Dict, List, Optional, Any
-from pathlib import Path
-
-# 使用 RapidOCR PP-OCRv5
-from rapidocr_onnxruntime import RapidOCR
+from typing import Dict, List, Any
 
 
 # ==========================================
@@ -33,34 +27,6 @@ REGION_BOUNDARIES = {
     'left_ratio': 0.70,      # 左側佔 70%
     # 88-100% = 底部 (合計)
 }
-
-
-# ==========================================
-# OCR 引擎
-# ==========================================
-
-_ocr_engine = None
-
-def get_ocr_engine():
-    """取得 OCR 引擎 (PP-OCRv5 Server)"""
-    global _ocr_engine
-    if _ocr_engine is None:
-        _ocr_engine = RapidOCR(
-            ocr_version='PP-OCRv5',
-            det_model_type='server',
-            rec_model_type='server'
-        )
-    return _ocr_engine
-
-
-def load_image(image_path: str) -> Optional[np.ndarray]:
-    """載入圖片 (支援中文路徑)"""
-    if not os.path.exists(image_path):
-        return None
-    try:
-        return cv2.imdecode(np.fromfile(image_path, dtype=np.uint8), cv2.IMREAD_COLOR)
-    except:
-        return None
 
 
 # ==========================================
@@ -137,119 +103,201 @@ def classify_text_to_regions(
     return regions
 
 
-def ocr_with_virtual_regions(image_path: str) -> Dict[str, Any]:
-    """
-    對圖片進行 OCR 並虛擬分區
-    
-    Args:
-        image_path: 圖片路徑
-        
-    Returns:
-        包含分區結果和統計的字典
-    """
-    image = load_image(image_path)
-    if image is None:
-        return {'error': f'Failed to load image: {image_path}'}
-    
-    h, w = image.shape[:2]
-    
-    # 執行 OCR
-    engine = get_ocr_engine()
-    ocr_results, elapse = engine(image)
-    
-    if not ocr_results:
-        return {
-            'regions': {},
-            'stats': {'text_count': 0, 'time_s': elapse}
-        }
-    
-    # 分類到虛擬區域
-    regions = classify_text_to_regions(ocr_results, h, w)
-    
-    # 統計
-    stats = {
-        'image_size': f'{w}x{h}',
-        'text_count': len(ocr_results),
-        'time_s': elapse if isinstance(elapse, float) else sum(elapse) if elapse else 0,
-        'regions_count': {k: len(v) for k, v in regions.items()}
-    }
-    
-    return {
-        'regions': regions,
-        'stats': stats
-    }
-
 
 def format_regions_to_markdown(regions: Dict[str, List[Dict]]) -> str:
-    """將分區結果格式化為 Markdown"""
-    md = "# 收據 OCR 結果 (虛擬分區)\n\n"
+    """
+    將分區結果格式化為 LLM 可理解的 Markdown
     
-    section_names = {
-        'buyer': '買受人',
-        'date': '日期',
-        'table': '品項',
-        'stamp': '店章',
-        'summary': '合計'
-    }
+    策略：
+    1. 按 Y 座標分組成「列」(較大容差)
+    2. 同列內按 X 座標排序並合併
+    3. 用正則過濾不需要的內容
+    """
+    import re
+    import logging
+    logger = logging.getLogger(__name__)
     
-    for region_key, section_title in section_names.items():
-        md += f"## {section_title}\n"
-        items = regions.get(region_key, [])
-        for item in items:
-            md += f"- {item['text']} ({item['confidence']:.2f})\n"
+    # ===== DEBUG: 輸出原始 OCR 結果 (未過濾) =====
+    logger.info("="*60)
+    logger.info("[VirtualOCR] 原始 OCR 結果 (過濾前):")
+    for region_name, items in regions.items():
+        if items:
+            sorted_items = sorted(items, key=lambda x: x['center'][1])
+            logger.info(f"  [{region_name}] ({len(items)} 項):")
+            for it in sorted_items:
+                logger.info(f"    [{int(it['center'][0]):4d},{int(it['center'][1]):4d}] \"{it['text']}\"")
+    logger.info("="*60)
+    
+    # ===== 輔助函數：按 Y 座標分組成列 =====
+    def group_into_rows(items: List[Dict], y_threshold: int = 40) -> List[List[Dict]]:
+        """將項目按 Y 座標分組成列"""
         if not items:
-            md += "- (無識別結果)\n"
-        md += "\n"
+            return []
+        
+        sorted_items = sorted(items, key=lambda x: x['center'][1])
+        rows = []
+        current_row = []
+        current_y = -1000
+        
+        for item in sorted_items:
+            y = item['center'][1]
+            if abs(y - current_y) > y_threshold:
+                if current_row:
+                    rows.append(current_row)
+                current_row = [item]
+                current_y = y
+            else:
+                current_row.append(item)
+        
+        if current_row:
+            rows.append(current_row)
+        
+        return rows
     
-    return md
+    def row_to_text(row: List[Dict]) -> str:
+        """將一列項目按 X 座標排序後合併為文字"""
+        sorted_row = sorted(row, key=lambda x: x['center'][0])
+        return " ".join([item['text'] for item in sorted_row])
+    
+    # ===== 過濾用正則 =====
+    # 買受人區要過濾的關鍵字
+    BUYER_FILTER = re.compile(r'免用統一發票|地址|中華民國|統一編號|統一福号|數量|品名|單價|總價|品\s*價')
+    
+    # 合計區白名單：只保留這些
+    SUMMARY_WHITELIST = re.compile(r'合計|合计|新台幣|新台币|萬|仟|千|佰|百|拾|十|元|整|'
+                                   r'壹|貳|參|肆|伍|陸|柒|捌|玖|零|'
+                                   r'一|二|三|四|五|六|七|八|九|〇|'
+                                   r'\d')
+    
+    # 要過濾掉的雜訊字符 (劃線防竄改)
+    NOISE_CHARS = re.compile(r'^[-一—X×xXＸ]+$|^[/\\\|]+$')
+    
+    lines = []
+    lines.append("# 手寫收據 OCR 辨識結果")
+    lines.append("")
+    
+    # ===== 買受人區 (左上) =====
+    buyer_items = regions.get('buyer', [])
+    if buyer_items:
+        lines.append("## 買受人")
+        
+        # 先過濾個別項目，再聚合
+        BUYER_ITEM_FILTER = re.compile(r'免用統一發票|免用统一發票|地址|中華民國|統一編號|统一编号|统一福号|數量|品名|單價|總價')
+        filtered_items = [
+            item for item in buyer_items 
+            if not BUYER_ITEM_FILTER.search(item['text'])
+        ]
+        
+        if filtered_items:
+            rows = group_into_rows(filtered_items, y_threshold=35)
+            for row in rows:
+                row_text = row_to_text(row)
+                if row_text.strip():
+                    lines.append(row_text)
+        
+        lines.append("")
+    
+    # ===== 日期區 (右上) =====
+    date_items = regions.get('date', [])
+    if date_items:
+        lines.append("## 日期")
+        rows = group_into_rows(date_items, y_threshold=35)
+        
+        date_texts = []
+        for row in rows:
+            row_text = row_to_text(row)
+            # 過濾掉不含日期相關字符的
+            if re.search(r'\d|年|月|日', row_text):
+                # 去掉「中華民國」前綴，保留數字
+                cleaned = re.sub(r'中華民國', '', row_text).strip()
+                if cleaned:
+                    date_texts.append(cleaned)
+        
+        if date_texts:
+            lines.append(" ".join(date_texts))
+        lines.append("")
+    
+    # ===== 品項表格區 (左側) =====
+    table_items = regions.get('table', [])
+    if table_items:
+        lines.append("## 品項明細")
+        lines.append("")
+        
+        # 使用較大容差分組 (手寫字行距較大)
+        rows = group_into_rows(table_items, y_threshold=45)
+        
+        for row in rows:
+            # 同列內按 X 座標排序
+            sorted_row = sorted(row, key=lambda x: x['center'][0])
+            row_texts = [item['text'] for item in sorted_row]
+            
+            # 過濾純雜訊
+            row_texts = [t for t in row_texts if not NOISE_CHARS.match(t)]
+            if not row_texts:
+                continue
+            
+            # 合併成一行
+            row_str = " | ".join(row_texts)
+            combined = "".join(row_texts)
+            
+            # 識別表頭行
+            if re.search(r'品名|單價|數量|金額', combined):
+                lines.append(f"**{row_str}**")
+            elif len(row_texts) >= 2:
+                # 多欄位，輸出為表格行
+                lines.append(f"| {row_str} |")
+            elif len(combined) >= 2:
+                # 單項目
+                lines.append(row_str)
+        
+        lines.append("")
+    
+    # ===== 店章區 (右側) =====
+    stamp_items = regions.get('stamp', [])
+    if stamp_items:
+        lines.append("## 店家資訊")
+        rows = group_into_rows(stamp_items, y_threshold=40)
+        
+        for row in rows:
+            row_text = row_to_text(row)
+            # 過濾太短或純符號
+            if len(row_text) < 2:
+                continue
+            if NOISE_CHARS.match(row_text):
+                continue
+            lines.append(f"- {row_text}")
+        
+        lines.append("")
+    
+    # ===== 合計區 (底部) =====
+    summary_items = regions.get('summary', [])
+    if summary_items:
+        lines.append("## 合計")
+        rows = group_into_rows(summary_items, y_threshold=40)
+        
+        summary_parts = []
+        for row in rows:
+            row_text = row_to_text(row)
+            
+            # 過濾雜訊 (純符號線)
+            if NOISE_CHARS.match(row_text):
+                continue
+            
+            # DEBUG: 暫時停用白名單過濾，顯示原始結果
+            # filtered_chars = []
+            # for char in row_text:
+            #     if SUMMARY_WHITELIST.search(char) or char in ' ':
+            #         filtered_chars.append(char)
+            # filtered_text = "".join(filtered_chars).strip()
+            # if filtered_text:
+            #     summary_parts.append(filtered_text)
+            summary_parts.append(row_text)
+        
+        # 合併所有合計相關文字
+        if summary_parts:
+            lines.append(" ".join(summary_parts))
+        
+        lines.append("")
+    
+    return "\n".join(lines)
 
-
-# ==========================================
-# 主程式
-# ==========================================
-
-if __name__ == "__main__":
-    test_images = [
-        "docs/手寫收據20251117_split_0_1766302781.jpg",
-        "docs/手寫收據20251117_split_1_1766160419.jpg",
-        "docs/燕巢小宏遠4.2_split_1_1766302789.jpg",
-    ]
-    
-    if len(sys.argv) > 1:
-        test_images = sys.argv[1:]
-    
-    print("=" * 60)
-    print("Virtual Region OCR Test (PP-OCRv5 Server)")
-    print("=" * 60)
-    
-    for img_path in test_images:
-        print(f"\n[Processing] {img_path}")
-        
-        result = ocr_with_virtual_regions(img_path)
-        
-        if 'error' in result:
-            print(f"  ❌ {result['error']}")
-            continue
-        
-        stats = result['stats']
-        print(f"  Size: {stats['image_size']}, Texts: {stats['text_count']}")
-        print(f"  Regions: {stats['regions_count']}")
-        
-        # 輸出 Markdown
-        md = format_regions_to_markdown(result['regions'])
-        print(md)
-        
-        # 儲存結果
-        base_name = Path(img_path).stem
-        output_dir = "docs/virtual_regions"
-        os.makedirs(output_dir, exist_ok=True)
-        
-        md_path = os.path.join(output_dir, f"{base_name}_ocr.md")
-        with open(md_path, 'w', encoding='utf-8') as f:
-            f.write(md)
-        
-        json_path = os.path.join(output_dir, f"{base_name}_raw.json")
-        with open(json_path, 'w', encoding='utf-8') as f:
-            json.dump(result, f, indent=2, ensure_ascii=False, default=str)
-        
-        print(f"  [Saved] {md_path}")

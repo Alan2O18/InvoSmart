@@ -1,7 +1,7 @@
 {
   "project_manager_settings": {
-    "global_db_path": "C:/Users/tange/OneDrive/Desktop/all project/py for NKNU GA/GA實作專案/main_db.db",
-    "workspace_root": "C:/Users/tange/OneDrive/Desktop/all project/py for NKNU GA/GA實作專案"
+    "global_db_path": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB/global_projects.db",
+    "workspace_root": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB"
   },
   "vision_settings": {
     "model_name": "qwen3-vl:2b",

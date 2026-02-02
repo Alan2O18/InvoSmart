@@ -166,7 +166,7 @@ if __name__ == "__main__":
     import sys
     
     # 預設測試路徑
-    test_dir = "docs/regions"
+    test_dir = "dev_data/regions"
     
     if len(sys.argv) > 1:
         test_dir = sys.argv[1]

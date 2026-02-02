@@ -1,0 +1,47 @@
+{
+  "receipt_type": "免用統一發票收據",
+  "header": {
+    "supplier": null,
+    "buyer": "图立高雄師大學",
+    "date": "1141001"
+  },
+  "items": [
+    {
+      "name": "名數量單价總",
+      "qty": null,
+      "price": null,
+      "total": 40
+    },
+    {
+      "name": "紅茶",
+      "qty": null,
+      "price": null,
+      "total": null
+    },
+    {
+      "name": "收據",
+      "qty": null,
+      "price": null,
+      "total": null
+    },
+    {
+      "name": "任吉佰式拾雨",
+      "qty": null,
+      "price": null,
+      "total": null
+    },
+    {
+      "name": "全新台教",
+      "qty": null,
+      "price": null,
+      "total": null
+    }
+  ],
+  "summary": {
+    "total": null
+  },
+  "verification": {
+    "handwritten_total_chinese": "一萬仟壹佰贰拾零元整",
+    "stamp_shop_name": "收专用章"
+  }
+}

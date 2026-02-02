@@ -1,0 +1,178 @@
+{
+  "json": {
+    "receipt_type": "免用統一發票收據",
+    "header": {
+      "buyer": "团立高雄師大學台照",
+      "date": "140930"
+    },
+    "items": [
+      {
+        "name": "便當",
+        "qty": null,
+        "price": null,
+        "total": 120
+      }
+    ],
+    "summary": {
+      "total": null,
+      "total_chinese": "萬壹仟任佰陵拾一元"
+    },
+    "stamp": {
+      "shop_name": "收专用章",
+      "tel": "电话：0989717368",
+      "tax_id": "82713759"
+    }
+  },
+  "classified": {
+    "buyer": [
+      {
+        "text": "免用統一發票收據",
+        "confidence": 0.8875557854771614,
+        "type": "NOISE"
+      },
+      {
+        "text": "統一福号",
+        "confidence": 0.689767025411129,
+        "type": "NOISE"
+      },
+      {
+        "text": "团立高雄師大學台照",
+        "confidence": 0.8558255301581489,
+        "type": "BUYER"
+      },
+      {
+        "text": "地址：",
+        "confidence": 0.9866087635358175,
+        "type": "UNKNOWN"
+      },
+      {
+        "text": "品",
+        "confidence": 0.9998548030853271,
+        "type": "NOISE"
+      },
+      {
+        "text": "數量",
+        "confidence": 0.9110426306724548,
+        "type": "NOISE"
+      },
+      {
+        "text": "價",
+        "confidence": 0.9924822449684143,
+        "type": "NOISE"
+      },
+      {
+        "text": "名",
+        "confidence": 0.9997362494468689,
+        "type": "NOISE"
+      },
+      {
+        "text": "單價總",
+        "confidence": 0.6889451543490092,
+        "type": "NOISE"
+      }
+    ],
+    "date": [
+      {
+        "text": "中華民國（14年9月30日",
+        "confidence": 0.8271229519293859,
+        "type": "DATE"
+      },
+      {
+        "text": "備",
+        "confidence": 0.7543870210647583,
+        "type": "NOISE"
+      }
+    ],
+    "table": [
+      {
+        "text": "120",
+        "confidence": 0.588482677936554,
+        "type": "ITEM_TOTAL"
+      },
+      {
+        "text": "0951",
+        "confidence": 0.8090966790914536,
+        "type": "ITEM_TOTAL"
+      },
+      {
+        "text": "便當",
+        "confidence": 0.9890217483043671,
+        "type": "ITEM_NAME"
+      },
+      {
+        "text": "13",
+        "confidence": 0.9267733991146088,
+        "type": "ITEM_QTY"
+      },
+      {
+        "text": "2",
+        "confidence": 0.9996139407157898,
+        "type": "ITEM_QTY"
+      },
+      {
+        "text": "3",
+        "confidence": 0.9881203174591064,
+        "type": "ITEM_QTY"
+      },
+      {
+        "text": "4",
+        "confidence": 0.999723494052887,
+        "type": "ITEM_QTY"
+      },
+      {
+        "text": "5",
+        "confidence": 0.9884459972381592,
+        "type": "ITEM_QTY"
+      }
+    ],
+    "stamp": [
+      {
+        "text": "收专用章",
+        "confidence": 0.8550944402813911,
+        "type": "SHOP_NAME"
+      },
+      {
+        "text": "上海汤",
+        "confidence": 0.8635273774464926,
+        "type": "SHOP_NAME"
+      },
+      {
+        "text": "豫園",
+        "confidence": 0.7646715939044952,
+        "type": "SHOP_NAME"
+      },
+      {
+        "text": "统一编號",
+        "confidence": 0.9755271226167679,
+        "type": "SHOP_NAME"
+      },
+      {
+        "text": "82713759",
+        "confidence": 0.9864578545093536,
+        "type": "TAX_ID"
+      },
+      {
+        "text": "电话：0989717368",
+        "confidence": 0.9627513427000779,
+        "type": "SHOP_TEL"
+      },
+      {
+        "text": "銀貨雨",
+        "confidence": 0.6085910101731619,
+        "type": "UNKNOWN"
+      }
+    ],
+    "summary": [
+      {
+        "text": "萬壹仟任佰陵拾一元",
+        "confidence": 0.8619332181082832,
+        "type": "TOTAL_CHINESE"
+      },
+      {
+        "text": "合计新台",
+        "confidence": 0.8647592812776566,
+        "type": "TOTAL_LABEL"
+      }
+    ]
+  }
+}
