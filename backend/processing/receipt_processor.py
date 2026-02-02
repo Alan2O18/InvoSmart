@@ -29,9 +29,9 @@ from backend.processing.llm_handler import LLMHandler
 logger = logging.getLogger(__name__)
 
 
-class ReceiptProcessorV2:
+class ReceiptProcessor:
     """
-    收據處理器 v2
+    收據處理器
     
     整合 OCR、分類、VLM/LLM、驗算、修正等完整流程
     """
@@ -60,7 +60,7 @@ class ReceiptProcessorV2:
             logger.warning(f"無法初始化 ProjectCRUD，詞庫功能將停用: {e}")
             self.project_crud = None
             
-        logger.info("ReceiptProcessorV2 初始化完成")
+        logger.info("ReceiptProcessor 初始化完成")
     
     def process(self, image_array: np.ndarray) -> dict:
         """
@@ -355,11 +355,13 @@ class ReceiptProcessorV2:
         """
         logger.debug("[3A] 處理電子發票 (QR + OCR 整合)...")
         
-        if not qr_data or not qr_data.get("success"):
+        # qr_data 直接是解析後的 dict，如 {"invoice_id": "...", "date": "...", ...}
+        # 檢查是否有有效的 QR 資料（至少要有 invoice_id）
+        if not qr_data or not qr_data.get("invoice_id"):
             logger.warning("[3A] 缺少 QR Code 資料，降級為純 LLM 處理")
             return self._process_other(ocr_text)[0]
             
-        qr_json_str = json.dumps(qr_data.get("data", {}), ensure_ascii=False)
+        qr_json_str = json.dumps(qr_data, ensure_ascii=False)
         
         # 構建 Prompt
         from backend.processing.prompts_config import ELECTRONIC_INVOICE_PROMPT
@@ -392,7 +394,7 @@ class ReceiptProcessorV2:
         result = self._parse_json_from_text(raw_output)
         
         # 保留原始 QR解碼資料供參考
-        result["qr_decode"] = qr_data.get("data")
+        result["qr_decode"] = qr_data
         
         return result
     
@@ -645,10 +647,6 @@ class ReceiptProcessorV2:
         }
 
 
-# 向後兼容的別名
-ReceiptProcessor = ReceiptProcessorV2
-
-
 # 測試用
 if __name__ == "__main__":
     import sys
@@ -665,7 +663,7 @@ if __name__ == "__main__":
     image = utils.cv_imread_chinese(sys.argv[1])
     
     # 處理
-    processor = ReceiptProcessorV2(config)
+    processor = ReceiptProcessor(config)
     result = processor.process(image)
     
     print("\n處理結果:")

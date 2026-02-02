@@ -1,20 +1,20 @@
 """
-Unit Tests for ReceiptProcessorV2
+Unit Tests for ReceiptProcessor
 
 Tests the integrated receipt processing pipeline with mocked dependencies.
 """
 import pytest
 from unittest.mock import MagicMock, patch
 import numpy as np
-from backend.processing.receipt_processor import ReceiptProcessorV2, ReceiptType
+from backend.processing.receipt_processor import ReceiptProcessor, ReceiptType
 
-class TestReceiptProcessorV2:
-    """ReceiptProcessorV2 Integration Tests with Mocks"""
+class TestReceiptProcessor:
+    """ReceiptProcessor Integration Tests with Mocks"""
 
     @pytest.fixture
     def mock_processor(self):
         """
-        Setup ReceiptProcessorV2 with all sub-handlers mocked.
+        Setup ReceiptProcessor with all sub-handlers mocked.
         Returns the processor instance and a dictionary of mocks.
         """
         with patch('backend.processing.receipt_processor.RapidOCRHandler') as MockOCR, \
@@ -35,7 +35,7 @@ class TestReceiptProcessorV2:
             
             # Initialize processor
             config = {}
-            processor = ReceiptProcessorV2(config)
+            processor = ReceiptProcessor(config)
             
             mocks = {
                 'ocr': ocr,

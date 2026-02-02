@@ -9,6 +9,32 @@ import json
 
 
 # ============================================================================
+# Mock Helpers for Ollama Streaming Responses
+# ============================================================================
+
+class MockMessage:
+    """模擬 Ollama message 物件"""
+    def __init__(self, content: str = "", thinking: str = ""):
+        self.content = content
+        self.thinking = thinking
+
+
+class MockChunk:
+    """模擬 Ollama streaming chunk 物件"""
+    def __init__(self, content: str = "", thinking: str = "", done: bool = False):
+        self.message = MockMessage(content, thinking)
+        self.done = done
+
+
+def create_stream_mock(content: str, thinking: str = "") -> list:
+    """建立模擬的 streaming 響應列表"""
+    return [
+        MockChunk(content=content, thinking=thinking, done=False),
+        MockChunk(content="", thinking="", done=True)
+    ]
+
+
+# ============================================================================
 # OCRHandler Tests
 # ============================================================================
 
@@ -33,10 +59,8 @@ class TestCorrectTextMethod:
         # Mock ollama for init
         mock_ollama.list.return_value = []
         
-        # Mock ollama response for _correct_text
-        mock_ollama.chat.return_value = {
-            "message": {"content": "海報紙 圓頭筆 電話"}
-        }
+        # Mock streaming response for _correct_text
+        mock_ollama.chat.return_value = create_stream_mock("海報紙 圓頭筆 電話")
         
         config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
         handler = LLMHandler(config)
@@ -83,7 +107,7 @@ class TestExtractDataMethod:
         config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
         handler = LLMHandler(config)
         
-        # Mock ollama response with valid JSON
+        # Mock streaming response with valid JSON
         mock_response = {
             "supplier": "測試供應商",
             "invoice_id": "AB12345678",
@@ -93,9 +117,7 @@ class TestExtractDataMethod:
             ],
             "total_amount": 201.0
         }
-        mock_ollama.chat.return_value = {
-            "message": {"content": json.dumps(mock_response)}
-        }
+        mock_ollama.chat.return_value = create_stream_mock(json.dumps(mock_response))
         
         result = handler._extract_data("測試發票文字")
         
@@ -166,8 +188,8 @@ class TestLLMHandler:
         
         # Setup side_effect for sequential calls: _correct_text then _extract_data
         mock_ollama.chat.side_effect = [
-            {"message": {"content": corrected_text}},  # _correct_text
-            {"message": {"content": json.dumps(extracted_data)}}  # _extract_data
+            create_stream_mock(corrected_text),  # _correct_text
+            create_stream_mock(json.dumps(extracted_data))  # _extract_data
         ]
         
         config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
@@ -217,10 +239,8 @@ class TestLLMHandler:
             "total_amount": 200.0
         }
         
-        # Set return value for _extract_data call
-        mock_ollama.chat.return_value = {
-            "message": {"content": json.dumps(extracted_data)}
-        }
+        # Set streaming return value for _extract_data call
+        mock_ollama.chat.return_value = create_stream_mock(json.dumps(extracted_data))
         
         config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
         handler = LLMHandler(config)

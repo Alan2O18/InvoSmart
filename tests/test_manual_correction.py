@@ -61,7 +61,8 @@ class TestManualCorrectionWorkflow:
         job_details = tm.get_job_details(job_id)
         assert job_details["manual_ocr_text"] == manual_text
 
-    def test_regenerate_from_manual_text(self, setup_project_with_job):
+    @patch('backend.processing.llm_handler.LLMHandler.regenerate_from_corrected_text')
+    def test_regenerate_from_manual_text(self, mock_regenerate, setup_project_with_job):
         """Test regenerating LLM result from manual text."""
         ctx = setup_project_with_job
         engine = ctx["engine"]
@@ -75,7 +76,7 @@ class TestManualCorrectionWorkflow:
         manual_text = "人工修正後的發票文字\n供應商: 測試公司\n總金額: 500"
         tm.save_manual_text(job_id, manual_text)
         
-        # Configure mock llm_handler (already mocked by fixture)
+        # Configure mock llm_handler
         extracted_data = {
             "supplier": "測試公司",
             "invoice_id": "AB12345678",
@@ -85,21 +86,22 @@ class TestManualCorrectionWorkflow:
             ],
             "total_amount": 500.0
         }
-        engine.llm_handler.regenerate_from_corrected_text.return_value = extracted_data
+        mock_regenerate.return_value = extracted_data
         
         # Regenerate from manual text
         job_details = tm.get_job_details(job_id)
         retrieved_manual_text = job_details["manual_ocr_text"]
         
         # Use LLM handler to regenerate
-        result = engine.llm_handler.regenerate_from_corrected_text(retrieved_manual_text)
+        result = engine.receipt_processor.llm_handler.regenerate_from_corrected_text(retrieved_manual_text)
         
         # Verify result
         assert result["supplier"] == "測試公司"
         assert result["total_amount"] == 500.0
         assert len(result["items"]) == 1
 
-    def test_full_manual_correction_workflow(self, setup_project_with_job):
+    @patch('backend.processing.llm_handler.LLMHandler.regenerate_from_corrected_text')
+    def test_full_manual_correction_workflow(self, mock_regenerate, setup_project_with_job):
         """Test complete manual correction workflow through API simulation."""
         ctx = setup_project_with_job
         engine = ctx["engine"]
@@ -129,9 +131,9 @@ class TestManualCorrectionWorkflow:
             ],
             "total_amount": 350.0
         }
-        engine.llm_handler.regenerate_from_corrected_text.return_value = regenerated_data
+        mock_regenerate.return_value = regenerated_data
         
-        regenerated_result = engine.llm_handler.regenerate_from_corrected_text(corrected_text)
+        regenerated_result = engine.receipt_processor.llm_handler.regenerate_from_corrected_text(corrected_text)
         
         # Update job with regenerated result
         tm.complete_llm(job_id, regenerated_result, mark_final=True)

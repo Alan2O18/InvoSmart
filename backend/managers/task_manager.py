@@ -1,11 +1,11 @@
 # Task Manager - Facade 整合 Job Repository 和 State Machine
 """
-TaskManager (refactored)
+TaskManager
 
-This module provides backward-compatible facade for task management.
-The actual implementations are split into:
-- job_repository.py: Data access layer (CRUD, queries)
-- job_state_machine.py: State transition logic (claim, complete, fail)
+Facade 模式整合 JobRepository 和 JobStateMachine。
+實際實現分離為：
+- job_repository.py: 資料存取層 (CRUD, queries)
+- job_state_machine.py: 狀態轉換邏輯 (claim, complete, fail)
 """
 import json
 import time
@@ -18,8 +18,7 @@ from backend.managers.job_state_machine import JobStateMachine
 
 class TaskManager:
     """
-    Facade class that provides backward-compatible interface.
-    Delegates to JobRepository and JobStateMachine internally.
+    Facade 類別，整合 JobRepository 與 JobStateMachine。
     """
     
     def __init__(self, project_dir: str, db_name: str = DEFAULT_DB_NAME):
@@ -29,7 +28,7 @@ class TaskManager:
         self._repository = JobRepository(project_dir, db_name)
         self._state_machine = JobStateMachine(self._repository)
         
-        # Expose lock and db_path for backward compatibility
+        # 暴露 lock 和 db_path 供外部使用
         self.lock = self._repository.lock
         self.db_path = self._repository.db_path
 
@@ -149,7 +148,7 @@ class TaskManager:
         return self._repository.mark_stale_as_failed(stale_seconds)
 
     def _emit_event(self, job_id: str, event_type: str, payload: Dict[str, Any]) -> None:
-        """Emit an event (for backward compatibility)."""
+        """發送事件通知。"""
         self._repository.emit_event(job_id, event_type, payload)
 
     # --- Manual Correction Methods ---

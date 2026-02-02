@@ -91,9 +91,14 @@ class LLMHandler:
                 if first_token_time is None:
                     first_token_time = time.time()
 
-                message = chunk.get("message", {})
-                content = message.get("content", "")
-                thinking = message.get("thinking", "")
+                # Ollama 回傳 dataclass，使用屬性訪問
+                message = getattr(chunk, 'message', None)
+                if message:
+                    content = getattr(message, 'content', '') or ''
+                    thinking = getattr(message, 'thinking', '') or ''
+                else:
+                    content = ''
+                    thinking = ''
 
                 if content:
                     chunks.append(content)
@@ -101,7 +106,7 @@ class LLMHandler:
                 if thinking:
                     thinking_chunks.append(thinking)
 
-                if chunk.get("done", False):
+                if getattr(chunk, 'done', False):
                     break
 
             result = "".join(chunks)
@@ -164,16 +169,21 @@ class LLMHandler:
             )
             
             for chunk in stream:
-                message = chunk.get("message", {})
-                content = message.get("content", "")
-                thinking = message.get("thinking", "")
+                # Ollama 回傳 dataclass，使用屬性訪問
+                message = getattr(chunk, 'message', None)
+                if message:
+                    content = getattr(message, 'content', '') or ''
+                    thinking = getattr(message, 'thinking', '') or ''
+                else:
+                    content = ''
+                    thinking = ''
                 
                 if content:
                     chunks.append(content)
                 if thinking:
                     thinking_chunks.append(thinking)
                     
-                if chunk.get("done", False):
+                if getattr(chunk, 'done', False):
                     break
             
             corrected_text = "".join(chunks)
@@ -222,16 +232,21 @@ class LLMHandler:
             )
             
             for chunk in stream:
-                message = chunk.get("message", {})
-                content = message.get("content", "")
-                thinking = message.get("thinking", "")
+                # Ollama 回傳 dataclass，使用屬性訪問
+                message = getattr(chunk, 'message', None)
+                if message:
+                    content = getattr(message, 'content', '') or ''
+                    thinking = getattr(message, 'thinking', '') or ''
+                else:
+                    content = ''
+                    thinking = ''
                 
                 if content:
                     chunks.append(content)
                 if thinking:
                     thinking_chunks.append(thinking)
                     
-                if chunk.get("done", False):
+                if getattr(chunk, 'done', False):
                     break
             
             json_string = "".join(chunks)

@@ -61,9 +61,9 @@ class TestFullProjectLifecycle:
             assert jobs[0]["status"] == "ready"
             assert jobs[0]["stage"] == "ocr"
             
-            # 5. Run OCR (Global Worker architecture: just queues, doesn't process)
+            # 5. Run OCR (Unified Worker architecture: just queues, doesn't process)
             res = engine.run_ocr("lifecycle_proj")
-            assert res["status"] == "ocr_queued"
+            assert res["status"] == "ocr_only_queued"
             assert res["queued_count"] == 1
             
             # Verify job marked as pending

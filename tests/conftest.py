@@ -139,8 +139,6 @@ def test_engine(temp_workspace, mock_ocr_handler, mock_llm_handler, mock_receipt
             "ocr_settings": {"language": "chinese_cht", "use_angle_cls": True},
             "llm_settings": {"model_name": "test-model"}
         },
-        ocr_handler=mock_ocr_handler,
-        llm_handler=mock_llm_handler,
         project_manager=project_manager,
         receipt_splitter=mock_receipt_splitter,
         start_workers=False  # 關鍵：不啟動 Workers

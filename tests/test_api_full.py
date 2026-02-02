@@ -61,8 +61,6 @@ class TestBackendAPI(unittest.TestCase):
         # Create Engine with dependency injection
         cls.engine = Engine(
             config=cls.config,
-            ocr_handler=cls.mock_ocr_handler,
-            llm_handler=cls.mock_llm_handler,
             receipt_splitter=cls.mock_receipt_splitter,
             start_workers=False  # Don't start workers in test
         )
@@ -158,12 +156,12 @@ class TestBackendAPI(unittest.TestCase):
         self.assertEqual(data["status"], "splitting_completed")
 
     def test_06_run_ocr(self):
-        """Test OCR API (Global Worker architecture: returns queued status)."""
+        """Test OCR API (Unified Worker architecture: returns queued status)."""
         response = self.client.post("/api/projects/test_proj_1/run_ocr")
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        # Global Worker architecture returns 'ocr_queued' instead of 'ocr_started'
-        self.assertEqual(data["status"], "ocr_queued")
+        # Unified Worker architecture returns 'ocr_only_queued'
+        self.assertEqual(data["status"], "ocr_only_queued")
         self.assertIn("queued_count", data)
 
     def test_07_run_llm(self):

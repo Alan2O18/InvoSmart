@@ -238,7 +238,7 @@ class TestEngineProcessing:
     """Tests for OCR and LLM processing."""
     
     def test_run_ocr_queues_jobs(self, real_engine_with_temp_workspace):
-        """Test that run_ocr queues jobs to the global OCR queue."""
+        """Test that run_ocr (now run_ocr_only) queues jobs to the unified task queue."""
         engine = real_engine_with_temp_workspace
         
         # Setup project with job
@@ -249,20 +249,20 @@ class TestEngineProcessing:
         tm = engine.get_task_manager("ocr_proj")
         tm.enqueue("test.jpg", "job1")
         
-        # Global Worker 架構：run_ocr 只是將任務加入佇列
+        # 統一 Worker 架構：run_ocr 僅將任務加入佇列
         res = engine.run_ocr("ocr_proj")
-        assert res["status"] == "ocr_queued"
+        assert res["status"] == "ocr_only_queued"
         assert res["queued_count"] == 1
         
-        # 確認任務已加入佇列
-        assert engine.ocr_queue.qsize() >= 1
+        # 確認任務已加入統一佇列
+        assert engine.task_queue.qsize() >= 1
         
         # 確認 job 狀態為 pending
         job = tm.get_job("job1")
         assert job["status"] == "pending"
 
     def test_run_llm_queues_jobs(self, real_engine_with_temp_workspace):
-        """Test that run_llm queues jobs to the global LLM queue."""
+        """Test that run_llm queues jobs to the unified task queue."""
         engine = real_engine_with_temp_workspace
         
         # Setup project with LLM-stage job
@@ -274,16 +274,16 @@ class TestEngineProcessing:
         tm.enqueue("test.jpg", "job1")
         tm.complete_ocr("job1", {"text": "OCR result"})  # Move to LLM stage
         
-        # Global Worker 架構：run_llm 只是將任務加入佇列
+        # 統一 Worker 架構：run_llm 僅將任務加入佇列
         res = engine.run_llm("llm_proj")
         assert res["status"] == "llm_queued"
         assert res["queued_count"] == 1
         
-        # 確認任務已加入佇列
-        assert engine.llm_queue.qsize() >= 1
+        # 確認任務已加入統一佇列
+        assert engine.task_queue.qsize() >= 1
 
     def test_run_single_ocr(self, real_engine_with_temp_workspace):
-        """Test single-job OCR processing queues to global queue."""
+        """Test single-job OCR processing queues to unified task queue."""
         engine = real_engine_with_temp_workspace
         
         # Setup
@@ -294,20 +294,20 @@ class TestEngineProcessing:
         tm = engine.get_task_manager("single_ocr")
         tm.enqueue("test.jpg", "single_job")
         
-        # Global Worker 架構：run_single_ocr 將任務加入佇列
+        # 統一 Worker 架構：run_single_ocr 將任務加入佇列
         res = engine.run_single_ocr("single_ocr", "single_job")
         assert res["status"] == "queued"
         assert res["job_id"] == "single_job"
         
-        # 確認任務已加入佇列
-        assert engine.ocr_queue.qsize() >= 1
+        # 確認任務已加入統一佇列
+        assert engine.task_queue.qsize() >= 1
         
         # 確認 job 狀態為 pending
         job = tm.get_job("single_job")
         assert job["status"] == "pending"
 
     def test_run_single_llm(self, real_engine_with_temp_workspace):
-        """Test single-job LLM processing queues to global queue."""
+        """Test single-job LLM processing queues to unified task queue."""
         engine = real_engine_with_temp_workspace
         
         # Setup
@@ -319,13 +319,13 @@ class TestEngineProcessing:
         tm.enqueue("test.jpg", "llm_job")
         tm.complete_ocr("llm_job", {"text": "OCR"})
         
-        # Global Worker 架構：run_single_llm 將任務加入佇列
+        # 統一 Worker 架構：run_single_llm 將任務加入佇列
         res = engine.run_single_llm("single_llm", "llm_job")
         assert res["status"] == "queued"
         assert res["job_id"] == "llm_job"
         
-        # 確認任務已加入佇列
-        assert engine.llm_queue.qsize() >= 1
+        # 確認任務已加入統一佇列
+        assert engine.task_queue.qsize() >= 1
 
 
 # ============================================================================

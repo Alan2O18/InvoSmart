@@ -1,10 +1,11 @@
 # Export Handler - Facade 整合所有匯出相關功能
 """
-This module provides backward-compatible facade for export functionality.
-The actual implementations are split into:
-- excel_exporter.py: Excel export functionality
-- archive_handler.py: Project archiving (7z/zip)
-- regeneration_handler.py: Human correction regeneration
+ExportHandler
+
+Facade 模式整合所有匯出相關功能：
+- excel_exporter.py: Excel 匯出功能
+- archive_handler.py: 專案封存 (7z/zip)
+- regeneration_handler.py: 人工校正重新生成
 """
 import logging
 from typing import Optional, Dict, Any
@@ -17,8 +18,7 @@ logger = logging.getLogger(__name__)
 
 class ExportHandler:
     """
-    Facade class that integrates all export-related functionality.
-    Maintains backward compatibility with existing code.
+    Facade 類別，整合所有匯出相關功能。
     """
     
     def __init__(self, project_manager):
