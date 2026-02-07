@@ -164,8 +164,7 @@ class ReceiptProcessor:
         """
         OCR 階段處理：圖片 → OCR → 分類 → 排版 → 返回
         
-        - 手寫收據：使用虛擬區域分割排版
-        - 印刷品：使用簡單排版
+        所有收據類型統一使用簡單排版 (to_plain_text)。
         
         Args:
             image_array: OpenCV 格式的圖片
@@ -173,15 +172,8 @@ class ReceiptProcessor:
         Returns:
             dict: 包含 ocr_result (text + type), ocr_stats
         """
-        from backend.processing.receipt_virtual_ocr import (
-            classify_text_to_regions,
-            format_regions_to_markdown
-        )
-        
         logger.info("="*50)
         logger.info("[Pipeline] 開始 OCR 階段處理")
-        
-        h, w = image_array.shape[:2]
         
         # ===== Step 1: OCR =====
         logger.info("[Step 1] 執行 OCR...")
@@ -198,34 +190,9 @@ class ReceiptProcessor:
         receipt_type = classification.receipt_type
         logger.info(f"[Step 2] 分類結果: {receipt_type.value} (信心度: {classification.confidence:.2f})")
         
-        # ===== Step 3: 排版 (根據類型) =====
-        logger.info("[Step 3] 文字排版...")
-        
-        if receipt_type == ReceiptType.HANDWRITTEN:
-            # 手寫收據：使用虛擬區域分割
-            logger.info("[Step 3] 手寫收據，使用虛擬區域分割...")
-            
-            # 將 RapidOCR 結果轉換為 receipt_virtual_ocr 格式
-            ocr_for_classify = []
-            for item in ocr_raw:
-                box = item["box"]  # [x1, y1, x2, y2]
-                four_points = [
-                    [box[0], box[1]],
-                    [box[2], box[1]],
-                    [box[2], box[3]],
-                    [box[0], box[3]]
-                ]
-                ocr_for_classify.append([four_points, item["text"], item["confidence"]])
-            
-            regions = classify_text_to_regions(ocr_for_classify, h, w)
-            formatted_text = format_regions_to_markdown(regions)
-            
-            logger.info(f"[Step 3] 虛擬分區完成: buyer={len(regions.get('buyer', []))} date={len(regions.get('date', []))} table={len(regions.get('table', []))} stamp={len(regions.get('stamp', []))} summary={len(regions.get('summary', []))}")
-        else:
-            # 印刷品：使用簡單排版
-            logger.info("[Step 3] 印刷品，使用簡單排版...")
-            formatted_text = ocr_text_simple
-        
+        # ===== Step 3: 簡單排版 (所有類型統一使用) =====
+        logger.info("[Step 3] 文字排版 (簡單模式)...")
+        formatted_text = ocr_text_simple
         logger.info(f"[Step 3] 排版完成 ({len(formatted_text)} 字元)")
         
         # 建立 OCR result

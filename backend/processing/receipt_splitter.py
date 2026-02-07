@@ -16,6 +16,7 @@ from typing import List, Dict
 from backend.processing.image_preprocessor import ImagePreprocessor
 from backend.processing.contour_validator import ContourValidator
 from backend.processing.perspective_transform import PerspectiveTransformer
+from backend.processing.hough_corner_detector import HoughCornerDetector
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class ReceiptSplitter:
         )
         self._validator = ContourValidator(angle_tolerance, aspect_ratio_range)
         self._transformer = PerspectiveTransformer(self._validator)
+        self._hough_detector = HoughCornerDetector()
         
         # 向後相容性：保留原始屬性
         self.angle_tolerance_deg = angle_tolerance
@@ -131,9 +133,9 @@ class ReceiptSplitter:
             hull = cv2.convexHull(c)
             min_rect = cv2.minAreaRect(hull)
 
-            # 策略 A：多邊形擬合
+            # 策略 A：多邊形擬合 (提高精度，epsilon 從 0.02 改為 0.01)
             peri = cv2.arcLength(hull, True)
-            approx = cv2.approxPolyDP(hull, 0.02 * peri, True)
+            approx = cv2.approxPolyDP(hull, 0.01 * peri, True)
 
             if len(approx) == 4 and self._validator.validate_angles(approx.reshape(4, 2)):
                 M = cv2.moments(approx)
@@ -190,13 +192,39 @@ class ReceiptSplitter:
 
         # 6. 切割並輸出
         final_receipt = []
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
+        
         for i, contour_info in enumerate(final_contours):
+            pts = contour_info["points"]
+            original_pts = pts.copy()
+            
+            # 策略 1：Hough 線段偵測取得精確角點 (最精確)
+            hough_pts = self._hough_detector.detect_corners(image, pts.astype(np.int32))
+            if hough_pts is not None:
+                pts = hough_pts
+                logger.debug(f"[發票 {i+1}] 使用 Hough 線段角點")
+            else:
+                # 策略 2：亞像素角點精煉 (備援)
+                try:
+                    pts = self._validator.refine_corners(gray, pts)
+                    logger.debug(f"[發票 {i+1}] 使用亞像素角點精煉")
+                except Exception as e:
+                    logger.debug(f"[發票 {i+1}] 角點精煉失敗: {e}")
+            
+            # 平行度檢查：識別梯形
+            is_rect, h_diff, v_diff = self._validator.check_parallelism(pts)
+            if not is_rect:
+                logger.warning(f"[發票 {i+1}] 檢測到梯形 (上下邊夹角差={h_diff:.1f}°, 左右邊夾角差={v_diff:.1f}°)")
+            
             warped_invoice = self._transformer.transform(
-                image, contour_info["points"], self.padding_pixels
+                image, pts, self.padding_pixels
             )
 
             if warped_invoice.size == 0:
                 continue
+
+            # 自動旋轉校正：暫時停用（需要改進算法以區分文字行和邊緣線）
+            # warped_invoice = self._transformer.deskew_image(warped_invoice)
 
             final_receipt.append(warped_invoice)
 

@@ -78,7 +78,13 @@ class PerspectiveTransformer:
         M = cv2.getPerspectiveTransform(rect, dst)
 
         # 切割原始圖片
-        warped_img = cv2.warpPerspective(image, M, (maxWidth, maxHeight))
+        # 使用 INTER_CUBIC 插值減少鋸齒和變形
+        # 使用 BORDER_REPLICATE 避免黑邊
+        warped_img = cv2.warpPerspective(
+            image, M, (maxWidth, maxHeight),
+            flags=cv2.INTER_CUBIC,
+            borderMode=cv2.BORDER_REPLICATE
+        )
 
         # 如果有提供輪廓，進行去背處理
         if contour is not None:
@@ -130,3 +136,118 @@ class PerspectiveTransformer:
 
         # 合併
         return cv2.add(img_fg, bg_fill)
+
+    def deskew_image(self, image: np.ndarray) -> np.ndarray:
+        """
+        自動偵測並校正圖像傾斜角度。
+        
+        使用 Hough 線段分析文字行方向，計算需要旋轉的角度。
+        
+        Args:
+            image: 透視變換後的圖像
+            
+        Returns:
+            旋轉校正後的圖像
+        """
+        if image.size == 0:
+            return image
+        
+        # 灰階
+        if len(image.shape) == 3:
+            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = image.copy()
+        
+        # 偵測傾斜角度
+        angle = self._detect_skew_angle(gray)
+        
+        if abs(angle) < 0.5:  # 小於 0.5 度不需要校正
+            return image
+        
+        # 執行旋轉
+        return self._rotate_image(image, angle)
+    
+    def _detect_skew_angle(self, gray: np.ndarray) -> float:
+        """
+        使用 Hough 線段偵測計算圖像傾斜角度。
+        
+        Args:
+            gray: 灰階圖像
+            
+        Returns:
+            傾斜角度 (度)，正值表示順時針傾斜
+        """
+        # 邊緣偵測
+        edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+        
+        # 膨脹讓線段更連續
+        kernel = np.ones((3, 3), np.uint8)
+        edges = cv2.dilate(edges, kernel, iterations=1)
+        
+        # Hough 線段偵測
+        lines = cv2.HoughLinesP(
+            edges, 1, np.pi / 180, 
+            threshold=100, 
+            minLineLength=gray.shape[1] // 8,  # 至少 1/8 圖寬
+            maxLineGap=10
+        )
+        
+        if lines is None or len(lines) == 0:
+            return 0.0
+        
+        # 收集接近水平的線段角度
+        angles = []
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            if x2 - x1 == 0:
+                continue
+            angle = np.degrees(np.arctan2(y2 - y1, x2 - x1))
+            
+            # 只考慮接近水平的線段 (±45度)
+            if abs(angle) < 45:
+                angles.append(angle)
+        
+        if not angles:
+            return 0.0
+        
+        # 取中位數角度（比平均值更穩健）
+        median_angle = np.median(angles)
+        
+        return median_angle
+    
+    def _rotate_image(self, image: np.ndarray, angle: float) -> np.ndarray:
+        """
+        以圖像中心旋轉指定角度。
+        
+        Args:
+            image: 原始圖像
+            angle: 旋轉角度 (度)，正值逆時針
+            
+        Returns:
+            旋轉後的圖像（保持完整內容）
+        """
+        h, w = image.shape[:2]
+        center = (w // 2, h // 2)
+        
+        # 計算旋轉矩陣（負角度因為我們要校正傾斜，即反向旋轉）
+        M = cv2.getRotationMatrix2D(center, -angle, 1.0)
+        
+        # 計算新的圖像尺寸以容納旋轉後的內容
+        cos = abs(M[0, 0])
+        sin = abs(M[0, 1])
+        new_w = int(h * sin + w * cos)
+        new_h = int(h * cos + w * sin)
+        
+        # 調整旋轉矩陣的平移部分
+        M[0, 2] += (new_w - w) / 2
+        M[1, 2] += (new_h - h) / 2
+        
+        # 執行旋轉，使用白色背景
+        rotated = cv2.warpAffine(
+            image, M, (new_w, new_h),
+            flags=cv2.INTER_CUBIC,
+            borderMode=cv2.BORDER_CONSTANT,
+            borderValue=(255, 255, 255)
+        )
+        
+        return rotated

@@ -2,8 +2,12 @@
 """
 輪廓驗證模組：驗證檢測到的輪廓是否符合發票的幾何特徵。
 """
+import cv2
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ContourValidator:
@@ -123,3 +127,77 @@ class ContourValidator:
         aspect_ratio = min(w, h) / max(w, h)
 
         return self.aspect_ratio_range[0] <= aspect_ratio <= self.aspect_ratio_range[1]
+
+    def refine_corners(self, image_gray: np.ndarray, pts: np.ndarray, 
+                       win_size: int = 5) -> np.ndarray:
+        """
+        使用 cv2.cornerSubPix 精煉角點位置到亞像素精度。
+        
+        這可以大幅提升透視變換的準確度，減少梯形變形問題。
+        
+        Args:
+            image_gray: 灰階圖像
+            pts: 形狀為 (4, 2) 的頂點陣列
+            win_size: 搜索視窗大小
+            
+        Returns:
+            精煉後的頂點陣列
+        """
+        try:
+            criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+            pts_float = pts.astype(np.float32).reshape(-1, 1, 2)
+            refined = cv2.cornerSubPix(
+                image_gray, 
+                pts_float,
+                (win_size, win_size), 
+                (-1, -1), 
+                criteria
+            )
+            return refined.reshape(-1, 2)
+        except Exception as e:
+            logger.warning(f"角點精煉失敗，使用原始點: {e}")
+            return pts.astype(np.float32)
+
+    def check_parallelism(self, pts: np.ndarray) -> Tuple[bool, float, float]:
+        """
+        檢查四邊形的對邊是否平行（判斷是矩形還是梯形）。
+        
+        Args:
+            pts: 四邊形的四個頂點
+            
+        Returns:
+            Tuple[是否近似矩形, 上下邊夾角差, 左右邊夾角差]
+        """
+        p = self.order_points(pts)
+        tl, tr, br, bl = p
+        
+        # 上邊與下邊的向量
+        top_vec = tr - tl
+        bottom_vec = br - bl
+        
+        # 左邊與右邊的向量
+        left_vec = bl - tl
+        right_vec = br - tr
+        
+        def vector_angle(v):
+            """計算向量的角度 (度)"""
+            return np.degrees(np.arctan2(v[1], v[0]))
+        
+        # 計算對邊的角度差
+        top_angle = vector_angle(top_vec)
+        bottom_angle = vector_angle(bottom_vec)
+        horizontal_diff = abs(top_angle - bottom_angle)
+        
+        left_angle = vector_angle(left_vec)
+        right_angle = vector_angle(right_vec)
+        vertical_diff = abs(left_angle - right_angle)
+        
+        # 容忍度：若夾角差 < 5度，視為平行
+        parallelism_tolerance = 5.0
+        is_rectangle = (horizontal_diff < parallelism_tolerance and 
+                       vertical_diff < parallelism_tolerance)
+        
+        if not is_rectangle:
+            logger.debug(f"檢測到梯形: 上下邊夾角差={horizontal_diff:.1f}°, 左右邊夾角差={vertical_diff:.1f}°")
+        
+        return is_rectangle, horizontal_diff, vertical_diff

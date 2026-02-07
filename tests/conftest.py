@@ -28,7 +28,7 @@ if "paddle" not in sys.modules:
     sys.modules["paddle"] = _create_lazy_mock("paddle")
 
 # Add project root to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 print("sys.executable", sys.executable)
 print("which python", shutil.which("python"))

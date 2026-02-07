@@ -4,16 +4,14 @@
     "workspace_root": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB"
   },
   "vision_settings": {
-    "model_name": "qwen3-vl:2b",
+    "api_key": "AIzaSyA3H3NTq42dzu1YORmIPl-rgEgMXZndJCE",
+    "model_name": "gemini-2.5-flash-lite",
     "temperature": 0.0,
-    "streaming": true,
     "debug": true,
     "timeout": 120,
+    "max_retries": 3,
     "think_mode": true,
-    "num_predict": 4096,
-    "num_ctx": 8192,
-    "repeat_penalty": 1.2,
-    "top_p": 0.3
+    "thinking_budget": 1024
   },
   "ocr_settings": {
     "engine": "rapidocr",
@@ -29,13 +27,6 @@
     "temperature": 0.0,
     "think_mode": true,
     "num_predict": 2048
-  },
-  "gemma_settings": {
-    "model_name": "gemma3:4b",
-    "temperature": 0.1,
-    "streaming": true,
-    "num_predict": 4096,
-    "num_ctx": 8192
   },
   "excel_settings": {
     "main_sheet_name": "主要",
