@@ -56,7 +56,7 @@ export default {
   },
 
   // =====================
-  // Pipeline Actions
+  // Pipeline Actions (VLM-First)
   // =====================
   runSplit(projectId) {
     return api.post(`/api/projects/${projectId}/run_split`)
@@ -64,23 +64,13 @@ export default {
   runSplitSingle(projectId, filename) {
     return api.post(`/api/projects/${projectId}/split/${filename}`)
   },
-  runOCR(projectId) {
-    return api.post(`/api/projects/${projectId}/run_ocr`)
+  
+  // VLM-First: 統一處理入口
+  runProcessing(projectId) {
+    return api.post(`/api/projects/${projectId}/run_processing`)
   },
-  runOcrOnly(projectId) {
-    return api.post(`/api/projects/${projectId}/run_ocr_only`)
-  },
-  runSingleOCR(projectId, jobId) {
-    return api.post(`/api/projects/${projectId}/jobs/${jobId}/ocr`)
-  },
-  runSingleOcrOnly(projectId, jobId) {
-    return api.post(`/api/projects/${projectId}/jobs/${jobId}/ocr_only`)
-  },
-  runLLM(projectId) {
-    return api.post(`/api/projects/${projectId}/run_llm`)
-  },
-  runSingleLLM(projectId, jobId) {
-    return api.post(`/api/projects/${projectId}/jobs/${jobId}/llm`)
+  runSingleProcessing(projectId, jobId) {
+    return api.post(`/api/projects/${projectId}/jobs/${jobId}/process`)
   },
 
   // =====================

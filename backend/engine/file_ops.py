@@ -10,27 +10,26 @@ from backend.utils import utils
 logger = logging.getLogger(__name__)
 
 class FileOps:
-    def __init__(self, project_manager, receipt_splitter, engine_ref):
-        self.project_manager = project_manager
+    def __init__(self, project_repo, receipt_splitter, engine_ref):
+        self.project_repo = project_repo
         self.receipt_splitter = receipt_splitter
-        self.engine = engine_ref # Reference to engine to get task manager
+        self.engine = engine_ref
 
     def run_splitting(self, project_id: str, target_files: Optional[list[str]] = None):
         try:
             logger.info(f"[FileOps] run_splitting started for {project_id}, target_files={target_files}")
-            root = self.project_manager._project_root(project_id)
-            tm = self.engine.get_task_manager(project_id)
+            root = self.project_repo._project_root(project_id)
             
-            self._prepare_tasks(root, tm, target_files=target_files)
+            self._prepare_tasks(root, project_id, target_files=target_files)
             
-            self.project_manager.update_project_status(project_id, "SPLIT")
+            self.project_repo.update_project_status(project_id, "SPLIT")
             logger.info(f"[FileOps] run_splitting completed for {project_id}")
             return {"status": "split_completed"}
         except Exception as e:
             logger.error(f"[FileOps] Error splitting for {project_id}: {e}", exc_info=True)
             raise e
 
-    def _prepare_tasks(self, project_root: Path, tm, target_files: Optional[list[str]] = None):
+    def _prepare_tasks(self, project_root: Path, project_id: str, target_files: Optional[list[str]] = None):
         raw_input_dir = project_root / "原始輸入"
         split_output_dir = project_root / "分割發票"
         
@@ -72,7 +71,7 @@ class FileOps:
                 # Enqueue with ABSOLUTE paths
                 for path in cropped_paths:
                     abs_path = str(path.resolve())
-                    tm.enqueue(abs_path)
+                    self.engine.enqueue_job(project_id, abs_path)
                     logger.debug(f"[FileOps] Enqueued job with absolute path: {abs_path}")
                     
             except Exception as e:
@@ -80,7 +79,7 @@ class FileOps:
 
     def get_raw_files(self, project_id: str):
         try:
-            root = self.project_manager._project_root(project_id)
+            root = self.project_repo._project_root(project_id)
             raw_dir = root / "原始輸入"
             split_dir = root / "分割發票"
             
@@ -111,7 +110,7 @@ class FileOps:
 
     def add_project_files(self, project_id: str, files: list[str], type: str = "raw"):
         try:
-            root = self.project_manager._project_root(project_id)
+            root = self.project_repo._project_root(project_id)
             if type == "raw":
                 target_dir = root / "原始輸入"
             elif type == "split":
@@ -121,8 +120,6 @@ class FileOps:
             
             target_dir.mkdir(parents=True, exist_ok=True)
             
-            tm = self.engine.get_task_manager(project_id)
-            
             for file_path in files:
                 filename = Path(file_path).name
                 dest_path = target_dir / filename
@@ -131,7 +128,7 @@ class FileOps:
                 if type == "split":
                     # Enqueue with ABSOLUTE path
                     abs_path = str(dest_path.resolve())
-                    tm.enqueue(abs_path, stage='ocr')
+                    self.engine.enqueue_job(project_id, abs_path)
                     logger.debug(f"[FileOps] Enqueued split file with absolute path: {abs_path}")
             
             return {"status": "added"}
@@ -141,7 +138,7 @@ class FileOps:
 
     def rotate_image(self, project_id: str, filename: str, angle: int = 90):
         try:
-            root = self.project_manager._project_root(project_id)
+            root = self.project_repo._project_root(project_id)
             image_path = root / "分割發票" / filename
             if not image_path.exists():
                 raise FileNotFoundError(f"Image {filename} not found in splits")

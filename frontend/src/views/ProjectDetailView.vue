@@ -9,30 +9,26 @@
       </div>
     </header>
 
+    <!-- VLM-First Pipeline: 簡化為 3 步驟 -->
     <div class="pipeline-controls">
       <div class="step" :class="{ active: canSplit }">
         <h3>1. Split</h3>
-        <button @click="runSplit" :disabled="!canSplit || loading">Run Split (All)</button>
+        <button @click="runSplit" :disabled="!canSplit || loading">分割圖片</button>
       </div>
       <div class="arrow">→</div>
-      <div class="step" :class="{ active: canOCR }">
-        <h3>2. OCR</h3>
-        <button @click="runOCR" :disabled="!canOCR || loading">Run OCR (All)</button>
-      </div>
-      <div class="arrow">→</div>
-      <div class="step" :class="{ active: canLLM }">
-        <h3>3. LLM</h3>
-        <button @click="runLLM" :disabled="!canLLM || loading">Run LLM (All)</button>
+      <div class="step" :class="{ active: canProcess }">
+        <h3>2. 處理</h3>
+        <button @click="runProcessing" :disabled="!canProcess || loading">VLM 處理</button>
       </div>
       <div class="arrow">→</div>
       <div class="step" :class="{ active: canExport }">
-        <h3>4. Export</h3>
-        <button @click="runExport" :disabled="!canExport || loading">Export Excel</button>
+        <h3>3. Export</h3>
+        <button @click="runExport" :disabled="!canExport || loading">匯出 Excel</button>
       </div>
       <div class="arrow">→</div>
       <div class="step" :class="{ active: canArchive }">
-        <h3>5. Archive</h3>
-        <button @click="runArchive" :disabled="!canArchive || loading">Archive</button>
+        <h3>4. Archive</h3>
+        <button @click="runArchive" :disabled="!canArchive || loading">封存</button>
       </div>
     </div>
 
@@ -92,8 +88,7 @@
             <tr>
               <th>Preview</th>
               <th>Filename</th>
-              <th>OCR</th>
-              <th>LLM</th>
+              <th>狀態</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -106,19 +101,11 @@
               </td>
               <td class="filename" :title="job.image_path">{{ getFilename(job.image_path) }}</td>
               <td>
-                <span class="badge" :class="getOCRBadgeClass(job)">
-                  {{ getOCRStatusText(job) }}
+                <span class="badge" :class="getStatusBadgeClass(job)">
+                  {{ getStatusText(job) }}
                 </span>
-                <button v-if="canShowOCRButton(job)" @click="runSingleOCR(job)" class="mini-btn">
-                  {{ isOCRDone(job) ? 'Rerun' : 'Run' }}
-                </button>
-              </td>
-              <td>
-                <span class="badge" :class="getLLMBadgeClass(job)">
-                  {{ getLLMStatusText(job) }}
-                </span>
-                <button v-if="canShowLLMButton(job)" @click="runSingleLLM(job)" class="mini-btn">
-                  {{ isLLMDone(job) ? 'Rerun' : 'Run' }}
+                <button v-if="canShowProcessButton(job)" @click="runSingleProcessing(job)" class="mini-btn">
+                  {{ isDone(job) ? '重新處理' : '處理' }}
                 </button>
               </td>
               <td>
@@ -131,7 +118,7 @@
               </td>
             </tr>
             <tr v-if="jobs.length === 0">
-              <td colspan="5" class="no-data">No jobs found.</td>
+              <td colspan="4" class="no-data">No jobs found.</td>
             </tr>
           </tbody>
         </table>
@@ -158,18 +145,16 @@ let pollInterval = null
 
 const fetchProjectData = async () => {
   try {
-    // Get status and progress info
     const statusRes = await api.getProject(projectId)
     progress.value = statusRes.data
     
-    // Get full project info including Activity Name from list endpoint
     const projectsRes = await api.getProjects()
     const projectData = projectsRes.data.find(p => p.project_id === projectId)
     
     project.value = { 
         project_id: projectId, 
-        status: projectData?.status || 'NEW',  // Backend now auto-syncs status to database
-        name: projectData?.name || projectId  // Activity Name from database name field
+        status: projectData?.status || 'NEW',
+        name: projectData?.name || projectId
     }
 
     const jobsRes = await api.getProjectJobs(projectId)
@@ -191,9 +176,9 @@ onUnmounted(() => {
   if (pollInterval) clearInterval(pollInterval)
 })
 
+// VLM-First: 簡化條件
 const canSplit = computed(() => progress.value?.ingested)
-const canOCR = computed(() => progress.value?.split)
-const canLLM = computed(() => progress.value?.split)
+const canProcess = computed(() => progress.value?.split)
 const canExport = computed(() => progress.value?.processed)
 const canArchive = computed(() => project.value?.status === 'ARCHIVED' || project.value?.status === 'SEALED' || progress.value?.processed)
 
@@ -220,68 +205,32 @@ const handleImgError = (e) => {
   e.target.src = 'https://via.placeholder.com/100x150?text=No+Image';
 }
 
-const isOCRDone = (job) => {
-  return job.ocr_done_at || job.status === 'done' || (job.stage === 'llm') || (job.stage === 'finalize');
+// VLM-First: 簡化狀態判斷
+const isDone = (job) => {
+  return job.status === 'done' || job.llm_done_at;
 }
 
-const isLLMDone = (job) => {
-  return job.llm_done_at || (job.status === 'done' && job.stage === 'finalize');
-}
-
-const getOCRStatusText = (job) => {
-  // Priority: active status first, then done status
-  if (job.status === 'running' && job.stage === 'ocr') return 'Running';
-  if (job.status === 'pending' && job.stage === 'ocr') return 'Pending';
-  if (isOCRDone(job)) return '✓ Done';
-  if (job.status === 'ready' && job.stage === 'ocr') return 'Ready';
+const getStatusText = (job) => {
+  if (job.status === 'failed') return '✗ 失敗';
+  if (job.status === 'running') return '處理中...';
+  if (job.status === 'pending') return '等待中';
+  if (isDone(job)) return '✓ 完成';
+  if (job.status === 'ready') return '待處理';
   return '-';
 }
 
-const getOCRBadgeClass = (job) => {
-  // Priority: active status first
-  if (job.status === 'running' && job.stage === 'ocr') return 'pending';
-  if (job.status === 'pending' && job.stage === 'ocr') return 'pending';
-  if (isOCRDone(job)) return 'success';
-  if (job.status === 'ready' && job.stage === 'ocr') return 'info';
-  return 'pending';
-}
-
-const getLLMStatusText = (job) => {
-  // Priority: failed first, then active status, then done status
-  if (job.status === 'failed') return '✗ Failed';
-  if (job.status === 'running' && job.stage === 'llm') return 'Running';
-  if (job.status === 'pending' && job.stage === 'llm') return 'Pending';
-  if (isLLMDone(job)) return '✓ Done';
-  if (job.status === 'ready' && job.stage === 'llm') return 'Ready';
-  if (isOCRDone(job)) return '-';  // OCR done but LLM not started
-  return '-';
-}
-
-const getLLMBadgeClass = (job) => {
-  // Priority: failed first
+const getStatusBadgeClass = (job) => {
   if (job.status === 'failed') return 'danger';
-  if (job.status === 'running' && job.stage === 'llm') return 'pending';
-  if (job.status === 'pending' && job.stage === 'llm') return 'pending';
-  if (isLLMDone(job)) return 'success';
-  if (job.status === 'ready' && job.stage === 'llm') return 'info';
+  if (job.status === 'running') return 'pending';
+  if (job.status === 'pending') return 'pending';
+  if (isDone(job)) return 'success';
+  if (job.status === 'ready') return 'info';
   return 'pending';
 }
 
-// Button visibility functions
-const canShowOCRButton = (job) => {
-  // Hide button if job is currently pending or running OCR
-  if (job.status === 'pending' && job.stage === 'ocr') return false;
-  if (job.status === 'running' && job.stage === 'ocr') return false;
-  // Show button if OCR not done yet, or if job is completely done (for rerun)
-  return !isOCRDone(job) || job.status === 'done';
-}
-
-const canShowLLMButton = (job) => {
-  // Hide button if job is currently pending or running LLM
-  if (job.status === 'pending' && job.stage === 'llm') return false;
-  if (job.status === 'running' && job.stage === 'llm') return false;
-  // Show button if OCR is done but LLM is not, or if job is completely done (for rerun)
-  return (isOCRDone(job) && !isLLMDone(job)) || job.status === 'done';
+const canShowProcessButton = (job) => {
+  if (job.status === 'pending' || job.status === 'running') return false;
+  return true;
 }
 
 const runSplit = async () => {
@@ -314,23 +263,11 @@ const deleteRawFile = async (file) => {
   finally { loading.value = false; }
 }
 
-const runOCR = async () => {
+// VLM-First: 單一處理入口
+const runProcessing = async () => {
   loading.value = true
   try { 
-    // Use runOcrOnly to separate OCR from LLM
-    await api.runOcrOnly(projectId); 
-    // Immediate poll to show pending status
-    setTimeout(() => fetchProjectData(), 100);
-  } 
-  catch (e) { alert(e); } 
-  finally { loading.value = false; }
-}
-
-const runLLM = async () => {
-  loading.value = true
-  try { 
-    await api.runLLM(projectId); 
-    // Immediate poll to show pending status
+    await api.runProcessing(projectId); 
     setTimeout(() => fetchProjectData(), 100);
   } 
   catch (e) { alert(e); } 
@@ -379,7 +316,7 @@ const handleFileUpload = async (event, type) => {
     alert('Error adding files: ' + e);
   } finally {
     loading.value = false;
-    event.target.value = ''; // Reset input
+    event.target.value = '';
   }
 }
 
@@ -394,26 +331,14 @@ const rotateImage = async (job, angle) => {
   }
 }
 
-const runSingleOCR = async (job) => {
+// VLM-First: 單一處理
+const runSingleProcessing = async (job) => {
   loading.value = true;
   try {
-    // Use runSingleOcrOnly
-    await api.runSingleOcrOnly(projectId, job.job_id);
+    await api.runSingleProcessing(projectId, job.job_id);
     await fetchProjectData();
   } catch (e) {
-    alert('Error running OCR: ' + e);
-  } finally {
-    loading.value = false;
-  }
-}
-
-const runSingleLLM = async (job) => {
-  loading.value = true;
-  try {
-    await api.runSingleLLM(projectId, job.job_id);
-    await fetchProjectData();
-  } catch (e) {
-    alert('Error running LLM: ' + e);
+    alert('Error running processing: ' + e);
   } finally {
     loading.value = false;
   }

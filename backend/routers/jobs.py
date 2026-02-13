@@ -1,4 +1,4 @@
-# Jobs Router - Job 管理端點
+# Jobs Router - Job 管理端點 (VLM-First)
 import logging
 import sqlite3
 from fastapi import APIRouter, HTTPException, Depends
@@ -13,9 +13,9 @@ router = APIRouter()
 def get_project_jobs(project_id: str, engine: Engine = Depends(get_engine)):
     """Get all jobs for a project."""
     try:
-        engine.project_manager.sync_status_to_db(project_id)
+        engine.project_repo.sync_status_to_db(project_id)
         
-        root = engine.project_manager._project_root(project_id)
+        root = engine.project_repo._project_root(project_id)
         db_path = root / "jobs.db"
         if not db_path.exists():
             return []
@@ -38,7 +38,7 @@ def get_project_jobs(project_id: str, engine: Engine = Depends(get_engine)):
 def get_job_details(project_id: str, job_id: str, engine: Engine = Depends(get_engine)):
     """Get full job details for the editor view."""
     try:
-        tm = engine.get_task_manager(project_id)
+        tm = engine.get_job_repo(project_id)
         details = tm.get_job_details(job_id)
         if not details:
             raise HTTPException(status_code=404, detail="Job not found")
@@ -60,35 +60,13 @@ def delete_job(project_id: str, job_id: str, engine: Engine = Depends(get_engine
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{project_id}/jobs/{job_id}/ocr")
-def run_single_ocr(project_id: str, job_id: str, engine: Engine = Depends(get_engine)):
-    """Run OCR for a single job."""
+@router.post("/{project_id}/jobs/{job_id}/process")
+def run_single_processing(project_id: str, job_id: str, engine: Engine = Depends(get_engine)):
+    """Run VLM processing for a single job (VLM-First)."""
     try:
-        return engine.run_single_ocr(project_id, job_id)
+        return engine.run_single_processing(project_id, job_id)
     except Exception as e:
-        logger.error(f"Error running single OCR: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/{project_id}/jobs/{job_id}/llm")
-def run_single_llm(project_id: str, job_id: str, engine: Engine = Depends(get_engine)):
-    """Run LLM for a single job."""
-    try:
-        return engine.run_single_llm(project_id, job_id)
-    except Exception as e:
-        logger.error(f"Error running single LLM: {e}")
-    except Exception as e:
-        logger.error(f"Error running single LLM: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/{project_id}/jobs/{job_id}/ocr_only")
-def run_single_ocr_only(project_id: str, job_id: str, engine: Engine = Depends(get_engine)):
-    """Run OCR only for a single job."""
-    try:
-        return engine.run_single_ocr_only(project_id, job_id)
-    except Exception as e:
-        logger.error(f"Error running single OCR only: {e}")
+        logger.error(f"Error running single processing: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -102,7 +80,7 @@ class ManualJsonRequest(BaseModel):
 def save_manual_json(project_id: str, job_id: str, request: ManualJsonRequest, engine: Engine = Depends(get_engine)):
     """Save user's manual JSON edit."""
     try:
-        tm = engine.get_task_manager(project_id)
+        tm = engine.get_job_repo(project_id)
         success = tm.save_manual_json(job_id, request.json_data)
         if not success:
             raise HTTPException(status_code=404, detail="Job not found")

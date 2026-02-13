@@ -123,14 +123,14 @@ def test_engine(temp_workspace, mock_ocr_handler, mock_llm_handler, mock_receipt
     - 自動設置為全局實例供 Depends 使用
     """
     from backend.engine.core import Engine
-    from backend.managers import ProjectManager
+    from backend.repositories.project_repository import ProjectRepository
     
-    # 創建使用臨時目錄的 ProjectManager
+    # 創建使用臨時目錄的 ProjectRepository
     pm_config = {
         "workspace_root": str(temp_workspace),
         "global_db_path": str(temp_workspace / "projects.db")
     }
-    project_manager = ProjectManager(config=pm_config)
+    project_repo = ProjectRepository(config=pm_config)
     
     # 創建 Engine，注入所有依賴
     engine = Engine(
@@ -139,7 +139,7 @@ def test_engine(temp_workspace, mock_ocr_handler, mock_llm_handler, mock_receipt
             "ocr_settings": {"language": "chinese_cht", "use_angle_cls": True},
             "llm_settings": {"model_name": "test-model"}
         },
-        project_manager=project_manager,
+        project_repo=project_repo,
         receipt_splitter=mock_receipt_splitter,
         start_workers=False  # 關鍵：不啟動 Workers
     )

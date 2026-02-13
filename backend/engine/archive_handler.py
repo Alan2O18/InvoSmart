@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 class ArchiveHandler:
     """Handles project archiving (7z/zip compression)."""
     
-    def __init__(self, project_manager):
-        self.project_manager = project_manager
+    def __init__(self, project_repo):
+        self.project_repo = project_repo
     
     def seal_project(
         self,
@@ -36,12 +36,12 @@ class ArchiveHandler:
         Returns:
             Dictionary with success status, method, archive path, and debug info
         """
-        root = self.project_manager._project_root(project_id)
+        root = self.project_repo._project_root(project_id)
         if not root.exists():
             raise FileNotFoundError("project root not found")
         
         # Use workspace root from project manager to determine default archives location
-        workspace_root = self.project_manager.project_setup.workspace_root
+        workspace_root = self.project_repo.workspace_root
         dest_root = (
             Path(dest_folder) if dest_folder else workspace_root / "archives"
         )
@@ -78,7 +78,7 @@ class ArchiveHandler:
             if temp_target:
                 shutil.rmtree(temp_target, ignore_errors=True)
             if proc.returncode == 0:
-                self.project_manager.update_project_status(project_id, "SEALED")
+                self.project_repo.update_project_status(project_id, "SEALED")
                 return {
                     "success": True,
                     "method": "7z",
@@ -113,7 +113,7 @@ class ArchiveHandler:
                         arc = str(Path(project_id) / Path(r).relative_to(root) / f)
                         z.write(str(full), arc)
             os.replace(tmpzip, str(dest_zip))
-            self.project_manager.update_project_status(project_id, "SEALED")
+            self.project_repo.update_project_status(project_id, "SEALED")
             return {
                 "success": True,
                 "method": "zip",

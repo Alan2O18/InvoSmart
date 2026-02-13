@@ -8,7 +8,7 @@ import os
 import sqlite3
 import json
 import time
-from backend.managers.job_repository import JobRepository
+from backend.repositories.job_repository import JobRepository
 
 class TestJobRepository:
     """JobRepository Integration Tests"""

@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 from typing import List, Optional
-from backend.managers.suggestion_repository import SuggestionRepository
+from backend.repositories.suggestion_repository import SuggestionRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

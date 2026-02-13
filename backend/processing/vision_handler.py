@@ -47,37 +47,41 @@ class VisionHandler:
     採用 "High Trust, Verify Later" 策略。
     """
 
-    # 預設 Prompt Template
-    DEFAULT_PROMPT = """你是一個專業的台灣收據辨識助手。請辨識這張圖片中的手寫或印刷收據內容，並輸出為嚴格的 JSON 格式 (不要包含 Markdown code fence)。
+    # 預設 Prompt Template - 通用收據辨識 (電子/手寫/傳統)
+    DEFAULT_PROMPT = """你是一個專業的台灣收據辨識助手。請辨識這張圖片中的收據內容（可能是電子發票、手寫收據、或傳統長條發票），並輸出為嚴格的 JSON 格式 (不要包含 Markdown code fence)。
 
 請參考以下 JSON 範例輸出：
 {
-  "receipt_type": "免用統一發票收據",  
+  "receipt_type": "電子發票證明聯",
   "header": {
       "supplier": "店家名", 
       "buyer": "買受人", 
-      "invoice_id": "", 
-      "date": "中華民國1140930"
+      "invoice_id": "AB12345678", 
+      "date": "2024-01-15"
   }, 
   "items": [
       {"name": "品項名稱", "qty": 1, "price": 100, "total": 100}
   ], 
   "summary": {
-      "total": 100
+      "subtotal": 100,
+      "tax": 5,
+      "total": 105
   }, 
   "verification": {
-      "handwritten_total_chinese": "壹仟元整", 
-      "stamp_shop_name": "店家章名稱"
+      "handwritten_total_chinese": "壹佰零伍元整", 
+      "stamp_shop_name": "店家章名稱",
+      "qr_code_detected": true
   }
 }
 
 規則：
-1. "receipt_type": 依據圖片內容判斷，例如 "免用統一發票收據"、"電子發票證明聯" 等。
-2. "date": 請轉換為 "中華民國YYYMMDD" 或 "YYYY-MM-DD" 格式。
-3. "items": 請列出所有品項，確保 "total" = "qty" * "price"。
-4. "summary.total": 必須等於 items 的總和。
-5. "verification": 請辨識手寫的大寫金額 (handwritten_total_chinese) 與蓋章的店名 (stamp_shop_name) 用於後續驗證。
-6. 若欄位無法辨識或不存在，請留空字串 "" 或 null。
+1. "receipt_type": 判斷收據類型，例如 "電子發票證明聯"、"免用統一發票收據"、"二聯式發票" 等。
+2. "date": 請使用 ISO 格式 "YYYY-MM-DD"，若為民國年請轉換。
+3. "invoice_id": 電子發票請填寫發票號碼 (如 AB12345678)。
+4. "items": 請列出所有品項，確保 "total" = "qty" * "price"。
+5. "summary.total": 必須等於 items 的總和 (或加上稅額)。
+6. "verification": 辨識手寫的大寫金額、蓋章店名、是否有 QR Code。
+7. 若欄位無法辨識或不存在，請留空字串 "" 或 null。
 
 直接輸出 JSON，不要任何其他說明。"""
 
@@ -283,8 +287,71 @@ class VisionHandler:
         return content
 
     def image_to_markdown(self, image_array: np.ndarray) -> tuple:
-        """通用介面"""
-        return self.process_handwritten(image_array)
+        """通用介面 (舊版相容)"""
+        return self.process_image(image_array)
+
+    def process_image(self, image_array: np.ndarray, prompt_context: str = "") -> tuple:
+        """
+        處理收據圖片 - 主要入口點 (VLM-First 架構)
+        
+        統一處理所有收據類型：電子發票、手寫收據、傳統發票。
+        
+        Args:
+            image_array: OpenCV 格式的圖片陣列 (BGR)
+            prompt_context: 額外的上下文提示 (選填)
+            
+        Returns:
+            tuple: (result_dict, stats_dict)
+                - result_dict: 解析後的 JSON dict，若失敗則為空 dict
+                - stats_dict: 處理統計資訊
+        """
+        start_time = time.time()
+        logger.info(f"[VisionHandler] 開始收據識別 (Gemini: {self.model_name})")
+        
+        if not self._client:
+            error_msg = "Gemini client 未初始化"
+            return {}, {"error": error_msg, "total_time_s": 0}
+
+        try:
+            # 準備輸入元件
+            image_part = self._prepare_image_part(image_array)
+            
+            prompt = self.DEFAULT_PROMPT
+            if prompt_context:
+                prompt += f"\n\n【參考資訊】\n{prompt_context}"
+            
+            # 呼叫 API (with retry)
+            result_text, thoughts = self._call_with_retry(prompt, image_part)
+            
+            # 清理 JSON
+            result_text = self._clean_json_response(result_text)
+            
+            # 解析 JSON
+            try:
+                result_dict = json.loads(result_text)
+            except json.JSONDecodeError as e:
+                logger.warning(f"[VisionHandler] JSON 解析失敗: {e}")
+                result_dict = {"raw_text": result_text}
+            
+            total_time = time.time() - start_time
+            logger.info(f"[VisionHandler] ✓ 辨識完成，耗時 {total_time:.2f}s")
+            
+            stats = {
+                "stage": "vlm",
+                "processor": "Gemini",
+                "model": self.model_name,
+                "total_time_s": round(total_time, 3),
+                "has_thoughts": bool(thoughts),
+                "started_at": int(start_time),
+                "completed_at": int(time.time())
+            }
+            
+            return result_dict, stats
+
+        except Exception as e:
+            total_time = time.time() - start_time
+            logger.error(f"[VisionHandler] ✗ 辨識失敗: {e}", exc_info=True)
+            return {}, {"error": str(e), "total_time_s": round(total_time, 3)}
 
     def describe_image(self, image_array: np.ndarray, custom_prompt: str = None) -> tuple:
         """描述圖片"""

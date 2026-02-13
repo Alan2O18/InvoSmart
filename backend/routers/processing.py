@@ -1,4 +1,4 @@
-# Processing Router - 處理操作端點
+# Processing Router - 處理操作端點 (VLM-First)
 import logging
 from fastapi import APIRouter, HTTPException, Form, Depends
 from backend.dependencies import get_engine
@@ -28,33 +28,13 @@ def run_split_single(project_id: str, filename: str, engine: Engine = Depends(ge
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/{project_id}/run_ocr")
-def run_ocr(project_id: str, engine: Engine = Depends(get_engine)):
-    """Run OCR for all jobs in project."""
+@router.post("/{project_id}/run_processing")
+def run_processing(project_id: str, engine: Engine = Depends(get_engine)):
+    """Run VLM processing for all jobs in project (VLM-First)."""
     try:
-        return engine.run_ocr(project_id)
+        return engine.run_processing(project_id)
     except Exception as e:
-        logger.error(f"Error running OCR: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/{project_id}/run_ocr_only")
-def run_ocr_only(project_id: str, engine: Engine = Depends(get_engine)):
-    """Run OCR only, without LLM processing."""
-    try:
-        return engine.run_ocr_only(project_id)
-    except Exception as e:
-        logger.error(f"Error running OCR only: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/{project_id}/run_llm")
-def run_llm(project_id: str, engine: Engine = Depends(get_engine)):
-    """Run LLM for all jobs in project."""
-    try:
-        return engine.run_llm(project_id)
-    except Exception as e:
-        logger.error(f"Error running LLM: {e}")
+        logger.error(f"Error running processing: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

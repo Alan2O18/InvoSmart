@@ -10,7 +10,7 @@ def get_jobs(project_id: str):
     """Get jobs for a project (called from websocket, uses global engine)."""
     try:
         engine = get_engine()
-        root = engine.project_manager._project_root(project_id)
+        root = engine.project_repo._project_root(project_id)
         db_path = root / "jobs.db"
         if not db_path.exists():
              return []
@@ -36,7 +36,7 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
             jobs = get_jobs(project_id)
             try:
                 engine = get_engine()
-                progress = engine.project_manager.get_project_status(project_id)
+                progress = engine.project_repo.get_project_status(project_id)
             except:
                 progress = {}
             

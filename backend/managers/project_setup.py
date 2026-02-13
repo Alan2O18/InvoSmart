@@ -25,6 +25,7 @@ class ProjectSetup:
         return {"splits": splits, "raws": raws}
 
     def _init_jobs_db(self, db_path: str, overwrite: bool = False):
+        """初始化 jobs.db (VLM-First 簡化版 Schema)"""
         p = Path(db_path)
         p.parent.mkdir(parents=True, exist_ok=True)
         if p.exists() and not overwrite:
@@ -44,18 +45,25 @@ class ProjectSetup:
               job_id TEXT PRIMARY KEY,
               image_path TEXT NOT NULL,
               status TEXT NOT NULL,
-              stage TEXT NOT NULL,
-              ocr_result_json TEXT,
-              llm_result_json TEXT,
-              ocr_stats TEXT,
-              llm_stats TEXT,
-              manual_ocr_text TEXT,
+              vlm_result_json TEXT,
+              vlm_stats TEXT,
+              validation_json TEXT,
+              qr_verified INTEGER DEFAULT 0,
+              manual_json_text TEXT,
               manual_updated_at REAL,
               created_at REAL DEFAULT (strftime('%s','now')),
-              updated_at REAL DEFAULT (strftime('%s','now')),
-              auto_advance INTEGER DEFAULT 1
+              updated_at REAL DEFAULT (strftime('%s','now'))
             );
             CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+            
+            CREATE TABLE IF NOT EXISTS events (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              job_id TEXT,
+              event_type TEXT,
+              ts REAL DEFAULT (strftime('%s','now')),
+              payload TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_events_job ON events(job_id);
             """
             )
             conn.commit()

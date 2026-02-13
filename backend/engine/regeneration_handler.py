@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 class RegenerationHandler:
     """Handles regeneration of LLM results from human corrections."""
     
-    def __init__(self, project_manager, excel_exporter):
-        self.project_manager = project_manager
+    def __init__(self, project_repo, excel_exporter):
+        self.project_repo = project_repo
         self.excel_exporter = excel_exporter
     
     def regenerate_from_archive(
@@ -34,7 +34,7 @@ class RegenerationHandler:
         from backend.processing.llm_handler import LLMHandler
         logger.info(f"Starting regeneration for project '{project_id}' from '{excel_path}'")
 
-        root = self.project_manager._project_root(project_id)
+        root = self.project_repo._project_root(project_id)
         db_path = root / "jobs.db"
         if not db_path.exists():
             logger.error(f"Jobs database not found for project '{project_id}' at '{db_path}'")

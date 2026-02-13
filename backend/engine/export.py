@@ -21,14 +21,14 @@ class ExportHandler:
     Facade 類別，整合所有匯出相關功能。
     """
     
-    def __init__(self, project_manager):
-        self.project_manager = project_manager
+    def __init__(self, project_repo):
+        self.project_repo = project_repo
         
         # Initialize sub-handlers
-        self._excel_exporter = ExcelExporter(project_manager)
-        self._archive_handler = ArchiveHandler(project_manager)
+        self._excel_exporter = ExcelExporter(project_repo)
+        self._archive_handler = ArchiveHandler(project_repo)
         self._regeneration_handler = RegenerationHandler(
-            project_manager, self._excel_exporter
+            project_repo, self._excel_exporter
         )
     
     # Excel Export Methods

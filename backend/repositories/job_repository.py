@@ -260,3 +260,88 @@ class JobRepository:
             conn.commit()
             conn.close()
             return affected
+
+    # ---------------------
+    # Presentation Helpers (ex-TaskManager)
+    # ---------------------
+    def get_job_details(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Get full job details with parsed JSON (for editor view)."""
+        job = self.get_job(job_id)
+        if not job:
+            return None
+        
+        vlm_result = None
+        validation = None
+        vlm_stats = None
+        manual_json = None
+        
+        try:
+            if job.get("vlm_result_json"):
+                vlm_result = json.loads(job["vlm_result_json"])
+        except:
+            pass
+        try:
+            if job.get("validation_json"):
+                validation = json.loads(job["validation_json"])
+        except:
+            pass
+        try:
+            if job.get("vlm_stats"):
+                vlm_stats = json.loads(job["vlm_stats"])
+        except:
+            pass
+        try:
+            if job.get("manual_json_text"):
+                manual_json = json.loads(job["manual_json_text"])
+        except:
+            pass
+
+        return {
+            "job_id": job["job_id"],
+            "image_path": job["image_path"],
+            "status": job["status"],
+            "vlm_result": vlm_result,
+            "validation": validation,
+            "vlm_stats": vlm_stats,
+            "qr_verified": bool(job.get("qr_verified")),
+            "manual_json": manual_json,
+            "manual_updated_at": job.get("manual_updated_at"),
+            "created_at": job["created_at"],
+            "updated_at": job["updated_at"],
+        }
+
+    def save_manual_json(self, job_id: str, json_data: dict) -> bool:
+        """儲存人工編輯的 JSON 結果"""
+        json_text = json.dumps(json_data, ensure_ascii=False)
+        now = int(time.time())
+        
+        result = self.update_job(
+            job_id,
+            manual_json_text=json_text,
+            manual_updated_at=now
+        )
+        
+        if result:
+            self.emit_event(job_id, "manual_json_saved", {"timestamp": now})
+        return result
+
+    def get_display_result(self, job_id: str) -> Optional[dict]:
+        """獲取顯示用的結果 (優先級: manual_json_text → vlm_result_json)"""
+        job = self.get_job(job_id)
+        if not job:
+            return None
+        
+        if job.get("manual_json_text"):
+            try:
+                return json.loads(job["manual_json_text"])
+            except:
+                pass
+        
+        if job.get("vlm_result_json"):
+            try:
+                return json.loads(job["vlm_result_json"])
+            except:
+                pass
+        
+        return None
+

@@ -22,7 +22,7 @@ class ProjectCreate(BaseModel):
 @router.get("/")
 def list_projects(engine: Engine = Depends(get_engine)):
     """List all projects."""
-    return engine.project_manager.list_projects()
+    return engine.project_repo.list_projects()
 
 
 @router.post("/")
@@ -67,9 +67,9 @@ def update_project(project_id: str, metadata: dict, engine: Engine = Depends(get
     try:
         activity_name = metadata.get('name') or metadata.get('projectName')
         if activity_name:
-            existing = engine.project_manager.project_crud.get_project(project_id)
+            existing = engine.project_repo.get_project(project_id)
             if existing:
-                conn = engine.project_manager.project_crud._conn_global()
+                conn = engine.project_repo._conn_global()
                 try:
                     import time
                     now = int(time.time())
@@ -81,7 +81,7 @@ def update_project(project_id: str, metadata: dict, engine: Engine = Depends(get
                 finally:
                     conn.close()
         
-        return engine.project_manager.update_metadata(project_id, metadata)
+        return engine.project_repo.update_metadata(project_id, metadata)
     except Exception as e:
         logger.error(f"Error updating project: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -91,7 +91,7 @@ def update_project(project_id: str, metadata: dict, engine: Engine = Depends(get
 def delete_project(project_id: str, engine: Engine = Depends(get_engine)):
     """Delete a project."""
     try:
-        return engine.project_manager.delete_project(project_id)
+        return engine.project_repo.delete_project(project_id)
     except Exception as e:
         logger.error(f"Error deleting project: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -101,8 +101,8 @@ def delete_project(project_id: str, engine: Engine = Depends(get_engine)):
 def get_project_status(project_id: str, engine: Engine = Depends(get_engine)):
     """Get project status and details."""
     try:
-        engine.project_manager.sync_status_to_db(project_id)
-        return engine.project_manager.get_project_status(project_id)
+        engine.project_repo.sync_status_to_db(project_id)
+        return engine.project_repo.get_project_status(project_id)
     except Exception as e:
         logger.error(f"Error getting status for {project_id}: {e}")
         raise HTTPException(status_code=404, detail="Project not found")
@@ -112,7 +112,7 @@ def get_project_status(project_id: str, engine: Engine = Depends(get_engine)):
 def update_activity_info(project_id: str, info: dict, engine: Engine = Depends(get_engine)):
     """Update project activity info."""
     try:
-        return engine.project_manager.update_activity_info(project_id, info)
+        return engine.project_repo.update_activity_info(project_id, info)
     except Exception as e:
         logger.error(f"Error updating activity info: {e}")
         raise HTTPException(status_code=500, detail=str(e))

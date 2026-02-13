@@ -16,8 +16,8 @@ logger = logging.getLogger(__name__)
 class ExcelExporter:
     """Handles Excel export functionality."""
     
-    def __init__(self, project_manager):
-        self.project_manager = project_manager
+    def __init__(self, project_repo):
+        self.project_repo = project_repo
     
     def run_excel(self, project_id: str):
         """Export project data to Excel file."""
@@ -39,7 +39,7 @@ class ExcelExporter:
         Returns:
             Path to the created Excel file
         """
-        root = self.project_manager._project_root(project_id)
+        root = self.project_repo._project_root(project_id)
         if not root.exists():
             raise FileNotFoundError("project root not found")
         db_path = root / "jobs.db"
@@ -219,7 +219,7 @@ class ExcelExporter:
 
         # 更新全域狀態
         try:
-            self.project_manager.update_project_status(project_id, "ARCHIVED")
+            self.project_repo.update_project_status(project_id, "ARCHIVED")
         except Exception:
             pass
 

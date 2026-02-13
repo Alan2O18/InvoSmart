@@ -1,23 +1,26 @@
 # backend/engine/core.py
 """
-Engine - 系統核心協調器
+Engine - 系統核心協調器 (VLM-First 簡化版)
 
 採用依賴注入架構：
-- 所有依賴可通過構造函數注入
-- 支持 start_workers 參數控制 Worker 啟動
-- 測試時傳入 mock 依賴，不啟動 Workers
+- ProjectRepository: 專案資料管理
+- JobRepository: Job 資料管理 (per-project)
+- ReceiptProcessor: VLM 處理核心
+- ReceiptSplitter: 圖片分割
 
-使用統一的 ReceiptProcessor 處理管線，
-合併 OCR 和 LLM 為單一 Worker。
+不再使用 TaskManager / ProjectManager 中間層。
 """
 import os
 import json
 import queue
+import time
+import uuid
 import threading
 import logging
 from typing import Optional, Dict
 
-from backend.managers import ProjectManager, TaskManager
+from backend.repositories.project_repository import ProjectRepository
+from backend.repositories.job_repository import JobRepository
 from backend.processing.receipt_splitter import ReceiptSplitter
 
 from .workers import global_receipt_worker_loop
@@ -29,49 +32,36 @@ logger = logging.getLogger(__name__)
 
 class Engine:
     """
-    系統核心引擎 - 支持依賴注入
+    系統核心引擎 - VLM-First 簡化版
     
-    所有依賴都可通過構造函數注入，方便測試。
-    生產環境使用 get_engine() 工廠函數獲取配置好的實例。
-    
-    使用統一的 ReceiptProcessor 和單一 Worker。
+    直接使用 Repository 層，不再經過 TaskManager / ProjectManager。
     """
 
     def __init__(
         self,
         config: dict = None,
-        receipt_processor = None,
-        project_manager: ProjectManager = None,
-        receipt_splitter = None,
+        receipt_processor=None,
+        project_repo: ProjectRepository = None,
+        receipt_splitter=None,
         start_workers: bool = True,
     ):
-        """
-        初始化 Engine。
-        
-        Args:
-            config: 配置字典，None 則從 config.json 加載
-            receipt_processor: 收據處理器，None 則創建默認
-            project_manager: 專案管理器，None 則創建默認
-            receipt_splitter: 發票分割器，None 則創建默認
-            start_workers: 是否啟動 Global Workers（測試時設 False）
-        """
         # 加載配置
         self.config = config if config is not None else self._load_config()
         
         # 依賴注入或默認創建
-        self.project_manager = project_manager or self._create_project_manager()
+        self.project_repo = project_repo or self._create_project_repo()
         self.receipt_processor = receipt_processor or self._create_receipt_processor()
         self.receipt_splitter = receipt_splitter or ReceiptSplitter(config={})
         
         # 內部組件
-        self.file_ops = FileOps(self.project_manager, self.receipt_splitter, self)
-        self.export_handler = ExportHandler(self.project_manager)
+        self.file_ops = FileOps(self.project_repo, self.receipt_splitter, self)
+        self.export_handler = ExportHandler(self.project_repo)
 
-        # TaskManager 緩存
-        self.task_managers: Dict[str, TaskManager] = {}
-        self.tm_lock = threading.Lock()
+        # JobRepository 緩存 (per-project)
+        self._job_repos: Dict[str, JobRepository] = {}
+        self._repo_lock = threading.Lock()
         
-        # 全局任務佇列 (統一模式)
+        # 全局任務佇列
         self.task_queue: queue.Queue = queue.Queue()
         
         # Worker 控制
@@ -94,9 +84,9 @@ class Engine:
                 return json.load(f)
         return {}
     
-    def _create_project_manager(self) -> ProjectManager:
-        """創建 ProjectManager"""
-        return ProjectManager(config=self.config.get("project_manager_settings", {}))
+    def _create_project_repo(self) -> ProjectRepository:
+        """創建 ProjectRepository"""
+        return ProjectRepository(config=self.config.get("project_manager_settings", {}))
     
     def _create_receipt_processor(self):
         """創建 ReceiptProcessor"""
@@ -113,14 +103,14 @@ class Engine:
             daemon=True
         )
         self._worker_thread.start()
-        logger.info("[Engine] 統一收據處理 Worker 已啟動")
+        logger.info("[Engine] VLM-First Worker 已啟動")
 
     def _recover_pending_tasks(self):
         """Server 啟動時恢復未完成的任務"""
         logger.info("[Engine] 正在掃描未完成任務...")
         
         try:
-            projects = self.project_manager.list_projects()
+            projects = self.project_repo.list_projects()
             total_recovered = 0
             
             for project in projects:
@@ -129,8 +119,8 @@ class Engine:
                     continue
                     
                 try:
-                    tm = self.get_task_manager(project_id)
-                    jobs = tm.list_jobs()
+                    job_repo = self.get_job_repo(project_id)
+                    jobs = job_repo.list_jobs()
                     
                     for job in jobs:
                         if job["status"] in ("pending", "running"):
@@ -143,159 +133,102 @@ class Engine:
         except Exception as e:
             logger.error(f"[Engine] 任務恢復失敗: {e}")
 
-    def get_task_manager(self, project_id: str) -> TaskManager:
-        """Singleton access to TaskManager for a given project."""
-        with self.tm_lock:
-            if project_id not in self.task_managers:
-                root = self.project_manager._project_root(project_id)
-                self.task_managers[project_id] = TaskManager(str(root))
-            return self.task_managers[project_id]
+    # ========================================
+    # Repository Access
+    # ========================================
+
+    def get_job_repo(self, project_id: str) -> JobRepository:
+        """取得特定專案的 JobRepository (singleton per project)。"""
+        with self._repo_lock:
+            if project_id not in self._job_repos:
+                root = self.project_repo._project_root(project_id)
+                self._job_repos[project_id] = JobRepository(str(root))
+            return self._job_repos[project_id]
+
+    # Backward compat alias (for workers.py etc.)
+    def get_task_manager(self, project_id: str):
+        """Alias for get_job_repo — backward compatibility."""
+        return self.get_job_repo(project_id)
 
     # ========================================
-    # Worker Management
+    # Job Operations (直接操作 JobRepository)
+    # ========================================
+
+    def enqueue_job(self, project_id: str, image_path: str) -> str:
+        """建立新 Job 並加入佇列。"""
+        job_repo = self.get_job_repo(project_id)
+        job_id = f"job-{int(time.time())}-{uuid.uuid4().hex[:6]}"
+        job_repo.insert_job(job_id, image_path, "ready")
+        job_repo.emit_event(job_id, "enqueued", {"image_path": image_path})
+        return job_id
+
+    def claim_job(self, project_id: str, job_id: str) -> bool:
+        """將 Job 標記為 running。"""
+        job_repo = self.get_job_repo(project_id)
+        result = job_repo.update_job(job_id, status="running")
+        if result:
+            job_repo.emit_event(job_id, "claimed", {})
+        return result
+
+    def complete_job(self, project_id: str, job_id: str, vlm_result: dict,
+                     validation: dict = None, stats: dict = None,
+                     qr_verified: bool = False) -> bool:
+        """完成 VLM 處理。"""
+        job_repo = self.get_job_repo(project_id)
+        return job_repo.complete_vlm(job_id, vlm_result, validation, stats, qr_verified)
+
+    def fail_job(self, project_id: str, job_id: str, reason: str = ""):
+        """標記 Job 失敗。"""
+        job_repo = self.get_job_repo(project_id)
+        job_repo.update_job(job_id, status="failed")
+        job_repo.emit_event(job_id, "failed", {"reason": reason})
+
+    def delete_job(self, project_id: str, job_id: str) -> bool:
+        """刪除 Job。"""
+        job_repo = self.get_job_repo(project_id)
+        return job_repo.delete_job(job_id)
+
+    # ========================================
+    # Processing Queue
     # ========================================
 
     def run_processing(self, project_id: str):
-        """
-        批次將所有 ready 的任務加入統一佇列。
-        
-        主要入口點，執行完整 OCR + LLM 流程。
-        """
+        """VLM-First 處理入口 - 將所有待處理任務加入佇列。"""
         logger.info(f"[Processing] 開始處理專案: {project_id}")
         try:
-            tm = self.get_task_manager(project_id)
-            
-            # 標記 OCR 階段為 pending
-            count = tm.mark_ocr_stage_as_pending()
-            logger.info(f"[Processing] 標記 {count} 個工作為 pending")
-            
-            jobs = tm.list_jobs()
+            job_repo = self.get_job_repo(project_id)
+            jobs = job_repo.list_jobs()
             queued = 0
+            
             for job in jobs:
-                if job["status"] == "pending":
+                if job["status"] in ("ready", "failed"):
+                    job_repo.update_job(job["job_id"], status="pending")
                     self.task_queue.put((project_id, job["job_id"]))
                     queued += 1
             
-            self.project_manager.update_project_status(project_id, "PROCESSING")
-            logger.info(f"[Processing] 已將 {queued} 個任務加入統一佇列 (queue size: {self.task_queue.qsize()})")
+            self.project_repo.update_project_status(project_id, "PROCESSING")
+            logger.info(f"[Processing] 已將 {queued} 個任務加入佇列")
             
             return {"status": "processing_queued", "queued_count": queued, "queue_size": self.task_queue.qsize()}
         except Exception as e:
             logger.error(f"[Processing] 啟動失敗 {project_id}: {e}", exc_info=True)
             raise e
 
-    def run_ocr(self, project_id: str):
-        """批次將所有 ready 的 OCR 任務加入佇列（僅 OCR 階段）。"""
-        return self.run_ocr_only(project_id)
-
-    def run_ocr_only(self, project_id: str):
-        """
-        僅執行 OCR，不進入 LLM 階段。
-        完成後設定 stage='llm', status='ready'
-        """
-        logger.info(f"[OCR Only] 開始處理專案: {project_id}")
-        try:
-            tm = self.get_task_manager(project_id)
-            
-            # 標記 OCR 階段為 pending
-            count = tm.mark_ocr_stage_as_pending()
-            logger.info(f"[OCR Only] 標記 {count} 個工作為 pending")
-            
-            jobs = tm.list_jobs()
-            queued = 0
-            for job in jobs:
-                if job["status"] == "pending" and job["stage"] == "ocr":
-                    # 使用 tuple 傳遞 stage_limit
-                    self.task_queue.put((project_id, job["job_id"], "ocr"))
-                    queued += 1
-            
-            self.project_manager.update_project_status(project_id, "PROCESSING")
-            logger.info(f"[OCR Only] 已將 {queued} 個任務加入佇列")
-            
-            return {"status": "ocr_only_queued", "queued_count": queued, "queue_size": self.task_queue.qsize()}
-        except Exception as e:
-            logger.error(f"[OCR Only] 啟動失敗 {project_id}: {e}", exc_info=True)
-            raise e
-
-    def run_llm(self, project_id: str):
-        """批次將所有 ready 的 LLM 任務加入佇列。"""
-        logger.info(f"[LLM] 開始處理專案: {project_id}")
-        try:
-            tm = self.get_task_manager(project_id)
-            
-            count = tm.mark_llm_stage_as_pending()
-            logger.info(f"[LLM] 標記 {count} 個工作為 pending")
-            
-            jobs = tm.list_jobs()
-            queued = 0
-            for job in jobs:
-                if job["status"] == "pending" and job["stage"] == "llm":
-                    self.task_queue.put((project_id, job["job_id"], "llm"))
-                    queued += 1
-            
-            logger.info(f"[LLM] 已將 {queued} 個任務加入佇列 (queue size: {self.task_queue.qsize()})")
-            return {"status": "llm_queued", "queued_count": queued, "queue_size": self.task_queue.qsize()}
-        except Exception as e:
-            logger.error(f"[LLM] 啟動失敗 {project_id}: {e}", exc_info=True)
-            raise e
-
     def run_single_processing(self, project_id: str, job_id: str):
-        """將單一 Job 加入統一處理佇列。"""
+        """將單一 Job 加入處理佇列。"""
         try:
-            tm = self.get_task_manager(project_id)
-            
-            job = tm.get_job(job_id)
+            job_repo = self.get_job_repo(project_id)
+            job = job_repo.get_job(job_id)
             if not job:
                 raise ValueError(f"Job not found: {job_id}")
             
-            tm.mark_pending_for_ocr(job_id)
+            job_repo.update_job(job_id, status="pending")
             self.task_queue.put((project_id, job_id))
-            logger.info(f"[Single Processing] Job {job_id} 已加入統一佇列 (queue size: {self.task_queue.qsize()})")
+            logger.info(f"[Single Processing] Job {job_id} 已加入佇列")
             
             return {"status": "queued", "job_id": job_id, "queue_size": self.task_queue.qsize()}
         except Exception as e:
             logger.error(f"Error queuing single processing for {job_id}: {e}")
-            raise e
-
-    def run_single_ocr(self, project_id: str, job_id: str):
-        """將單一 Job 加入 OCR 處理佇列。"""
-        return self.run_single_ocr_only(project_id, job_id)
-
-    def run_single_ocr_only(self, project_id: str, job_id: str):
-        """單一 Job 僅執行 OCR"""
-        try:
-            tm = self.get_task_manager(project_id)
-            
-            job = tm.get_job(job_id)
-            if not job:
-                raise ValueError(f"Job not found: {job_id}")
-            
-            tm.mark_pending_for_ocr(job_id)
-            # 使用 tuple 傳遞 stage_limit
-            self.task_queue.put((project_id, job_id, "ocr"))
-            logger.info(f"[Single OCR Only] Job {job_id} 已加入佇列 (queue size: {self.task_queue.qsize()})")
-            
-            return {"status": "queued", "job_id": job_id, "queue_size": self.task_queue.qsize()}
-        except Exception as e:
-            logger.error(f"Error queuing single OCR only for {job_id}: {e}")
-            raise e
-
-    def run_single_llm(self, project_id: str, job_id: str):
-        """將單一 Job 加入 LLM 處理佇列。"""
-        try:
-            tm = self.get_task_manager(project_id)
-            
-            job = tm.get_job(job_id)
-            if not job:
-                raise ValueError(f"Job not found: {job_id}")
-            
-            tm.mark_pending_for_llm(job_id)
-            # 使用 stage_limit="llm" 告訴 worker 只執行 LLM 階段
-            self.task_queue.put((project_id, job_id, "llm"))
-            logger.info(f"[Single LLM] Job {job_id} 已加入統一佇列 (queue size: {self.task_queue.qsize()})")
-            return {"status": "queued", "job_id": job_id, "queue_size": self.task_queue.qsize()}
-        except Exception as e:
-            logger.error(f"Error queuing single LLM for {job_id}: {e}")
             raise e
 
     # ========================================
@@ -303,8 +236,7 @@ class Engine:
     # ========================================
 
     def create_project(self, project_id: str, files: list, name: str = None, metadata: dict = None):
-        res = self.project_manager.setup_project(project_id, input_image=files, name=name, metadata=metadata)
-        return res
+        return self.project_repo.setup_project(project_id, input_image=files, name=name, metadata=metadata)
 
     def run_splitting(self, project_id: str, target_files: Optional[list[str]] = None):
         logger.info(f"[分割] 開始處理專案: {project_id}, 目標檔案={target_files}")
@@ -328,13 +260,9 @@ class Engine:
     def rotate_image(self, project_id: str, filename: str, angle: int = 90):
         return self.file_ops.rotate_image(project_id, filename, angle)
 
-    def delete_job(self, project_id: str, job_id: str):
-        tm = self.get_task_manager(project_id)
-        return tm.delete_job(job_id)
-
     def delete_raw_file(self, project_id: str, filename: str):
         try:
-            root = self.project_manager._project_root(project_id)
+            root = self.project_repo._project_root(project_id)
             path = root / "原始輸入" / filename
             if path.exists():
                 os.remove(path)
@@ -354,9 +282,9 @@ class Engine:
         return self.export_handler.regenerate_from_archive(project_id, excel_path, self.config)
 
     def get_queue_status(self) -> dict:
-        """獲取當前佇列狀態（供 Debug 使用）"""
+        """獲取當前佇列狀態"""
         return {
             "task_queue_size": self.task_queue.qsize(),
             "worker_alive": self._worker_thread.is_alive() if self._worker_thread else False,
-            "mode": "unified"
+            "mode": "vlm-first"
         }
