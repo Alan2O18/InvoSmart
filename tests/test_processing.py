@@ -258,24 +258,12 @@ class TestLLMHandler:
 # ============================================================================
 
 class TestReceiptSplitter:
-    """Tests for receipt splitter."""
+    """Tests for receipt splitter (V10)."""
 
     def test_order_points(self):
         """Test point ordering for perspective transform."""
-        from backend.processing.receipt_splitter import ReceiptSplitter
+        from backend.processing.perspective_transform import order_points
         import numpy as np
-        
-        config = {
-            "CANNY_THRESHOLD_1": 50,
-            "CANNY_THRESHOLD_2": 150,
-            "MIN_AREA": 50000,
-            "ANGLE_TOLERANCE": 15,
-            "ASPECT_RATIO_RANGE": (0.5, 2.0),
-            "PADDING": 10,
-            "MORPH_KERNEL_SIZE": (5, 5)
-        }
-        
-        splitter = ReceiptSplitter(config)
         
         # Test points in random order
         pts = np.array([
@@ -285,60 +273,33 @@ class TestReceiptSplitter:
             [400, 50]    # Top-right
         ], dtype=np.float32)
         
-        ordered = splitter._order_points(pts)
+        ordered = order_points(pts)
         
         # Check order: TL, TR, BR, BL
         assert ordered[0][1] < ordered[2][1]  # Top y < Bottom y
         assert ordered[0][0] < ordered[1][0]  # Left x < Right x
 
-    def test_validate_angles(self):
-        """Test angle validation for rectangles."""
-        from backend.processing.receipt_splitter import ReceiptSplitter
-        import numpy as np
-        
-        config = {
-            "CANNY_THRESHOLD_1": 50,
-            "CANNY_THRESHOLD_2": 150,
-            "MIN_AREA": 50000,
-            "ANGLE_TOLERANCE": 15,
-            "ASPECT_RATIO_RANGE": (0.5, 2.0),
-            "PADDING": 10,
-            "MORPH_KERNEL_SIZE": (5, 5)
-        }
-        
-        splitter = ReceiptSplitter(config)
-        
-        # Perfect rectangle
-        rect = np.array([
-            [0, 0],
-            [100, 0],
-            [100, 50],
-            [0, 50]
-        ], dtype=np.float32)
-        
-        assert splitter._validate_angles(rect) is True
-
     def test_validate_aspect_ratio(self):
         """Test aspect ratio validation."""
+        from backend.processing.contour_validator import ContourValidator
+        
+        validator = ContourValidator(aspect_ratio_range=(0.5, 2.0))
+        
+        # Valid aspect ratio (1:1) -> min/max = 1.0
+        assert validator.validate_aspect_ratio((100, 100)) is True
+        
+        # Valid aspect ratio (2:1) -> min/max = 0.5
+        assert validator.validate_aspect_ratio((200, 100)) is True
+        
+        # Invalid aspect ratio (3:1) -> min/max = 0.333 < 0.5
+        assert validator.validate_aspect_ratio((300, 100)) is False
+
+    def test_splitter_empty_image(self):
+        """Test that split() handles None input."""
         from backend.processing.receipt_splitter import ReceiptSplitter
         
-        config = {
-            "CANNY_THRESHOLD_1": 50,
-            "CANNY_THRESHOLD_2": 150,
-            "MIN_AREA": 50000,
-            "ANGLE_TOLERANCE": 15,
-            "ASPECT_RATIO_RANGE": (0.5, 2.0),
-            "PADDING": 10,
-            "MORPH_KERNEL_SIZE": (5, 5)
-        }
-        
+        config = {}
         splitter = ReceiptSplitter(config)
         
-        # Valid aspect ratio (1:1)
-        assert splitter._validate_aspect_ratio((100, 100)) is True
-        
-        # Valid aspect ratio (2:1)
-        assert splitter._validate_aspect_ratio((200, 100)) is True
-        
-        # Invalid aspect ratio (too wide)
-        assert splitter._validate_aspect_ratio((300, 100)) is False
+        assert splitter.split(None) == []
+

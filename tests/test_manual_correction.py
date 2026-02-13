@@ -1,7 +1,8 @@
 """
-Manual Correction User Case Test
+Manual Correction User Case Test (VLM-First)
 
-Tests the complete workflow of manually correcting OCR text and regenerating LLM results.
+Tests the complete workflow of manually editing VLM results and saving corrections.
+Updated for VLM-First architecture (save_manual_json, complete_vlm, no OCR/LLM split).
 """
 import pytest
 import tempfile
@@ -12,32 +13,32 @@ import json
 
 
 class TestManualCorrectionWorkflow:
-    """Tests for manual correction user workflow."""
+    """Tests for manual correction user workflow (VLM-First)."""
 
     @pytest.fixture(scope="function")
     def setup_project_with_job(self, real_engine_with_temp_workspace):
         """
-        Set up a test project with a job ready for manual correction testing.
-        Uses the properly configured engine from fixture.
+        Setup a project with a single job for manual correction testing.
+        Uses VLM-First JobRepository API.
         """
         engine = real_engine_with_temp_workspace
         project_id = "test_manual_correction"
         
-        # Register project directly using project_crud (skips file operations)
-        project_root = engine.project_manager.workspace_root / project_id
-        engine.project_manager.project_crud.register_project(
+        # Register project directly
+        project_root = engine.project_repo.workspace_root / project_id
+        engine.project_repo.register_project(
             project_id, 
             "Manual Correction Test", 
             str(project_root)
         )
         
         # Setup project layout and jobs.db
-        engine.project_manager.project_setup._ensure_layout(project_root)
-        engine.project_manager.project_setup._init_jobs_db(str(project_root / "jobs.db"))
+        engine.project_repo._ensure_layout(project_root)
+        engine.project_repo._init_jobs_db(str(project_root / "jobs.db"))
         
-        # Get task manager and create a test job
+        # Get job repo and create a test job
         tm = engine.get_task_manager(project_id)
-        job_id = tm.enqueue("/fake/test_image.jpg", stage='ocr')
+        job_id = tm.insert_job("test_job", "/fake/test_image.jpg")
         
         yield {
             "engine": engine,
@@ -47,107 +48,95 @@ class TestManualCorrectionWorkflow:
             "project_root": project_root
         }
 
-    def test_save_and_retrieve_manual_text(self, setup_project_with_job):
-        """Test saving manual correction text to a job."""
+    def test_save_and_retrieve_manual_json(self, setup_project_with_job):
+        """Test saving manual correction JSON to a job."""
         ctx = setup_project_with_job
         tm = ctx["tm"]
         job_id = ctx["job_id"]
         
-        # Save manual text
-        manual_text = "人工修正後的發票文字\n供應商: 測試公司\n總金額: 500"
-        tm.save_manual_text(job_id, manual_text)
+        # Save manual JSON correction
+        manual_data = {
+            "store_name": "測試公司",
+            "total": 500,
+            "items": [{"name": "商品A", "quantity": 1, "price": 500}]
+        }
+        tm.save_manual_json(job_id, manual_data)
         
         # Retrieve and verify
         job_details = tm.get_job_details(job_id)
-        assert job_details["manual_ocr_text"] == manual_text
+        assert job_details["manual_json"] == manual_data
 
-    @patch('backend.processing.llm_handler.LLMHandler.regenerate_from_corrected_text')
-    def test_regenerate_from_manual_text(self, mock_regenerate, setup_project_with_job):
-        """Test regenerating LLM result from manual text."""
+    def test_regenerate_from_manual_text(self, setup_project_with_job):
+        """Test that manual JSON can override VLM result."""
         ctx = setup_project_with_job
         engine = ctx["engine"]
         tm = ctx["tm"]
         job_id = ctx["job_id"]
         
-        # Simulate OCR completion first
-        tm.complete_ocr(job_id, {"data": "原始OCR文字"}, advance_to_stage_llm=False)
-        
-        # Save manual text
-        manual_text = "人工修正後的發票文字\n供應商: 測試公司\n總金額: 500"
-        tm.save_manual_text(job_id, manual_text)
-        
-        # Configure mock llm_handler
-        extracted_data = {
-            "supplier": "測試公司",
-            "invoice_id": "AB12345678",
-            "date": "2025-12-09",
-            "items": [
-                {"description": "商品A", "quantity": 1, "price": 500.0}
-            ],
-            "total_amount": 500.0
+        # First complete VLM processing
+        vlm_result = {
+            "store_name": "原始店家",
+            "total": 400,
+            "items": [{"name": "商品X", "quantity": 1, "price": 400}]
         }
-        mock_regenerate.return_value = extracted_data
+        tm.complete_vlm(job_id, vlm_result)
         
-        # Regenerate from manual text
+        # Save manual correction
+        manual_data = {
+            "store_name": "修正後店家",
+            "total": 500,
+            "items": [{"name": "商品A", "quantity": 1, "price": 500}]
+        }
+        tm.save_manual_json(job_id, manual_data)
+        
+        # Verify both results are saved
         job_details = tm.get_job_details(job_id)
-        retrieved_manual_text = job_details["manual_ocr_text"]
-        
-        # Use LLM handler to regenerate
-        result = engine.receipt_processor.llm_handler.regenerate_from_corrected_text(retrieved_manual_text)
-        
-        # Verify result
-        assert result["supplier"] == "測試公司"
-        assert result["total_amount"] == 500.0
-        assert len(result["items"]) == 1
+        assert job_details["vlm_result"]["store_name"] == "原始店家"
+        assert job_details["manual_json"]["store_name"] == "修正後店家"
 
-    @patch('backend.processing.llm_handler.LLMHandler.regenerate_from_corrected_text')
-    def test_full_manual_correction_workflow(self, mock_regenerate, setup_project_with_job):
-        """Test complete manual correction workflow through API simulation."""
+    def test_full_manual_correction_workflow(self, setup_project_with_job):
+        """Test complete manual correction workflow."""
         ctx = setup_project_with_job
         engine = ctx["engine"]
         tm = ctx["tm"]
         job_id = ctx["job_id"]
         
-        # Step 1: Simulate OCR with errors
-        ocr_result = {
-            "data": "每報紙 数量:2 价格:100\n圆头笔 数量:3 价格:50"
-        }
-        tm.complete_ocr(job_id, ocr_result, advance_to_stage_llm=False)
-        
-        # Step 2: User reviews OCR result and makes corrections
-        job_details = tm.get_job_details(job_id)
-        ocr_text = job_details["ocr_result"]["data"]
-        
-        # User manually corrects the text
-        corrected_text = "海報紙 數量:2 價格:100\n圓頭筆 數量:3 價格:50"
-        tm.save_manual_text(job_id, corrected_text)
-        
-        # Step 3: Configure mock and regenerate LLM result from corrected text
-        regenerated_data = {
-            "supplier": "測試店家",
+        # Step 1: VLM processing produces initial result with errors
+        vlm_result = {
+            "store_name": "測試店",
             "items": [
-                {"description": "海報紙", "quantity": 2, "price": 100.0},
-                {"description": "圓頭筆", "quantity": 3, "price": 50.0}
+                {"name": "每報紙", "quantity": 2, "price": 100.0},
+                {"name": "圆头笔", "quantity": 3, "price": 50.0}
             ],
-            "total_amount": 350.0
+            "total": 350.0
         }
-        mock_regenerate.return_value = regenerated_data
+        tm.complete_vlm(job_id, vlm_result)
         
-        regenerated_result = engine.receipt_processor.llm_handler.regenerate_from_corrected_text(corrected_text)
+        # Step 2: User reviews VLM result and makes corrections
+        job_details = tm.get_job_details(job_id)
+        original_result = job_details["vlm_result"]
+        assert original_result["items"][0]["name"] == "每報紙"  # Has error
         
-        # Update job with regenerated result
-        tm.complete_llm(job_id, regenerated_result, mark_final=True)
+        # Step 3: User manually corrects the data
+        corrected_data = {
+            "store_name": "測試店家",
+            "items": [
+                {"name": "海報紙", "quantity": 2, "price": 100.0},
+                {"name": "圓頭筆", "quantity": 3, "price": 50.0}
+            ],
+            "total": 350.0
+        }
+        tm.save_manual_json(job_id, corrected_data)
         
         # Step 4: Verify final result
         final_job = tm.get_job_details(job_id)
-        llm_result = final_job["llm_result"]
+        manual_result = final_job["manual_json"]
         
-        assert llm_result["items"][0]["description"] == "海報紙"
-        assert llm_result["items"][1]["description"] == "圓頭筆"
-        assert llm_result["total_amount"] == 350.0
-        assert final_job["manual_ocr_text"] == corrected_text
+        assert manual_result["items"][0]["name"] == "海報紙"
+        assert manual_result["items"][1]["name"] == "圓頭筆"
+        assert manual_result["total"] == 350.0
 
-    def test_manual_correction_persists_across_sessions(self, setup_project_with_job):
+    def test_manual_correction_persists(self, setup_project_with_job):
         """Test that manual corrections persist in database."""
         ctx = setup_project_with_job
         engine = ctx["engine"]
@@ -155,17 +144,38 @@ class TestManualCorrectionWorkflow:
         tm = ctx["tm"]
         job_id = ctx["job_id"]
         
-        # Complete OCR and save manual text
-        tm.complete_ocr(job_id, {"data": "原始文字"}, advance_to_stage_llm=False)
-        tm.save_manual_text(job_id, "修正後文字")
+        # Complete VLM and save manual correction
+        tm.complete_vlm(job_id, {"store_name": "原始", "total": 100})
+        manual_data = {"store_name": "修正後", "total": 200}
+        tm.save_manual_json(job_id, manual_data)
         
-        # Verify manual text is saved
+        # Verify manual JSON is saved
         job_details = tm.get_job_details(job_id)
-        assert job_details["manual_ocr_text"] == "修正後文字"
+        assert job_details["manual_json"]["store_name"] == "修正後"
         
-        # Simulate new session by creating new TaskManager for same project
+        # Simulate new session by getting a new job repo for same project
         tm2 = engine.get_task_manager(project_id)
         job_details2 = tm2.get_job_details(job_id)
         
-        # Manual text should still be there
-        assert job_details2["manual_ocr_text"] == "修正後文字"
+        # Manual JSON should still be there
+        assert job_details2["manual_json"]["store_name"] == "修正後"
+
+    def test_get_display_result_precedence(self, setup_project_with_job):
+        """Test that display result prefers manual_json over vlm_result."""
+        ctx = setup_project_with_job
+        tm = ctx["tm"]
+        job_id = ctx["job_id"]
+        
+        # No result yet
+        result = tm.get_display_result(job_id)
+        assert result is None or result == {}
+        
+        # After VLM completion, display VLM result
+        tm.complete_vlm(job_id, {"store_name": "VLM", "total": 100})
+        result = tm.get_display_result(job_id)
+        assert result["store_name"] == "VLM"
+        
+        # After manual correction, display manual result
+        tm.save_manual_json(job_id, {"store_name": "Manual", "total": 200})
+        result = tm.get_display_result(job_id)
+        assert result["store_name"] == "Manual"

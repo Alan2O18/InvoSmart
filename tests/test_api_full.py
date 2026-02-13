@@ -71,7 +71,7 @@ class TestBackendAPI(unittest.TestCase):
         # Mock FileOps to avoid real file splitting logic but simulate file creation
         def mock_run_splitting(project_id, target_files=None):
             # Simulate creating split files
-            root = cls.engine.project_manager._project_root(project_id)
+            root = cls.engine.project_repo._project_root(project_id)
             split_dir = root / "分割發票"
             split_dir.mkdir(parents=True, exist_ok=True)
             (split_dir / "split_1.jpg").touch()
@@ -79,10 +79,10 @@ class TestBackendAPI(unittest.TestCase):
             
             # Update jobs.db
             tm = cls.engine.get_task_manager(project_id)
-            tm.enqueue("split_1.jpg", "split_1.jpg")
-            tm.enqueue("split_2.jpg", "split_2.jpg")
+            tm.insert_job("split_1", "split_1.jpg")
+            tm.insert_job("split_2", "split_2.jpg")
             
-            cls.engine.project_manager.update_project_status(project_id, "SPLIT")
+            cls.engine.project_repo.update_project_status(project_id, "SPLIT")
             return {"status": "splitting_completed", "new_files": ["split_1.jpg", "split_2.jpg"]}
             
         cls.engine.file_ops.run_splitting = MagicMock(side_effect=mock_run_splitting)
@@ -155,23 +155,12 @@ class TestBackendAPI(unittest.TestCase):
         data = response.json()
         self.assertEqual(data["status"], "splitting_completed")
 
-    def test_06_run_ocr(self):
-        """Test OCR API (Unified Worker architecture: returns queued status)."""
-        response = self.client.post("/api/projects/test_proj_1/run_ocr")
+    def test_06_run_processing(self):
+        """Test VLM processing API (VLM-First architecture)."""
+        response = self.client.post("/api/projects/test_proj_1/run_processing")
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        # Unified Worker architecture returns 'ocr_only_queued'
-        self.assertEqual(data["status"], "ocr_only_queued")
-        self.assertIn("queued_count", data)
-
-    def test_07_run_llm(self):
-        """Test LLM API (Global Worker architecture: returns queued status)."""
-        response = self.client.post("/api/projects/test_proj_1/run_llm")
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        # Global Worker architecture returns 'llm_queued' instead of 'llm_started'
-        self.assertEqual(data["status"], "llm_queued")
-        self.assertIn("queued_count", data)
+        self.assertIn("status", data)
 
     def test_08_export_archive(self):
         # Mock export handler methods

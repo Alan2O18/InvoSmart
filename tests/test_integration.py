@@ -44,10 +44,10 @@ class TestFullProjectLifecycle:
             
             # 3. Run splitting (mocked)
             def mock_split(proj_id, target=None):
-                root = engine.project_manager._project_root(proj_id)
+                root = engine.project_repo._project_root(proj_id)
                 (root / "分割發票" / "split_0.jpg").touch()
                 tm = engine.get_task_manager(proj_id)
-                tm.enqueue("分割發票/split_0.jpg", "job_0")
+                tm.insert_job("job_0", "分割發票/split_0.jpg")
                 return {"status": "split_completed"}
             
             engine.file_ops.run_splitting = MagicMock(side_effect=mock_split)
@@ -59,46 +59,34 @@ class TestFullProjectLifecycle:
             jobs = tm.list_jobs()
             assert len(jobs) == 1
             assert jobs[0]["status"] == "ready"
-            assert jobs[0]["stage"] == "ocr"
             
-            # 5. Run OCR (Unified Worker architecture: just queues, doesn't process)
-            res = engine.run_ocr("lifecycle_proj")
-            assert res["status"] == "ocr_only_queued"
+            # 5. Run VLM processing (queues jobs)
+            res = engine.run_processing("lifecycle_proj")
+            assert res["status"] == "processing_queued"
             assert res["queued_count"] == 1
             
             # Verify job marked as pending
             job = tm.get_job("job_0")
             assert job["status"] == "pending"
             
-            # Manually complete OCR for testing (simulate worker)
-            tm.complete_ocr("job_0", {"text": "Invoice #123\nTotal: $100"})
-            
-            # 6. Verify OCR completed, job advanced to LLM
-            job = tm.get_job("job_0")
-            assert job["stage"] == "llm"
-            assert "Invoice" in job["ocr_result_json"]
-            
-            # 7. Run LLM (Global Worker architecture: just queues)
-            res = engine.run_llm("lifecycle_proj")
-            assert res["status"] == "llm_queued"
-            
-            # Manually complete LLM for testing
-            tm.complete_llm("job_0", {
-                "corrected_full_text": "Invoice #123\nTotal: $100",
-                "structured_data": {"invoice_no": "123", "total": 100}
+            # Manually complete VLM for testing (simulate worker)
+            tm.complete_vlm("job_0", {
+                "store_name": "Test Store",
+                "total": 100,
+                "items": [{"name": "Item 1", "price": 100}]
             })
             
-            # 8. Verify LLM completed
+            # 6. Verify VLM completed
             job = tm.get_job("job_0")
             assert job["status"] == "done"
-            assert "structured_data" in job["llm_result_json"]
+            assert job["vlm_result_json"] is not None
             
-            # 9. Export (mocked)
+            # 7. Export (mocked)
             engine.export_handler.run_excel = MagicMock(return_value="lifecycle_proj.xlsx")
             res = engine.run_excel("lifecycle_proj")
             assert res == "lifecycle_proj.xlsx"
             
-            # 10. Archive (mocked)
+            # 8. Archive (mocked)
             engine.export_handler.seal_project = MagicMock(return_value={"status": "sealed"})
             res = engine.archive_project("lifecycle_proj")
             assert res["status"] == "sealed"
@@ -109,69 +97,61 @@ class TestFullProjectLifecycle:
 
 
 # ============================================================================
-# Use Case 2: Partial Reprocessing
-# Create → Split → Single OCR → Single LLM (for specific jobs)
+# Use Case 2: Partial Reprocessing (VLM-First)
+# Create → Split → Process single jobs
 # ============================================================================
 
 @pytest.mark.integration
 class TestPartialReprocessing:
-    """Tests reprocessing specific jobs."""
+    """Tests reprocessing specific jobs (VLM-First architecture)."""
     
     def test_single_job_reprocessing(self, test_engine):
-        """Test OCR/LLM on a single job (Global Worker architecture)."""
+        """Test VLM processing on a single job."""
         engine = test_engine
         
         # Setup project with multiple jobs
-        engine.project_manager.project_crud.register_project("partial_proj", "Partial", str(engine.project_manager.workspace_root / "partial_proj"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("partial_proj"))
-        engine.project_manager.project_setup._init_jobs_db(str(engine.project_manager._project_root("partial_proj") / "jobs.db"))
+        engine.project_repo.register_project("partial_proj", "Partial", str(engine.project_repo.workspace_root / "partial_proj"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("partial_proj"))
+        engine.project_repo._init_jobs_db(str(engine.project_repo._project_root("partial_proj") / "jobs.db"))
         
         tm = engine.get_task_manager("partial_proj")
-        tm.enqueue("img1.jpg", "job1")
-        tm.enqueue("img2.jpg", "job2")
-        tm.enqueue("img3.jpg", "job3")
+        tm.insert_job("job1", "img1.jpg")
+        tm.insert_job("job2", "img2.jpg")
+        tm.insert_job("job3", "img3.jpg")
         
-        # Complete OCR on job1 and job2
-        tm.complete_ocr("job1", {"text": "OCR1"})
-        tm.complete_ocr("job2", {"text": "OCR2"})
+        # Complete VLM on job1 and job2
+        tm.complete_vlm("job1", {"store_name": "Store1", "total": 100})
+        tm.complete_vlm("job2", {"store_name": "Store2", "total": 200})
         
-        # Now run single OCR on job3 (Global Worker: just queues)
-        res = engine.run_single_ocr("partial_proj", "job3")
+        # Run single processing on job3 (just queues)
+        res = engine.run_single_processing("partial_proj", "job3")
         assert res["status"] == "queued"
         assert res["job_id"] == "job3"
         
         # Verify job3 marked as pending
         job3 = tm.get_job("job3")
         assert job3["status"] == "pending"
-        
-        # Manually complete for verification
-        tm.complete_ocr("job3", {"text": "SingleOCR_job3"}, advance_to_stage_llm=False)
-        
-        job3 = tm.get_job("job3")
-        assert job3["ocr_result_json"] is not None
 
     def test_single_llm_reprocessing(self, test_engine):
-        """Test LLM on a single job that was already OCR'd (Global Worker architecture)."""
+        """Test reprocessing a single job that was already done."""
         engine = test_engine
         
         # Setup project
-        engine.project_manager.project_crud.register_project("single_llm_proj", "LLM", str(engine.project_manager.workspace_root / "single_llm_proj"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("single_llm_proj"))
-        engine.project_manager.project_setup._init_jobs_db(str(engine.project_manager._project_root("single_llm_proj") / "jobs.db"))
+        engine.project_repo.register_project("single_llm_proj", "LLM", str(engine.project_repo.workspace_root / "single_llm_proj"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("single_llm_proj"))
+        engine.project_repo._init_jobs_db(str(engine.project_repo._project_root("single_llm_proj") / "jobs.db"))
         
         tm = engine.get_task_manager("single_llm_proj")
-        tm.enqueue("img.jpg", "target_job")
-        tm.complete_ocr("target_job", {"text": "OCR text to reprocess"})
+        tm.insert_job("target_job", "img.jpg")
         
-        # Run single LLM (Global Worker: just queues)
-        res = engine.run_single_llm("single_llm_proj", "target_job")
+        # Run single processing (just queues)
+        res = engine.run_single_processing("single_llm_proj", "target_job")
         assert res["status"] == "queued"
         assert res["job_id"] == "target_job"
         
-        # Verify job marked as pending for LLM
+        # Verify job marked as pending
         job = tm.get_job("target_job")
         assert job["status"] == "pending"
-        assert job["stage"] == "llm"
 
 
 # ============================================================================
@@ -188,32 +168,32 @@ class TestGroupManagementFlow:
         engine = test_engine
         
         # 1. Create groups
-        engine.project_manager.upsert_group("教學組", "Alice")
-        engine.project_manager.upsert_group("研究組", "Bob")
+        engine.project_repo.upsert_group("教學組", "Alice")
+        engine.project_repo.upsert_group("研究組", "Bob")
         
         # 2. List groups
-        groups = engine.project_manager.list_groups()
+        groups = engine.project_repo.list_groups()
         assert len(groups) >= 2
         
         # 3. Create project and assign group via activity info
-        engine.project_manager.project_crud.register_project("grouped_proj", "Grouped", str(engine.project_manager.workspace_root / "grouped_proj"))
-        engine.project_manager.update_activity_info("grouped_proj", {"group_name": "教學組"})
+        engine.project_repo.register_project("grouped_proj", "Grouped", str(engine.project_repo.workspace_root / "grouped_proj"))
+        engine.project_repo.update_activity_info("grouped_proj", {"group_name": "教學組"})
         
         # 4. Verify assignment
-        proj = engine.project_manager.project_crud.get_project("grouped_proj")
+        proj = engine.project_repo.get_project("grouped_proj")
         assert proj["metadata"]["group_name"] == "教學組"
         
         # 5. Update group
-        engine.project_manager.upsert_group("教學組", "Charlie")  # New leader
+        engine.project_repo.upsert_group("教學組", "Charlie")  # New leader
         
-        groups = engine.project_manager.list_groups()
+        groups = engine.project_repo.list_groups()
         teaching_group = next(g for g in groups if g["group_name"] == "教學組")
         assert teaching_group["leader_name"] == "Charlie"
         
         # 6. Delete unused group
-        engine.project_manager.delete_group("研究組")
+        engine.project_repo.delete_group("研究組")
         
-        groups = engine.project_manager.list_groups()
+        groups = engine.project_repo.list_groups()
         assert not any(g["group_name"] == "研究組" for g in groups)
 
 
@@ -231,9 +211,9 @@ class TestFileManagementFlow:
         engine = test_engine
         
         # Setup project
-        engine.project_manager.project_crud.register_project("file_proj", "File", str(engine.project_manager.workspace_root / "file_proj"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("file_proj"))
-        engine.project_manager.project_setup._init_jobs_db(str(engine.project_manager._project_root("file_proj") / "jobs.db"))
+        engine.project_repo.register_project("file_proj", "File", str(engine.project_repo.workspace_root / "file_proj"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("file_proj"))
+        engine.project_repo._init_jobs_db(str(engine.project_repo._project_root("file_proj") / "jobs.db"))
         
         # 1. Add raw files
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
@@ -269,7 +249,7 @@ class TestFileManagementFlow:
 
 @pytest.mark.integration
 class TestAPIFullWorkflow:
-    """Tests full workflow through API endpoints."""
+    """Tests full workflow through API endpoints (VLM-First)."""
     
     def test_api_project_lifecycle(self, mock_engine_for_api):
         """Test creating and processing a project via API."""
@@ -291,26 +271,21 @@ class TestAPIFullWorkflow:
         res = client.post("/api/projects/api_proj/run_split")
         assert res.status_code == 200
         
-        # 4. Run OCR (updated for Global Worker)
-        mock.run_ocr.return_value = {"status": "ocr_queued", "queued_count": 1}
-        res = client.post("/api/projects/api_proj/run_ocr")
+        # 4. Run VLM processing (VLM-First)
+        mock.run_processing.return_value = {"status": "processing_queued", "queued_count": 1}
+        res = client.post("/api/projects/api_proj/run_processing")
         assert res.status_code == 200
         
-        # 5. Run LLM (updated for Global Worker)
-        mock.run_llm.return_value = {"status": "llm_queued", "queued_count": 1}
-        res = client.post("/api/projects/api_proj/run_llm")
-        assert res.status_code == 200
-        
-        # 6. Export
+        # 5. Export
         mock.run_excel.return_value = "output.xlsx"
         res = client.post("/api/projects/api_proj/run_export")
         assert res.status_code == 200
         
-        # 7. Archive
+        # 6. Archive
         mock.archive_project.return_value = {"status": "sealed"}
         res = client.post("/api/projects/api_proj/run_archive")
         assert res.status_code == 200
         
-        # 8. Delete project
+        # 7. Delete project
         res = client.delete("/api/projects/api_proj")
         assert res.status_code == 200

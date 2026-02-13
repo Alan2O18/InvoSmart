@@ -32,12 +32,12 @@ class TestEngineProjectManagement:
             assert res["status"] == "created_new"
             
             # Verify DB entry
-            proj = engine.project_manager.project_crud.get_project("test_new_proj")
+            proj = engine.project_repo.get_project("test_new_proj")
             assert proj is not None
             assert proj["metadata"]["key"] == "val"
             
             # Verify file copied
-            root = engine.project_manager._project_root("test_new_proj")
+            root = engine.project_repo._project_root("test_new_proj")
             assert (root / "原始輸入" / os.path.basename(f_path)).exists()
         finally:
             if os.path.exists(f_path):
@@ -48,9 +48,9 @@ class TestEngineProjectManagement:
         engine = real_engine_with_temp_workspace
         
         # Create first
-        engine.project_manager.project_crud.register_project("existing_proj", "Existing", str(engine.project_manager.workspace_root / "existing_proj"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("existing_proj"))
-        engine.project_manager.project_setup._init_jobs_db(str(engine.project_manager._project_root("existing_proj") / "jobs.db"))
+        engine.project_repo.register_project("existing_proj", "Existing", str(engine.project_repo.workspace_root / "existing_proj"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("existing_proj"))
+        engine.project_repo._init_jobs_db(str(engine.project_repo._project_root("existing_proj") / "jobs.db"))
         
         # Try to create again
         res = engine.create_project("existing_proj", [], metadata={})
@@ -61,9 +61,9 @@ class TestEngineProjectManagement:
         engine = real_engine_with_temp_workspace
         
         # Setup project
-        engine.project_manager.project_crud.register_project("tm_proj", "TM", str(engine.project_manager.workspace_root / "tm_proj"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("tm_proj"))
-        engine.project_manager.project_setup._init_jobs_db(str(engine.project_manager._project_root("tm_proj") / "jobs.db"))
+        engine.project_repo.register_project("tm_proj", "TM", str(engine.project_repo.workspace_root / "tm_proj"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("tm_proj"))
+        engine.project_repo._init_jobs_db(str(engine.project_repo._project_root("tm_proj") / "jobs.db"))
         
         tm1 = engine.get_task_manager("tm_proj")
         tm2 = engine.get_task_manager("tm_proj")
@@ -84,16 +84,16 @@ class TestEngineFileOps:
         engine = real_engine_with_temp_workspace
         
         # Setup project
-        engine.project_manager.project_crud.register_project("split_proj", "Split", str(engine.project_manager.workspace_root / "split_proj"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("split_proj"))
-        engine.project_manager.project_setup._init_jobs_db(str(engine.project_manager._project_root("split_proj") / "jobs.db"))
+        engine.project_repo.register_project("split_proj", "Split", str(engine.project_repo.workspace_root / "split_proj"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("split_proj"))
+        engine.project_repo._init_jobs_db(str(engine.project_repo._project_root("split_proj") / "jobs.db"))
         
         # Mock file ops
         def mock_splitting(project_id, target_files=None):
-            root = engine.project_manager._project_root(project_id)
+            root = engine.project_repo._project_root(project_id)
             (root / "分割發票" / "split_1.jpg").touch()
             tm = engine.get_task_manager(project_id)
-            tm.enqueue("分割發票/split_1.jpg", "split_1")
+            tm.insert_job("split_1", "分割發票/split_1.jpg")
             return {"status": "split_completed"}
         
         engine.file_ops.run_splitting = MagicMock(side_effect=mock_splitting)
@@ -110,8 +110,8 @@ class TestEngineFileOps:
         engine = real_engine_with_temp_workspace
         
         # Setup project
-        engine.project_manager.project_crud.register_project("raw_empty", "Empty", str(engine.project_manager.workspace_root / "raw_empty"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("raw_empty"))
+        engine.project_repo.register_project("raw_empty", "Empty", str(engine.project_repo.workspace_root / "raw_empty"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("raw_empty"))
         
         files = engine.get_raw_files("raw_empty")
         assert files == []
@@ -121,11 +121,11 @@ class TestEngineFileOps:
         engine = real_engine_with_temp_workspace
         
         # Setup project
-        engine.project_manager.project_crud.register_project("raw_files", "Files", str(engine.project_manager.workspace_root / "raw_files"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("raw_files"))
+        engine.project_repo.register_project("raw_files", "Files", str(engine.project_repo.workspace_root / "raw_files"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("raw_files"))
         
         # Add file
-        root = engine.project_manager._project_root("raw_files")
+        root = engine.project_repo._project_root("raw_files")
         (root / "原始輸入" / "test.jpg").touch()
         
         files = engine.get_raw_files("raw_files")
@@ -137,9 +137,9 @@ class TestEngineFileOps:
         engine = real_engine_with_temp_workspace
         
         # Setup project
-        engine.project_manager.project_crud.register_project("add_raw", "Add", str(engine.project_manager.workspace_root / "add_raw"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("add_raw"))
-        engine.project_manager.project_setup._init_jobs_db(str(engine.project_manager._project_root("add_raw") / "jobs.db"))
+        engine.project_repo.register_project("add_raw", "Add", str(engine.project_repo.workspace_root / "add_raw"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("add_raw"))
+        engine.project_repo._init_jobs_db(str(engine.project_repo._project_root("add_raw") / "jobs.db"))
         
         # Create temp file
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
@@ -150,7 +150,7 @@ class TestEngineFileOps:
             res = engine.add_project_files("add_raw", [f_path], type="raw")
             assert res["status"] == "added"
             
-            root = engine.project_manager._project_root("add_raw")
+            root = engine.project_repo._project_root("add_raw")
             assert (root / "原始輸入" / os.path.basename(f_path)).exists()
         finally:
             if os.path.exists(f_path):
@@ -161,9 +161,9 @@ class TestEngineFileOps:
         engine = real_engine_with_temp_workspace
         
         # Setup project
-        engine.project_manager.project_crud.register_project("add_split", "Add", str(engine.project_manager.workspace_root / "add_split"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("add_split"))
-        engine.project_manager.project_setup._init_jobs_db(str(engine.project_manager._project_root("add_split") / "jobs.db"))
+        engine.project_repo.register_project("add_split", "Add", str(engine.project_repo.workspace_root / "add_split"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("add_split"))
+        engine.project_repo._init_jobs_db(str(engine.project_repo._project_root("add_split") / "jobs.db"))
         
         # Create temp file
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
@@ -187,12 +187,12 @@ class TestEngineFileOps:
         engine = real_engine_with_temp_workspace
         
         # Setup project
-        engine.project_manager.project_crud.register_project("rotate_proj", "Rotate", str(engine.project_manager.workspace_root / "rotate_proj"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("rotate_proj"))
+        engine.project_repo.register_project("rotate_proj", "Rotate", str(engine.project_repo.workspace_root / "rotate_proj"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("rotate_proj"))
         
         # Create a real image file (1x1 pixel)
         import numpy as np
-        root = engine.project_manager._project_root("rotate_proj")
+        root = engine.project_repo._project_root("rotate_proj")
         img_path = root / "分割發票" / "test.jpg"
         
         # Mock cv2 imread/imwrite to avoid real image processing
@@ -206,11 +206,11 @@ class TestEngineFileOps:
         engine = real_engine_with_temp_workspace
         
         # Setup project
-        engine.project_manager.project_crud.register_project("del_raw", "Del", str(engine.project_manager.workspace_root / "del_raw"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("del_raw"))
+        engine.project_repo.register_project("del_raw", "Del", str(engine.project_repo.workspace_root / "del_raw"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("del_raw"))
         
         # Create file
-        root = engine.project_manager._project_root("del_raw")
+        root = engine.project_repo._project_root("del_raw")
         (root / "原始輸入" / "to_delete.jpg").touch()
         
         res = engine.delete_raw_file("del_raw", "to_delete.jpg")
@@ -222,110 +222,92 @@ class TestEngineFileOps:
         engine = real_engine_with_temp_workspace
         
         # Setup project
-        engine.project_manager.project_crud.register_project("del_raw_nf", "Del", str(engine.project_manager.workspace_root / "del_raw_nf"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("del_raw_nf"))
+        engine.project_repo.register_project("del_raw_nf", "Del", str(engine.project_repo.workspace_root / "del_raw_nf"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("del_raw_nf"))
         
         res = engine.delete_raw_file("del_raw_nf", "nonexistent.jpg")
         assert res["status"] == "not_found"
 
 
 # ============================================================================
-# Processing Tests (OCR/LLM)
+# Processing Tests (VLM-First)
 # ============================================================================
 
 @pytest.mark.engine
 class TestEngineProcessing:
-    """Tests for OCR and LLM processing."""
+    """Tests for VLM-First processing."""
     
-    def test_run_ocr_queues_jobs(self, real_engine_with_temp_workspace):
-        """Test that run_ocr (now run_ocr_only) queues jobs to the unified task queue."""
+    def test_run_processing_queues_jobs(self, real_engine_with_temp_workspace):
+        """Test that run_processing queues ready jobs to the task queue."""
         engine = real_engine_with_temp_workspace
         
         # Setup project with job
-        engine.project_manager.project_crud.register_project("ocr_proj", "OCR", str(engine.project_manager.workspace_root / "ocr_proj"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("ocr_proj"))
-        engine.project_manager.project_setup._init_jobs_db(str(engine.project_manager._project_root("ocr_proj") / "jobs.db"))
+        engine.project_repo.register_project("proc_proj", "Proc", str(engine.project_repo.workspace_root / "proc_proj"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("proc_proj"))
+        engine.project_repo._init_jobs_db(str(engine.project_repo._project_root("proc_proj") / "jobs.db"))
         
-        tm = engine.get_task_manager("ocr_proj")
-        tm.enqueue("test.jpg", "job1")
+        tm = engine.get_task_manager("proc_proj")
+        tm.insert_job("job1", "test.jpg")
         
-        # 統一 Worker 架構：run_ocr 僅將任務加入佇列
-        res = engine.run_ocr("ocr_proj")
-        assert res["status"] == "ocr_only_queued"
+        # VLM-First: run_processing queues ready/failed jobs
+        res = engine.run_processing("proc_proj")
+        assert res["status"] == "processing_queued"
         assert res["queued_count"] == 1
         
-        # 確認任務已加入統一佇列
+        # Verify job is in task queue
         assert engine.task_queue.qsize() >= 1
         
-        # 確認 job 狀態為 pending
+        # Verify job status changed to pending
         job = tm.get_job("job1")
         assert job["status"] == "pending"
 
-    def test_run_llm_queues_jobs(self, real_engine_with_temp_workspace):
-        """Test that run_llm queues jobs to the unified task queue."""
+    def test_run_processing_skips_done_jobs(self, real_engine_with_temp_workspace):
+        """Test that run_processing skips already done jobs."""
         engine = real_engine_with_temp_workspace
         
-        # Setup project with LLM-stage job
-        engine.project_manager.project_crud.register_project("llm_proj", "LLM", str(engine.project_manager.workspace_root / "llm_proj"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("llm_proj"))
-        engine.project_manager.project_setup._init_jobs_db(str(engine.project_manager._project_root("llm_proj") / "jobs.db"))
+        engine.project_repo.register_project("done_proj", "Done", str(engine.project_repo.workspace_root / "done_proj"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("done_proj"))
+        engine.project_repo._init_jobs_db(str(engine.project_repo._project_root("done_proj") / "jobs.db"))
         
-        tm = engine.get_task_manager("llm_proj")
-        tm.enqueue("test.jpg", "job1")
-        tm.complete_ocr("job1", {"text": "OCR result"})  # Move to LLM stage
+        tm = engine.get_task_manager("done_proj")
+        tm.insert_job("job1", "test.jpg")
+        tm.update_job("job1", status="done")
         
-        # 統一 Worker 架構：run_llm 僅將任務加入佇列
-        res = engine.run_llm("llm_proj")
-        assert res["status"] == "llm_queued"
-        assert res["queued_count"] == 1
-        
-        # 確認任務已加入統一佇列
-        assert engine.task_queue.qsize() >= 1
+        res = engine.run_processing("done_proj")
+        assert res["queued_count"] == 0
 
-    def test_run_single_ocr(self, real_engine_with_temp_workspace):
-        """Test single-job OCR processing queues to unified task queue."""
+    def test_run_single_processing(self, real_engine_with_temp_workspace):
+        """Test single-job processing queues to task queue."""
         engine = real_engine_with_temp_workspace
         
-        # Setup
-        engine.project_manager.project_crud.register_project("single_ocr", "Single", str(engine.project_manager.workspace_root / "single_ocr"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("single_ocr"))
-        engine.project_manager.project_setup._init_jobs_db(str(engine.project_manager._project_root("single_ocr") / "jobs.db"))
+        engine.project_repo.register_project("single_proc", "Single", str(engine.project_repo.workspace_root / "single_proc"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("single_proc"))
+        engine.project_repo._init_jobs_db(str(engine.project_repo._project_root("single_proc") / "jobs.db"))
         
-        tm = engine.get_task_manager("single_ocr")
-        tm.enqueue("test.jpg", "single_job")
+        tm = engine.get_task_manager("single_proc")
+        tm.insert_job("single_job", "test.jpg")
         
-        # 統一 Worker 架構：run_single_ocr 將任務加入佇列
-        res = engine.run_single_ocr("single_ocr", "single_job")
+        res = engine.run_single_processing("single_proc", "single_job")
         assert res["status"] == "queued"
         assert res["job_id"] == "single_job"
         
-        # 確認任務已加入統一佇列
+        # Verify task queue
         assert engine.task_queue.qsize() >= 1
         
-        # 確認 job 狀態為 pending
+        # Verify job status
         job = tm.get_job("single_job")
         assert job["status"] == "pending"
 
-    def test_run_single_llm(self, real_engine_with_temp_workspace):
-        """Test single-job LLM processing queues to unified task queue."""
+    def test_run_single_processing_not_found(self, real_engine_with_temp_workspace):
+        """Test that run_single_processing raises on unknown job."""
         engine = real_engine_with_temp_workspace
         
-        # Setup
-        engine.project_manager.project_crud.register_project("single_llm", "Single", str(engine.project_manager.workspace_root / "single_llm"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("single_llm"))
-        engine.project_manager.project_setup._init_jobs_db(str(engine.project_manager._project_root("single_llm") / "jobs.db"))
+        engine.project_repo.register_project("nf_proj", "NF", str(engine.project_repo.workspace_root / "nf_proj"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("nf_proj"))
+        engine.project_repo._init_jobs_db(str(engine.project_repo._project_root("nf_proj") / "jobs.db"))
         
-        tm = engine.get_task_manager("single_llm")
-        tm.enqueue("test.jpg", "llm_job")
-        tm.complete_ocr("llm_job", {"text": "OCR"})
-        
-        # 統一 Worker 架構：run_single_llm 將任務加入佇列
-        res = engine.run_single_llm("single_llm", "llm_job")
-        assert res["status"] == "queued"
-        assert res["job_id"] == "llm_job"
-        
-        # 確認任務已加入統一佇列
-        assert engine.task_queue.qsize() >= 1
+        with pytest.raises(ValueError):
+            engine.run_single_processing("nf_proj", "nonexistent")
 
 
 # ============================================================================
@@ -341,12 +323,12 @@ class TestEngineJobManagement:
         engine = real_engine_with_temp_workspace
         
         # Setup
-        engine.project_manager.project_crud.register_project("del_job", "Del", str(engine.project_manager.workspace_root / "del_job"))
-        engine.project_manager.project_setup._ensure_layout(engine.project_manager._project_root("del_job"))
-        engine.project_manager.project_setup._init_jobs_db(str(engine.project_manager._project_root("del_job") / "jobs.db"))
+        engine.project_repo.register_project("del_job", "Del", str(engine.project_repo.workspace_root / "del_job"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("del_job"))
+        engine.project_repo._init_jobs_db(str(engine.project_repo._project_root("del_job") / "jobs.db"))
         
         tm = engine.get_task_manager("del_job")
-        tm.enqueue("test.jpg", "to_delete")
+        tm.insert_job("to_delete", "test.jpg")
         
         engine.delete_job("del_job", "to_delete")
         
@@ -403,29 +385,29 @@ class TestEngineGroups:
         """Test creating/updating a group."""
         engine = real_engine_with_temp_workspace
         
-        engine.project_manager.upsert_group("TestGroup", "TestLeader")
+        engine.project_repo.upsert_group("TestGroup", "TestLeader")
         
-        groups = engine.project_manager.list_groups()
+        groups = engine.project_repo.list_groups()
         assert any(g["group_name"] == "TestGroup" for g in groups)
 
     def test_list_groups(self, real_engine_with_temp_workspace):
         """Test listing groups."""
         engine = real_engine_with_temp_workspace
         
-        engine.project_manager.upsert_group("G1", "L1")
-        engine.project_manager.upsert_group("G2", "L2")
+        engine.project_repo.upsert_group("G1", "L1")
+        engine.project_repo.upsert_group("G2", "L2")
         
-        groups = engine.project_manager.list_groups()
+        groups = engine.project_repo.list_groups()
         assert len(groups) >= 2
 
     def test_delete_group(self, real_engine_with_temp_workspace):
         """Test deleting a group."""
         engine = real_engine_with_temp_workspace
         
-        engine.project_manager.upsert_group("ToDelete", "Leader")
-        engine.project_manager.delete_group("ToDelete")
+        engine.project_repo.upsert_group("ToDelete", "Leader")
+        engine.project_repo.delete_group("ToDelete")
         
-        groups = engine.project_manager.list_groups()
+        groups = engine.project_repo.list_groups()
         assert not any(g["group_name"] == "ToDelete" for g in groups)
 
     def test_update_activity_info(self, real_engine_with_temp_workspace):
@@ -433,14 +415,14 @@ class TestEngineGroups:
         engine = real_engine_with_temp_workspace
         
         # Setup project
-        engine.project_manager.project_crud.register_project("activity_proj", "Activity", str(engine.project_manager.workspace_root / "activity_proj"))
+        engine.project_repo.register_project("activity_proj", "Activity", str(engine.project_repo.workspace_root / "activity_proj"))
         
-        engine.project_manager.update_activity_info("activity_proj", {
+        engine.project_repo.update_activity_info("activity_proj", {
             "group_name": "TestGroup",
             "coordinator": "Alice",
             "teacher_count": 5
         })
         
-        proj = engine.project_manager.project_crud.get_project("activity_proj")
+        proj = engine.project_repo.get_project("activity_proj")
         assert proj["metadata"]["group_name"] == "TestGroup"
         assert proj["metadata"]["teacher_count"] == 5

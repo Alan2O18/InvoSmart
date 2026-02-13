@@ -21,7 +21,7 @@ class TestAPIProjectCRUD:
     
     def test_list_projects(self, mock_engine_for_api):
         """GET / - List all projects."""
-        mock_engine_for_api.project_manager.list_projects.return_value = [
+        mock_engine_for_api.project_repo.list_projects.return_value = [
             {"project_id": "p1", "name": "Project 1"},
             {"project_id": "p2", "name": "Project 2"}
         ]
@@ -52,18 +52,18 @@ class TestAPIProjectCRUD:
         )
         
         assert response.status_code == 200
-        mock_engine_for_api.project_manager.update_metadata.assert_called_with("test_proj", {"new_key": "new_val"})
+        mock_engine_for_api.project_repo.update_metadata.assert_called_with("test_proj", {"new_key": "new_val"})
 
     def test_delete_project(self, mock_engine_for_api):
         """DELETE /{id} - Delete a project."""
         response = client.delete("/api/projects/test_proj")
         
         assert response.status_code == 200
-        mock_engine_for_api.project_manager.delete_project.assert_called_with("test_proj")
+        mock_engine_for_api.project_repo.delete_project.assert_called_with("test_proj")
 
     def test_get_project_status(self, mock_engine_for_api):
         """GET /{id} - Get project status."""
-        mock_engine_for_api.project_manager.get_project_status.return_value = {
+        mock_engine_for_api.project_repo.get_project_status.return_value = {
             "ingested": True,
             "split": True,
             "processing": False,
@@ -163,37 +163,21 @@ class TestAPIProcessing:
         assert response.status_code == 200
         mock_engine_for_api.run_split_single.assert_called()
 
-    def test_run_ocr(self, mock_engine_for_api):
-        """POST /{id}/run_ocr - Run OCR."""
-        mock_engine_for_api.run_ocr.return_value = {"status": "ocr_started"}
+    def test_run_processing(self, mock_engine_for_api):
+        """POST /{id}/run_processing - Run VLM processing."""
+        mock_engine_for_api.run_processing.return_value = {"status": "processing_queued", "queued_count": 3}
         
-        response = client.post("/api/projects/test_proj/run_ocr")
+        response = client.post("/api/projects/test_proj/run_processing")
         assert response.status_code == 200
-        mock_engine_for_api.run_ocr.assert_called_with("test_proj")
+        mock_engine_for_api.run_processing.assert_called_with("test_proj")
 
-    def test_run_llm(self, mock_engine_for_api):
-        """POST /{id}/run_llm - Run LLM."""
-        mock_engine_for_api.run_llm.return_value = {"status": "llm_started"}
+    def test_run_single_processing(self, mock_engine_for_api):
+        """POST /{id}/jobs/{job_id}/process - Run single VLM processing."""
+        mock_engine_for_api.run_single_processing.return_value = {"status": "queued", "job_id": "job1"}
         
-        response = client.post("/api/projects/test_proj/run_llm")
+        response = client.post("/api/projects/test_proj/jobs/job1/process")
         assert response.status_code == 200
-        mock_engine_for_api.run_llm.assert_called_with("test_proj")
-
-    def test_run_single_ocr(self, mock_engine_for_api):
-        """POST /{id}/jobs/{job_id}/ocr - Run single OCR."""
-        mock_engine_for_api.run_single_ocr.return_value = {"status": "single_ocr_started"}
-        
-        response = client.post("/api/projects/test_proj/jobs/job1/ocr")
-        assert response.status_code == 200
-        mock_engine_for_api.run_single_ocr.assert_called_with("test_proj", "job1")
-
-    def test_run_single_llm(self, mock_engine_for_api):
-        """POST /{id}/jobs/{job_id}/llm - Run single LLM."""
-        mock_engine_for_api.run_single_llm.return_value = {"status": "single_llm_started"}
-        
-        response = client.post("/api/projects/test_proj/jobs/job1/llm")
-        assert response.status_code == 200
-        mock_engine_for_api.run_single_llm.assert_called_with("test_proj", "job1")
+        mock_engine_for_api.run_single_processing.assert_called_with("test_proj", "job1")
 
 
 # ============================================================================
@@ -245,7 +229,7 @@ class TestAPIJobs:
             conn.close()
             
             # Patch _project_root to return our temp dir
-            mock_engine_for_api.project_manager._project_root.return_value = Path(tmpdir)
+            mock_engine_for_api.project_repo._project_root.return_value = Path(tmpdir)
             
             response = client.get("/api/projects/test_proj/jobs")
             assert response.status_code == 200
@@ -304,7 +288,7 @@ class TestAPIActivityInfo:
         
         response = client.post("/api/projects/test_proj/activity_info", json=info)
         assert response.status_code == 200
-        mock_engine_for_api.project_manager.update_activity_info.assert_called_with("test_proj", info)
+        mock_engine_for_api.project_repo.update_activity_info.assert_called_with("test_proj", info)
 
 
 # ============================================================================
@@ -317,7 +301,7 @@ class TestAPIGroups:
     
     def test_list_groups(self, mock_engine_for_api):
         """GET /groups/list - List groups."""
-        mock_engine_for_api.project_manager.list_groups.return_value = [
+        mock_engine_for_api.project_repo.list_groups.return_value = [
             {"group_name": "G1", "leader_name": "L1"},
             {"group_name": "G2", "leader_name": "L2"}
         ]
@@ -334,11 +318,11 @@ class TestAPIGroups:
         )
         
         assert response.status_code == 200
-        mock_engine_for_api.project_manager.upsert_group.assert_called_with("NewGroup", "Leader")
+        mock_engine_for_api.project_repo.upsert_group.assert_called_with("NewGroup", "Leader")
 
     def test_delete_group(self, mock_engine_for_api):
         """DELETE /groups/{name} - Delete group."""
         response = client.delete("/api/projects/groups/TestGroup")
         
         assert response.status_code == 200
-        mock_engine_for_api.project_manager.delete_group.assert_called_with("TestGroup")
+        mock_engine_for_api.project_repo.delete_group.assert_called_with("TestGroup")

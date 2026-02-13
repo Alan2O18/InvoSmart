@@ -168,9 +168,9 @@ def mock_engine_for_api():
     from contextlib import ExitStack
     
     mock = MagicMock()
-    mock.project_manager.list_projects.return_value = []
-    mock.project_manager.get_project_status.return_value = {}
-    mock.project_manager.list_groups.return_value = []
+    mock.project_repo.list_projects.return_value = []
+    mock.project_repo.get_project_status.return_value = {}
+    mock.project_repo.list_groups.return_value = []
     
     # 設置為全局實例
     dependencies.set_engine(mock)

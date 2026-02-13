@@ -1,315 +1,220 @@
 """
-Unit Tests for ReceiptProcessor
+Unit Tests for ReceiptProcessor (VLM-First Architecture)
 
 Tests the integrated receipt processing pipeline with mocked dependencies.
+Only 3 sub-handlers: VisionHandler, QRHandler, PythonValidator.
 """
 import pytest
 from unittest.mock import MagicMock, patch
 import numpy as np
-from backend.processing.receipt_processor import ReceiptProcessor, ReceiptType
+from backend.processing.receipt_processor import ReceiptProcessor
+
 
 class TestReceiptProcessor:
-    """ReceiptProcessor Integration Tests with Mocks"""
+    """ReceiptProcessor Integration Tests with Mocks (VLM-First)"""
 
     @pytest.fixture
     def mock_processor(self):
         """
         Setup ReceiptProcessor with all sub-handlers mocked.
-        Returns the processor instance and a dictionary of mocks.
+        VLM-First architecture only has 3 handlers:
+        - VisionHandler (Gemini VLM)
+        - QRHandler
+        - PythonValidator
         """
-        with patch('backend.processing.receipt_processor.RapidOCRHandler') as MockOCR, \
-             patch('backend.processing.receipt_processor.KeywordClassifier') as MockClassifier, \
+        with patch('backend.processing.receipt_processor.VisionHandler') as MockVision, \
              patch('backend.processing.receipt_processor.QRHandler') as MockQR, \
-             patch('backend.processing.receipt_processor.VisionHandler') as MockVision, \
-             patch('backend.processing.receipt_processor.LLMHandler') as MockLLM, \
-             patch('backend.processing.receipt_processor.PythonValidator') as MockValidator, \
-             patch('backend.processing.receipt_processor.ProjectCRUD') as MockProjectCRUD:
-            
-            # Create sub-handler instances
-            ocr = MockOCR.return_value
-            classifier = MockClassifier.return_value
-            qr = MockQR.return_value
+             patch('backend.processing.receipt_processor.PythonValidator') as MockValidator:
+
             vision = MockVision.return_value
-            llm = MockLLM.return_value
+            qr = MockQR.return_value
             validator = MockValidator.return_value
-            
-            # Initialize processor
-            config = {}
-            processor = ReceiptProcessor(config)
-            
+
+            # Default: validation passes
+            validator.validate.return_value = MagicMock(
+                is_valid=True, issues=[], confidence=1.0
+            )
+
+            processor = ReceiptProcessor({})
+
             mocks = {
-                'ocr': ocr,
-                'classifier': classifier,
-                'qr': qr,
                 'vision': vision,
-                'llm': llm,
-                'validator': validator
+                'qr': qr,
+                'validator': validator,
             }
-            
-            # Common defaults
-            ocr.do_ocr.return_value = ([], {'total_time_s': 0.1})
-            ocr.to_plain_text.return_value = ""
-            validator.validate.return_value = MagicMock(is_valid=True, issues=[], confidence=1.0)
-            
+
             yield processor, mocks
 
-    def test_process_electronic_invoice(self, mock_processor):
-        """Test processing flow for Electronic Invoice (QR code based)."""
+    # =========================================================================
+    # Happy Path Tests
+    # =========================================================================
+
+    def test_process_success_with_qr(self, mock_processor):
+        """Test successful VLM processing with QR code verification."""
         processor, mocks = mock_processor
-        
-        # Setup mocks
-        ocr_text = "電子發票證明聯"
-        mocks['ocr'].to_plain_text.return_value = ocr_text
-        mocks['ocr'].do_ocr.return_value = ([{'text': ocr_text}], {'engine': 'rapidocr'})
-        
-        # QR detected and decoded
-        qr_data = {
-            "success": True, 
-            "data": {
-                "invoice_id": "AB12345678", 
-                "total": 100, 
-                "seller_id": "87654321",
-                "invoice_date": "2024-01-01"
-            }
+
+        vlm_result = {
+            "header": {
+                "supplier": "全家便利超商",
+                "invoice_id": "AB12345678",
+                "date": "2025-12-09",
+            },
+            "items": [
+                {"name": "海報紙", "qty": 2, "price": 100.0, "total": 200.0},
+            ],
+            "summary": {"total": 200.0},
         }
-        mocks['qr'].detect_and_decode.return_value = qr_data
-        
-        # Classification
-        classification = MagicMock()
-        classification.receipt_type = ReceiptType.ELECTRONIC
-        classification.confidence = 0.95
-        mocks['classifier'].classify.return_value = classification
-        
-        # LLM Response (electronic invoice now uses LLM to merge QR + OCR)
-        llm_json_str = '{"receipt_type": "電子發票", "header": {"supplier": "7-ELEVEN", "invoice_id": "AB12345678", "date": "2024-01-01", "tax_id": "87654321"}, "items": [], "summary": {"total": 100}}'
-        mocks['llm'].call_with_thinking.return_value = (llm_json_str, {'tokens_per_second': 10})
-        
-        # Execution
-        img = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = processor.process(img)
-        
-        # Verification
-        assert result['success'] is True
-        assert result['invoice_type'] == "electronic"
-        assert result['llm_result']['receipt_type'] == "電子發票"
-        # Check that data came from LLM (merged from QR + OCR)
-        assert result['llm_result']['header']['invoice_id'] == "AB12345678"
-        assert result['llm_result']['header']['supplier'] == "7-ELEVEN"
+        vlm_stats = {"total_time_s": 0.5, "model": "gemini-flash-lite"}
 
-    def test_process_handwritten_receipt(self, mock_processor):
-        """Test processing flow for Handwritten Receipt (VLM based)."""
-        processor, mocks = mock_processor
-        
-        # Setup mocks
-        ocr_text = "免用統一發票收據"
-        mocks['ocr'].to_plain_text.return_value = ocr_text
-        
-        # No QR
-        mocks['qr'].detect_and_decode.return_value = None
-        
-        # Classification
-        classification = MagicMock()
-        classification.receipt_type = ReceiptType.HANDWRITTEN
-        classification.confidence = 0.9
-        mocks['classifier'].classify.return_value = classification
-        
-        # VLM Response
-        vlm_json_str = '{"header": {"supplier": "Test Shop"}, "items": [], "summary": {"total": 500}}'
-        mocks['vision'].process_handwritten.return_value = (vlm_json_str, {'tokens_per_second': 10})
-        
-        # Execution
-        img = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = processor.process(img)
-        
-        # Verification
-        assert result['success'] is True
-        assert result['invoice_type'] == "handwritten"
-        assert result['llm_result']['receipt_type'] == "免用統一發票收據"
-        assert result['llm_result']['header']['supplier'] == "Test Shop"
-        # Check stats included
-        assert any(stat.get('stage') == "vlm_extraction" for stat in result['llm_stats'])
-
-    def test_process_other_receipt(self, mock_processor):
-        """Test processing flow for Other Receipt (LLM based)."""
-        processor, mocks = mock_processor
-        
-        # Setup mocks
-        ocr_text = "計程車乘車證明"
-        mocks['ocr'].to_plain_text.return_value = ocr_text
-        
-        # No QR
-        mocks['qr'].detect_and_decode.return_value = None
-        
-        # Classification
-        classification = MagicMock()
-        classification.receipt_type = ReceiptType.OTHER
-        classification.confidence = 0.8
-        mocks['classifier'].classify.return_value = classification
-        
-        # LLM Response
-        llm_json_str = '{"header": {"supplier": "Taxi"}, "summary": {"total": 200}}'
-        mocks['llm'].call_with_thinking.return_value = (llm_json_str, {'tokens_per_second': 20})
-        
-        # Execution
-        img = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = processor.process(img)
-        
-        # Verification
-        assert result['success'] is True
-        assert result['invoice_type'] == "other"
-        assert result['llm_result']['receipt_type'] == "其他收據"
-        assert result['llm_result']['header']['supplier'] == "Taxi"
-        assert any(stat.get('stage') == "llm_extraction" for stat in result['llm_stats'])
-
-    def test_process_invalid_extraction(self, mock_processor):
-        """Test handling of failed extraction."""
-        processor, mocks = mock_processor
-        
-        # Classification returns Handwritten
-        classification = MagicMock()
-        classification.receipt_type = ReceiptType.HANDWRITTEN
-        classification.confidence = 0.9  # Set confidence to avoid TypeError
-        mocks['classifier'].classify.return_value = classification
-        
-        # VLM returns empty/None
-        mocks['vision'].process_handwritten.return_value = (None, {})
-        
-        img = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = processor.process(img)
-        
-        assert result['success'] is False
-        assert "資料提取失敗" in result['error']
-
-    def test_process_ocr_only(self, mock_processor):
-        """Test OCR-only processing (Stage 1)."""
-        processor, mocks = mock_processor
-        
-        # Setup mocks
-        ocr_text = "測試OCR文字"
-        mocks['ocr'].do_ocr.return_value = ([{'text': ocr_text, 'box': [0, 0, 100, 100]}], {'total_time_s': 0.5})
-        mocks['ocr'].to_plain_text.return_value = ocr_text
-        
-        # No QR
-        mocks['qr'].detect_and_decode.return_value = None
-        
-        # Classification
-        classification = MagicMock()
-        classification.receipt_type = ReceiptType.OTHER
-        classification.confidence = 0.8
-        mocks['classifier'].classify.return_value = classification
-        
-        # Execution
-        img = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = processor.process_ocr_only(img)
-        
-        # Verification
-        assert 'ocr_result' in result
-        assert result['ocr_result']['text'] == ocr_text
-        assert result['ocr_result']['type'] == '其他收據'  # Returns Chinese
-        assert 'ocr_stats' in result
-
-    def test_process_llm_only_handwritten(self, mock_processor):
-        """Test LLM-only processing for handwritten type."""
-        processor, mocks = mock_processor
-        
-        # Setup OCR result input - uses Chinese type string
-        ocr_result = {
-            "text": "免用統一發票收據 壹仟元",
-            "type": "免用統一發票收據"
-        }
-        
-        # LLM structure_with_llm is called for handwritten
-        mocks['llm'].structure_with_llm.return_value = {
-            "header": {"supplier": "Shop"}, 
-            "summary": {"total": 1000}
-        }
-        
-        # Execution
-        img = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = processor.process_llm_only(ocr_result, img)
-        
-        # Verification
-        assert result['success'] is True
-        assert result['llm_result']['header']['supplier'] == "Shop"
-
-    def test_process_llm_only_electronic(self, mock_processor):
-        """Test LLM-only processing for electronic type."""
-        processor, mocks = mock_processor
-        
-        # Setup OCR result input with Chinese type
-        ocr_result = {
-            "text": "電子發票證明聯",
-            "type": "電子發票"
-        }
-        
-        # QR detected
+        mocks['vision'].process_image.return_value = (vlm_result, vlm_stats)
         mocks['qr'].detect_and_decode.return_value = {
             "invoice_id": "AB12345678",
-            "total": 500
+            "total": 200,
         }
-        
-        # LLM Response for electronic uses call_with_thinking
-        llm_json_str = '{"header": {"invoice_id": "AB12345678"}, "summary": {"total": 500}}'
-        mocks['llm'].call_with_thinking.return_value = (llm_json_str, {})
-        
-        # Execution
-        img = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = processor.process_llm_only(ocr_result, img)
-        
-        # Verification
-        assert result['success'] is True
-        assert 'llm_result' in result
 
-    @pytest.mark.skip(reason="Requires more complex mock setup")
-    def test_process_llm_only_empty_ocr(self, mock_processor):
-        """Test LLM-only processing with empty OCR result."""
-        processor, mocks = mock_processor
-        
-        ocr_result = {"text": "", "type": "unknown"}
-        
-        img = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = processor.process_llm_only(ocr_result, img)
-        
-        # Should fail gracefully
-        assert result['success'] is False
-
-    @pytest.mark.skip(reason="Requires more complex mock setup")
-    def test_process_with_ocr_error(self, mock_processor):
-        """Test handling of OCR errors."""
-        processor, mocks = mock_processor
-        
-        # OCR raises exception
-        mocks['ocr'].do_ocr.side_effect = Exception("OCR Engine Error")
-        
         img = np.zeros((100, 100, 3), dtype=np.uint8)
         result = processor.process(img)
-        
-        assert result['success'] is False
-        assert "OCR Engine Error" in result['error']
 
-    @pytest.mark.skip(reason="Requires more complex mock setup")
-    def test_process_with_qr_error(self, mock_processor):
-        """Test handling of QR detection errors."""
+        assert result["success"] is True
+        assert result["result"]["header"]["invoice_id"] == "AB12345678"
+        assert result["metadata"]["qr_detected"] is True
+        assert result["result"]["verification"]["qr_verified"] is True
+        assert result["validation"]["is_valid"] is True
+
+    def test_process_success_without_qr(self, mock_processor):
+        """Test successful VLM processing without QR code."""
         processor, mocks = mock_processor
-        
-        mocks['ocr'].to_plain_text.return_value = "電子發票"
-        
-        # QR raises exception
-        mocks['qr'].detect_and_decode.side_effect = Exception("QR Decode Error")
-        
-        # Classification still works
-        classification = MagicMock()
-        classification.receipt_type = ReceiptType.OTHER
-        classification.confidence = 0.7
-        mocks['classifier'].classify.return_value = classification
-        
-        # LLM still returns valid result
-        llm_json_str = '{"header": {}, "summary": {"total": 100}}'
-        mocks['llm'].call_with_thinking.return_value = (llm_json_str, {})
-        
+
+        vlm_result = {
+            "header": {"supplier": "小吃店"},
+            "items": [{"name": "便當", "qty": 1, "price": 80.0, "total": 80.0}],
+            "summary": {"total": 80.0},
+        }
+        vlm_stats = {"total_time_s": 0.3}
+
+        mocks['vision'].process_image.return_value = (vlm_result, vlm_stats)
+        mocks['qr'].detect_and_decode.return_value = None
+
         img = np.zeros((100, 100, 3), dtype=np.uint8)
         result = processor.process(img)
-        
-        # Should still succeed with fallback
-        assert result['success'] is True
 
+        assert result["success"] is True
+        assert result["result"]["header"]["supplier"] == "小吃店"
+        assert result["metadata"]["qr_detected"] is False
+        assert "verification" not in result["result"]  # No QR = no verification block
+
+    # =========================================================================
+    # Error Handling Tests
+    # =========================================================================
+
+    def test_process_vlm_failure(self, mock_processor):
+        """Test handling of VLM processing failure."""
+        processor, mocks = mock_processor
+
+        mocks['vision'].process_image.return_value = (
+            {},
+            {"error": "API quota exceeded"},
+        )
+
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = processor.process(img)
+
+        assert result["success"] is False
+        assert "API quota exceeded" in result["error"]
+
+    def test_process_validation_issues(self, mock_processor):
+        """Test processing with validation issues detected."""
+        processor, mocks = mock_processor
+
+        vlm_result = {
+            "header": {"supplier": "Test"},
+            "items": [{"name": "A", "qty": 2, "price": 100, "total": 150}],
+            "summary": {"total": 300},
+        }
+        mocks['vision'].process_image.return_value = (vlm_result, {"total_time_s": 0.2})
+        mocks['qr'].detect_and_decode.return_value = None
+
+        # Validator finds issues
+        mocks['validator'].validate.return_value = MagicMock(
+            is_valid=False,
+            issues=["品項小計不一致: 2×100≠150"],
+            confidence=0.3,
+        )
+
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = processor.process(img)
+
+        assert result["success"] is True  # Still succeeds (validation is advisory)
+        assert result["validation"]["is_valid"] is False
+        assert len(result["validation"]["issues"]) > 0
+        assert result["validation"]["confidence"] == 0.3
+
+    # =========================================================================
+    # _merge_qr_data Tests
+    # =========================================================================
+
+    def test_merge_qr_data_overwrites_header(self, mock_processor):
+        """Test QR data overwrites VLM header fields."""
+        processor, _ = mock_processor
+
+        vlm_result = {
+            "header": {"invoice_id": "WRONG123", "supplier": "Shop"},
+            "summary": {"total": 100},
+        }
+        qr_data = {"invoice_id": "AB12345678", "date": "2025-01-01", "total": 200}
+
+        merged = processor._merge_qr_data(vlm_result, qr_data)
+
+        assert merged["header"]["invoice_id"] == "AB12345678"
+        assert merged["header"]["date"] == "2025-01-01"
+        assert merged["header"]["supplier"] == "Shop"  # Unchanged
+        assert merged["summary"]["total"] == 200  # QR total wins
+        assert merged["verification"]["qr_verified"] is True
+
+    def test_merge_qr_data_creates_header_if_missing(self, mock_processor):
+        """Test QR merge creates header dict if missing."""
+        processor, _ = mock_processor
+
+        vlm_result = {"items": [], "summary": {"total": 50}}
+        qr_data = {"invoice_id": "CD99999999"}
+
+        merged = processor._merge_qr_data(vlm_result, qr_data)
+
+        assert merged["header"]["invoice_id"] == "CD99999999"
+
+    # =========================================================================
+    # _create_error_result Tests
+    # =========================================================================
+
+    def test_create_error_result(self, mock_processor):
+        """Test error result structure."""
+        processor, _ = mock_processor
+
+        result = processor._create_error_result("Something went wrong", [{"stage": "vlm"}])
+
+        assert result["success"] is False
+        assert result["error"] == "Something went wrong"
+        assert result["result"] == {}
+        assert result["metadata"]["stats"] == [{"stage": "vlm"}]
+
+    # =========================================================================
+    # Metadata Tests
+    # =========================================================================
+
+    def test_process_includes_timing_metadata(self, mock_processor):
+        """Test that processing result includes timing metadata."""
+        processor, mocks = mock_processor
+
+        mocks['vision'].process_image.return_value = (
+            {"header": {}, "items": [], "summary": {}},
+            {"total_time_s": 1.5},
+        )
+        mocks['qr'].detect_and_decode.return_value = None
+
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        result = processor.process(img)
+
+        assert "total_time_s" in result["metadata"]
+        assert result["metadata"]["total_time_s"] >= 0
+        assert "stats" in result["metadata"]
+        assert len(result["metadata"]["stats"]) >= 1

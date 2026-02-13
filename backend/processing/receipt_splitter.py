@@ -1,88 +1,57 @@
-# Receipt Splitter - 發票分割主模組
+# Receipt Splitter - 發票分割主模組 (V10 重構版)
 """
-ReceiptSplitter (refactored)
+ReceiptSplitter (V10)
 
-此模組提供向後相容的發票分割介面。
-實際實作已拆分至：
-- image_preprocessor.py: 影像預處理
-- contour_validator.py: 輪廓驗證
-- perspective_transform.py: 透視變換
+使用 minAreaRect + Direct Warp 裁切，搭配 Mask IoU 去重與投影方向校正。
+不再使用透視變換、Hough 角點偵測或角度驗證。
+
+流程：
+1. 縮圖偵測輪廓 (Adaptive Kernel)
+2. 座標映射回原圖 → 面積過濾
+3. Mask IoU 去重
+4. Direct Warp 裁切 (含長邊校正)
+5. 投影方向校正
 """
 import logging
 import cv2
 import numpy as np
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 from backend.processing.image_preprocessor import ImagePreprocessor
-from backend.processing.contour_validator import ContourValidator
-from backend.processing.perspective_transform import PerspectiveTransformer
-from backend.processing.hough_corner_detector import HoughCornerDetector
+from backend.processing.perspective_transform import crop_by_rect, fix_orientation
 
 logger = logging.getLogger(__name__)
+
+# 縮圖短邊上限
+RESIZE_SHORT_EDGE = 2000
 
 
 class ReceiptSplitter:
     """
-    一個用於從單張圖片中自動偵測、切割並校正多張發票的類別。
-    
-    此為 Facade 類別，整合預處理、驗證和變換功能。
+    從單張圖片中自動偵測、切割並校正多張發票。
+
+    V10 使用 minAreaRect + Direct Warp 裁切，搭配 Mask IoU 去重。
     """
 
     def __init__(self, config: Dict):
         """
-        初始化 ReceiptSplitter 並設定影像處理參數。
+        初始化 ReceiptSplitter。
 
         Args:
-            config (Dict): 一個包含所有運算參數的字典。
+            config: 包含運算參數的字典。
         """
-        # 提取配置參數
-        angle_tolerance = config.get("ANGLE_TOLERANCE_DEG", 3)
-        aspect_ratio_range = tuple(config.get("ASPECT_RATIO_RANGE", (0.1, 0.9)))
         canny_threshold1 = config.get("CANNY_THRESHOLD1", 30)
         canny_threshold2 = config.get("CANNY_THRESHOLD2", 100)
+        # morph_kernel_size 現在由自適應邏輯計算，這裡的值作為 fallback
         morph_kernel_size = tuple(config.get("MORPH_KERNEL_SIZE", (5, 5)))
-        
-        self.min_contour_area_percentage = config.get("MIN_CONTOUR_AREA_PERCENTAGE", 0.01)
-        self.padding_pixels = config.get("PADDING_PIXELS", 0)
-        self.dedupe_distance_threshold = config.get("DEDUPE_DISTANCE_THRESHOLD", 50)
-        
-        # 初始化子模組
+
+        self.min_contour_area_percentage = config.get("MIN_CONTOUR_AREA_PERCENTAGE", 0.02)
+        self.iou_threshold = config.get("IOU_THRESHOLD", 0.3)
+
+        # 初始化子模組 (僅用於 find_contours)
         self._preprocessor = ImagePreprocessor(
             canny_threshold1, canny_threshold2, morph_kernel_size
         )
-        self._validator = ContourValidator(angle_tolerance, aspect_ratio_range)
-        self._transformer = PerspectiveTransformer(self._validator)
-        self._hough_detector = HoughCornerDetector()
-        
-        # 向後相容性：保留原始屬性
-        self.angle_tolerance_deg = angle_tolerance
-        self.aspect_ratio_range = aspect_ratio_range
-        self.canny_threshold1 = canny_threshold1
-        self.canny_threshold2 = canny_threshold2
-        self.morph_kernel_size = morph_kernel_size
-
-    # 向後相容的方法委派
-    def _order_points(self, pts: np.ndarray) -> np.ndarray:
-        """委派給 ContourValidator"""
-        return self._validator.order_points(pts)
-
-    def _validate_angles(self, pts: np.ndarray) -> bool:
-        """委派給 ContourValidator"""
-        return self._validator.validate_angles(pts)
-
-    def _validate_aspect_ratio(self, rect_wh) -> bool:
-        """委派給 ContourValidator"""
-        return self._validator.validate_aspect_ratio(rect_wh)
-
-    def _perspective_transform(
-        self,
-        image: np.ndarray,
-        pts: np.ndarray,
-        padding: int,
-        contour: np.ndarray = None,
-    ) -> np.ndarray:
-        """委派給 PerspectiveTransformer"""
-        return self._transformer.transform(image, pts, padding, contour)
 
     def split(
         self,
@@ -91,18 +60,10 @@ class ReceiptSplitter:
         headless: bool = False,
     ) -> List[np.ndarray]:
         """
-        發票分割主程式。
-
-        流程如下：
-        1. 預處理：灰階 -> 雙邊濾波 (去噪) -> Canny (邊緣檢測)。
-        2. 形態學：膨脹 (Dilate) 連接斷裂的邊緣。
-        3. 輪廓搜尋：尋找所有外輪廓。
-        4. 候選過濾：過濾面積過小或長寬比不符的物件。
-        5. 去重：合併位置重疊的框。
-        6. 切割與輸出：透視變換並提供預覽介面。
+        發票分割主程式 (V10)。
 
         Args:
-            image: 輸入的原始圖片。
+            image: 輸入的原始圖片 (BGR)。
             debug: 是否顯示中間處理過程的除錯視窗。
             headless: 是否為無頭模式。
 
@@ -112,131 +73,197 @@ class ReceiptSplitter:
         if image is None:
             return []
 
-        img_height, img_width = image.shape[:2]
-        TOTAL_IMAGE_AREA = img_height * img_width
+        img_h, img_w = image.shape[:2]
+        total_area = img_h * img_w
 
-        # 1. 預處理
-        dilated = self._preprocessor.preprocess(image)
+        # ── Step 1: 縮圖輪廓偵測 ──
+        resized, scale_factor = self._resize_for_detection(image)
+        rh, rw = resized.shape[:2]
 
-        # 2. 尋找輪廓
-        contours = self._preprocessor.find_contours(dilated)
+        # 自適應膨脹核心
+        short_edge = min(rw, rh)
+        # V11 調優: divisor 90 為碎片/沾黏最佳平衡點
+        k = max(3, short_edge // 90)
+        logger.debug(f"自適應核心: k={k} (圖片 {rw}x{rh}, 縮放比={scale_factor:.3f})")
 
-        # 3. 篩選候選輪廓
-        candidate_contours = []
-        min_area = TOTAL_IMAGE_AREA * self.min_contour_area_percentage
+        # 預處理 (灰階 → 模糊 → Canny → 膨脹)
+        gray = cv2.cvtColor(resized, cv2.COLOR_BGR2GRAY)
+        blurred = cv2.bilateralFilter(gray, 9, 75, 75)
+        edged = cv2.Canny(blurred, 30, 100)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (k, k))
+        dilated = cv2.dilate(edged, kernel, iterations=1)
 
-        for c in contours[:15]:  # 僅處理前 15 個大輪廓
-            if cv2.contourArea(c) < min_area:
+        # 尋找輪廓
+        contours, _ = cv2.findContours(
+            dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+        contours = sorted(contours, key=cv2.contourArea, reverse=True)
+
+        logger.debug(f"找到 {len(contours)} 個輪廓")
+
+        # ── Step 2: 座標映射 + 面積過濾 ──
+        min_area = total_area * self.min_contour_area_percentage
+        candidate_rects = []
+
+        for c in contours[:15]:
+            # 還原座標到原圖
+            c_orig = (c.astype(np.float64) / scale_factor).astype(np.float32)
+
+            # 凸包 → minAreaRect
+            hull = cv2.convexHull(c_orig)
+            area = cv2.contourArea(hull)
+
+            if area < min_area:
                 continue
 
-            # 使用凸包
-            hull = cv2.convexHull(c)
-            min_rect = cv2.minAreaRect(hull)
+            rect = cv2.minAreaRect(hull)
+            candidate_rects.append({
+                "rect": rect,
+                "area": area,
+            })
 
-            # 策略 A：多邊形擬合 (提高精度，epsilon 從 0.02 改為 0.01)
-            peri = cv2.arcLength(hull, True)
-            approx = cv2.approxPolyDP(hull, 0.01 * peri, True)
+        logger.debug(f"面積過濾後剩 {len(candidate_rects)} 個候選")
 
-            if len(approx) == 4 and self._validator.validate_angles(approx.reshape(4, 2)):
-                M = cv2.moments(approx)
-                center = (
-                    int(M["m10"] / (M["m00"] or 1)),
-                    int(M["m01"] / (M["m00"] or 1)),
-                )
-                candidate_contours.append({
-                    "points": approx.reshape(4, 2),
-                    "type": "approx_verified",
-                    "center": center,
-                    "area": cv2.contourArea(hull),
-                })
-            else:
-                # 策略 B：最小外接矩形
-                box_points = np.intp(cv2.boxPoints(min_rect))
-                M = cv2.moments(box_points)
-                center = (
-                    int(M["m10"] / (M["m00"] or 1)),
-                    int(M["m01"] / (M["m00"] or 1)),
-                )
-                candidate_contours.append({
-                    "points": box_points,
-                    "type": "min_rect",
-                    "center": center,
-                    "area": cv2.contourArea(hull),
-                })
-
-        # 4. 去重
-        final_contours = []
-        processed_centers = []
-
-        candidate_contours.sort(
-            key=lambda x: (x["type"] == "approx_verified", x["area"]), reverse=True
+        # ── Step 3: Mask IoU 去重 ──
+        # 在縮圖尺寸的 Mask 上操作（提升速度）
+        final_rects = self._mask_iou_dedupe(
+            candidate_rects, scale_factor, (rh, rw)
         )
 
-        for cand in candidate_contours:
-            is_duplicate = False
-            for pc in processed_centers:
-                dist = np.linalg.norm(np.array(cand["center"]) - np.array(pc))
-                if dist < self.dedupe_distance_threshold:
-                    is_duplicate = True
-                    break
+        logger.debug(f"IoU 去重後剩 {len(final_rects)} 個有效輪廓")
 
-            if not is_duplicate:
-                final_contours.append(cand)
-                processed_centers.append(cand["center"])
-
-        logger.debug(f"篩選後保留 {len(final_contours)} 個有效輪廓")
-
-        # 5. 除錯顯示
+        # ── Step 4 & 5: 除錯顯示 ──
         if debug:
-            self._show_debug(image, dilated, final_contours, headless)
+            self._show_debug(image, dilated, final_rects, scale_factor, headless)
 
-        # 6. 切割並輸出
-        final_receipt = []
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY) if len(image.shape) == 3 else image
-        
-        for i, contour_info in enumerate(final_contours):
-            pts = contour_info["points"]
-            original_pts = pts.copy()
-            
-            # 策略 1：Hough 線段偵測取得精確角點 (最精確)
-            hough_pts = self._hough_detector.detect_corners(image, pts.astype(np.int32))
-            if hough_pts is not None:
-                pts = hough_pts
-                logger.debug(f"[發票 {i+1}] 使用 Hough 線段角點")
-            else:
-                # 策略 2：亞像素角點精煉 (備援)
-                try:
-                    pts = self._validator.refine_corners(gray, pts)
-                    logger.debug(f"[發票 {i+1}] 使用亞像素角點精煉")
-                except Exception as e:
-                    logger.debug(f"[發票 {i+1}] 角點精煉失敗: {e}")
-            
-            # 平行度檢查：識別梯形
-            is_rect, h_diff, v_diff = self._validator.check_parallelism(pts)
-            if not is_rect:
-                logger.warning(f"[發票 {i+1}] 檢測到梯形 (上下邊夹角差={h_diff:.1f}°, 左右邊夾角差={v_diff:.1f}°)")
-            
-            warped_invoice = self._transformer.transform(
-                image, pts, self.padding_pixels
-            )
+        # ── Step 4: Direct Warp 裁切 + Step 5: 方向校正 ──
+        final_receipts = []
 
-            if warped_invoice.size == 0:
+        for i, item in enumerate(final_rects):
+            rect = item["rect"]
+
+            # Direct Warp 裁切 (含長邊校正)
+            crop = crop_by_rect(image, rect)
+
+            if crop.size == 0:
+                logger.warning(f"[發票 {i+1}] Direct Warp 裁切失敗")
                 continue
 
-            # 自動旋轉校正：暫時停用（需要改進算法以區分文字行和邊緣線）
-            # warped_invoice = self._transformer.deskew_image(warped_invoice)
+            # 方向校正 (投影輪廓)
+            crop = fix_orientation(crop)
 
-            final_receipt.append(warped_invoice)
+            final_receipts.append(crop)
+            logger.info(f"[發票 {i+1}] 裁切完成: {crop.shape[1]}x{crop.shape[0]}")
 
             if debug and not headless:
-                self._show_preview(warped_invoice, i, len(final_contours))
+                self._show_preview(crop, i, len(final_rects))
 
         if debug and not headless:
             cv2.destroyAllWindows()
 
-        return final_receipt
+        return final_receipts
 
-    def _show_debug(self, image, dilated, contours, headless):
+    def _resize_for_detection(
+        self, image: np.ndarray
+    ) -> Tuple[np.ndarray, float]:
+        """
+        若圖片短邊超過 RESIZE_SHORT_EDGE，則等比縮放。
+
+        Returns:
+            (縮放後的圖片, 縮放比例 scale_factor)
+            scale_factor < 1 表示圖片被縮小了。
+            原圖座標 = 縮圖座標 / scale_factor。
+        """
+        h, w = image.shape[:2]
+        short_edge = min(w, h)
+
+        if short_edge <= RESIZE_SHORT_EDGE:
+            return image, 1.0
+
+        scale_factor = RESIZE_SHORT_EDGE / short_edge
+        new_w = int(w * scale_factor)
+        new_h = int(h * scale_factor)
+        resized = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_AREA)
+
+        logger.debug(f"縮圖: {w}x{h} → {new_w}x{new_h} (scale={scale_factor:.3f})")
+        return resized, scale_factor
+
+    def _mask_iou_dedupe(
+        self,
+        candidates: List[Dict],
+        scale_factor: float,
+        mask_shape: Tuple[int, int],
+    ) -> List[Dict]:
+        """
+        使用 Mask IoU 去除重疊的候選矩形。
+
+        在縮圖尺寸的 Mask 上繪製矩形，計算 pixel-wise IoU。
+        IoU > threshold 時保留面積大者。
+
+        Args:
+            candidates: 候選矩形列表 (含 rect 和 area)。
+            scale_factor: 縮圖的縮放比例。
+            mask_shape: Mask 的 (H, W)。
+
+        Returns:
+            去重後的候選矩形列表。
+        """
+        if len(candidates) <= 1:
+            return candidates
+
+        # 依面積降序排列
+        candidates.sort(key=lambda x: x["area"], reverse=True)
+
+        # 預先計算每個候選在縮圖上的 mask
+        masks = []
+        for item in candidates:
+            rect = item["rect"]
+            # 將 rect 座標縮放到縮圖尺寸
+            center = (rect[0][0] * scale_factor, rect[0][1] * scale_factor)
+            size = (rect[1][0] * scale_factor, rect[1][1] * scale_factor)
+            angle = rect[2]
+            scaled_rect = (center, size, angle)
+
+            box = cv2.boxPoints(scaled_rect)
+            box = np.intp(box)
+
+            mask = np.zeros(mask_shape, dtype=np.uint8)
+            cv2.fillConvexPoly(mask, box, 255)
+            masks.append(mask)
+
+        # 去重: 保留面積最大者
+        keep = [True] * len(candidates)
+
+        for i in range(len(candidates)):
+            if not keep[i]:
+                continue
+            for j in range(i + 1, len(candidates)):
+                if not keep[j]:
+                    continue
+
+                # 計算 IoU
+                intersection = cv2.bitwise_and(masks[i], masks[j])
+                union = cv2.bitwise_or(masks[i], masks[j])
+
+                inter_count = np.count_nonzero(intersection)
+                union_count = np.count_nonzero(union)
+
+                if union_count == 0:
+                    continue
+
+                iou = inter_count / union_count
+
+                if iou > self.iou_threshold:
+                    # 保留面積大者 (i)，移除面積小者 (j)
+                    keep[j] = False
+                    logger.debug(
+                        f"IoU 去重: 移除候選 {j} (IoU={iou:.2f}, "
+                        f"area={candidates[j]['area']:.0f} < {candidates[i]['area']:.0f})"
+                    )
+
+        return [c for c, k in zip(candidates, keep) if k]
+
+    def _show_debug(self, image, dilated, final_rects, scale_factor, headless):
         """顯示除錯視窗"""
         cv2.imshow(
             "Debug: Canny Edges (Dilated)",
@@ -244,20 +271,24 @@ class ReceiptSplitter:
         )
 
         debug_image = image.copy()
-        for contour_info in contours:
-            points = contour_info["points"]
-            color = (255, 255, 0) if contour_info["type"] == "approx_verified" else (0, 255, 255)
-            cv2.drawContours(debug_image, [points], -1, color, 3)
-            cv2.circle(debug_image, contour_info["center"], 5, (0, 0, 255), -1)
+        for item in final_rects:
+            rect = item["rect"]
+            box = cv2.boxPoints(rect)
+            box = np.intp(box)
+            cv2.drawContours(debug_image, [box], -1, (0, 255, 0), 3)
 
-        cv2.imshow("Debug: Final Contours", cv2.resize(debug_image, (0, 0), fx=0.5, fy=0.5))
+            # 標記中心
+            cx, cy = int(rect[0][0]), int(rect[0][1])
+            cv2.circle(debug_image, (cx, cy), 8, (0, 0, 255), -1)
+
+        cv2.imshow(
+            "Debug: Final Rects",
+            cv2.resize(debug_image, (0, 0), fx=0.3, fy=0.3),
+        )
 
         if not headless:
             print("除錯模式：按任意鍵繼續...")
-            while True:
-                key = cv2.waitKey(0) & 0xFF
-                if key == ord("q"):
-                    break
+            cv2.waitKey(0)
             cv2.destroyAllWindows()
 
     def _show_preview(self, image, index, total):
