@@ -1,50 +1,42 @@
 # backend/processing/vision_handler.py
 """
-Vision Handler - Gemini 2.5 Flash Lite 視覺語言模型處理器 (google-genai SDK)
+Vision Handler - OpenAI Compatible 視覺語言模型處理器
 
-使用 Google AI Studio 的 Gemini 2.5 Flash Lite 進行收據圖片識別，
-直接從收據圖片生成結構化 JSON，並支援 Thinking (思考模式)。
+使用 OpenAI SDK 呼叫 Gemini / OpenRouter / DeepSeek 等相容 API，
+直接從收據圖片生成結構化 JSON。
 
 支援功能：
-- 高精度手寫辨識 (Gemini 2.5 Flash Lite)
-- Thinking / Reasoning (思考模式)
+- 高精度手寫辨識
+- Thinking / Reasoning (reasoning_effort)
 - 繁體中文優化
 - API 錯誤重試
+- 可切換 Provider (只需修改 base_url + api_key)
 """
 import logging
 import base64
 import time
 import json
 import os
+import traceback
 import numpy as np
 import cv2
+from openai import OpenAI
 
 logger = logging.getLogger(__name__)
-
-# Lazy import to avoid startup errors if not installed
-_genai = None
-_types = None
-
-def _get_genai_stuff():
-    """Lazy load google.genai modules"""
-    global _genai, _types
-    if _genai is None:
-        try:
-            from google import genai
-            from google.genai import types
-            _genai = genai
-            _types = types
-        except ImportError:
-            raise ImportError("請安裝 google-genai: pip install google-genai")
-    return _genai, _types
 
 
 class VisionHandler:
     """
-    視覺語言模型處理器 (Gemini 2.5 版本)
+    視覺語言模型處理器 (OpenAI Compatible)
     
-    使用 Gemini 2.5 Flash Lite 進行視覺識別，輸出 JSON 格式。
+    使用 OpenAI SDK 進行視覺識別，輸出 JSON 格式。
     採用 "High Trust, Verify Later" 策略。
+    
+    支援 Provider:
+    - Google Gemini: base_url = https://generativelanguage.googleapis.com/v1beta/openai/
+    - OpenRouter:    base_url = https://openrouter.ai/api/v1
+    - DeepSeek:      base_url = https://api.deepseek.com
+    - OpenAI:        base_url = https://api.openai.com/v1  (預設)
     """
 
     # 預設 Prompt Template - 通用收據辨識 (電子/手寫/傳統)
@@ -87,7 +79,7 @@ class VisionHandler:
 
     def __init__(self, config: dict):
         """
-        初始化 Vision Handler (Gemini)
+        初始化 Vision Handler (OpenAI Compatible)
         
         Args:
             config: 配置字典，包含 vision_settings
@@ -96,8 +88,13 @@ class VisionHandler:
         
         # API 設定
         self.api_key = vision_settings.get("api_key") or os.environ.get("GOOGLE_API_KEY")
+        self.base_url = vision_settings.get(
+            "base_url", 
+            "https://generativelanguage.googleapis.com/v1beta/openai/"
+        )
+        
         if not self.api_key:
-            logger.warning("[VisionHandler] 未設定 GOOGLE_API_KEY，Gemini 功能將無法使用")
+            logger.warning("[VisionHandler] 未設定 API Key，VLM 功能將無法使用")
         
         # 模型設定
         self.model_name = vision_settings.get("model_name", "gemini-2.5-flash-lite")
@@ -106,54 +103,58 @@ class VisionHandler:
         self.timeout = vision_settings.get("timeout", 120)
         self.debug = vision_settings.get("debug", False)
         
-        # Thinking 設定
-        self.think_mode = vision_settings.get("think_mode", False)
-        self.thinking_budget = vision_settings.get("thinking_budget", -1) 
+        # Thinking 設定 (OpenAI compatible)
+        self.reasoning_effort = vision_settings.get("reasoning_effort", None)
         
-        # 初始化 Gemini client
+        # 初始化 OpenAI client
         self._client = None
         if self.api_key:
             self._init_client()
         
-        logger.info(f"[VisionHandler] 初始化完成：model={self.model_name}, think={self.think_mode}")
+        logger.info(
+            f"[VisionHandler] 初始化完成：model={self.model_name}, "
+            f"base_url={self.base_url}, reasoning={self.reasoning_effort}"
+        )
 
     def _init_client(self):
-        """初始化 Gemini client (google-genai 版)"""
+        """初始化 OpenAI client"""
         try:
-            genai, types = _get_genai_stuff()
-            self._client = genai.Client(api_key=self.api_key)
-            logger.info(f"[VisionHandler] Gemini genai.Client 初始化成功")
+            self._client = OpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                timeout=self.timeout,
+            )
+            logger.info(f"[VisionHandler] OpenAI client 初始化成功 (base_url={self.base_url})")
         except Exception as e:
-            logger.error(f"[VisionHandler] Gemini client 初始化失敗: {e}")
+            logger.error(f"[VisionHandler] Client 初始化失敗: {e}")
             self._client = None
 
-    def _prepare_image_part(self, image_array: np.ndarray):
+    def _prepare_image_b64(self, image_array: np.ndarray) -> str:
         """
-        將 OpenCV 圖片準備為 Gemini Part
+        將 OpenCV 圖片編碼為 base64 data URI
         
         Args:
             image_array: OpenCV 格式的圖片陣列 (BGR)
+            
+        Returns:
+            str: data:image/jpeg;base64,... 格式的字串
         """
-        _, types = _get_genai_stuff()
-        
-        # 編碼為 JPEG
         encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 90]
         success, buffer = cv2.imencode('.jpg', image_array, encode_param)
         if not success:
             raise ValueError("圖片編碼失敗")
         
+        b64 = base64.b64encode(buffer.tobytes()).decode('utf-8')
+        
         if self.debug:
             img_size_kb = len(buffer) / 1024
             logger.debug(f"[VisionHandler] 圖片準備完成: {img_size_kb:.1f} KB")
             
-        return types.Part.from_bytes(
-            data=buffer.tobytes(),
-            mime_type="image/jpeg"
-        )
+        return f"data:image/jpeg;base64,{b64}"
 
     def process_handwritten(self, image_array: np.ndarray, prompt_context: str = "") -> tuple:
         """
-        處理手寫收據 - 使用 Gemini 2.5 Flash Lite
+        處理手寫收據 (舊版介面，內部呼叫 _call_with_retry)
         
         Args:
             image_array: OpenCV 格式的圖片陣列 (BGR)
@@ -163,24 +164,20 @@ class VisionHandler:
             tuple: (result_json_str, stats_dict)
         """
         start_time = time.time()
-        logger.info(f"[VisionHandler] 開始手寫收據識別 (Gemini 2.5: {self.model_name})")
+        logger.info(f"[VisionHandler] 開始手寫收據識別 ({self.model_name})")
         
         if not self._client:
-            error_msg = "Gemini client 未初始化"
+            error_msg = "Client 未初始化"
             return "", {"error": error_msg, "total_time_s": 0}
 
         try:
-            # 準備輸入元件
-            image_part = self._prepare_image_part(image_array)
+            image_url = self._prepare_image_b64(image_array)
             
             prompt = self.DEFAULT_PROMPT
             if prompt_context:
                 prompt += f"\n\n【參考資訊】\n{prompt_context}"
             
-            # 呼叫 API (with retry)
-            result_text, thoughts = self._call_with_retry(prompt, image_part)
-            
-            # 清理結果
+            result_text = self._call_with_retry(prompt, image_url)
             result_text = self._clean_json_response(result_text)
             
             total_time = time.time() - start_time
@@ -188,10 +185,9 @@ class VisionHandler:
             
             stats = {
                 "stage": "primary",
-                "processor": "Gemini-2.5",
+                "processor": "VLM-OpenAI",
                 "model": self.model_name,
                 "total_time_s": round(total_time, 3),
-                "has_thoughts": bool(thoughts),
                 "started_at": int(start_time),
                 "completed_at": int(time.time())
             }
@@ -203,80 +199,74 @@ class VisionHandler:
             logger.error(f"[VisionHandler] ✗ 辨識失敗: {e}", exc_info=True)
             return "", {"error": str(e), "total_time_s": round(total_time, 3)}
 
-    def _call_with_retry(self, prompt: str, image_part) -> tuple:
-        """呼叫 Gemini API，支援重試與思考模式"""
-        _, types = _get_genai_stuff()
+    def _call_with_retry(self, prompt: str, image_data_url: str) -> str:
+        """
+        呼叫 Chat Completions API，支援重試
+        
+        Args:
+            prompt: 文字提示
+            image_data_url: data:image/jpeg;base64,... 格式
+            
+        Returns:
+            str: 模型回應的文字內容
+        """
         last_error = None
         
-        # 設定生成配置
-        config = {
+        # 建構 API 參數
+        api_kwargs = {
+            "model": self.model_name,
             "temperature": self.temperature,
-            "max_output_tokens": 4096,
+            "max_tokens": 4096,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {"type": "image_url", "image_url": {"url": image_data_url}},
+                ],
+            }],
         }
         
-        # 如果啟用思考模式
-        if self.think_mode:
-            config["thinking_config"] = {
-                "include_thoughts": True,
-                "thinking_budget": self.thinking_budget if self.thinking_budget != -1 else None
-            }
-            # 注意：某些 SDK 版本可能只接受特定欄位
-            # 如果 thinking_budget 是 -1 (動態)，有些 API 可能不傳該欄位，或者傳 null
-            if self.thinking_budget == -1:
-                config["thinking_config"].pop("thinking_budget")
-        
-        gen_config = types.GenerateContentConfig(**config)
+        # 加入 reasoning_effort (若有設定)
+        if self.reasoning_effort:
+            api_kwargs["reasoning_effort"] = self.reasoning_effort
         
         for attempt in range(1, self.max_retries + 1):
             try:
                 logger.debug(f"[VisionHandler] API 呼叫嘗試 {attempt}/{self.max_retries}")
                 
-                response = self._client.models.generate_content(
-                    model=self.model_name,
-                    contents=[prompt, image_part],
-                    config=gen_config
-                )
+                response = self._client.chat.completions.create(**api_kwargs)
                 
                 if self.debug:
-                    import pprint
-                    logger.debug(f"[DEBUG] Raw Response Type: {type(response)}")
-                    # logger.debug(f"[DEBUG] Raw Response: {response}") # Too verbose
+                    logger.debug(f"[DEBUG] Response model: {response.model}, "
+                                 f"usage: {response.usage}")
                 
-                # 提取 Content 與 Thoughts
-                full_text = ""
-                thoughts = ""
+                # 提取回應文字
+                result_text = response.choices[0].message.content
                 
-                if response.candidates:
-                    for i, candidate in enumerate(response.candidates):
-                         for j, part in enumerate(candidate.content.parts):
-                            is_thought = False
-                            if hasattr(part, 'thought') and part.thought:
-                                is_thought = True
-                                if hasattr(part, 'text') and part.text:
-                                    thoughts += part.text
-                            
-                            if not is_thought and hasattr(part, 'text') and part.text:
-                                full_text += part.text
-                
-                if thoughts and self.debug:
-                    logger.debug(f"[VisionHandler] Thoughts summarized: {len(thoughts)} chars")
-                    # logger.debug(f"[VisionHandler] Thoughts: {thoughts[:500]}...")
-                
-                if full_text:
-                    return full_text, thoughts
+                if result_text:
+                    return result_text
                 else:
-                    raise ValueError("Gemini 回應中找不到文字內容")
+                    raise ValueError("回應中找不到文字內容")
                     
             except Exception as e:
                 last_error = e
-                logger.warning(f"[VisionHandler] API 呼叫失敗 (嘗試 {attempt}): {e}")
+                error_type = type(e).__name__
+                logger.warning(
+                    f"[VisionHandler] API 呼叫失敗 (嘗試 {attempt}/{self.max_retries}): "
+                    f"[{error_type}] {e}"
+                )
+                if self.debug:
+                    logger.debug(f"[VisionHandler] 詳細錯誤堆疊:\n{traceback.format_exc()}")
+                
                 if attempt < self.max_retries:
-                    time.sleep(2 ** attempt)
+                    wait_time = 2 ** attempt
+                    logger.info(f"[VisionHandler] 等待 {wait_time} 秒後重試...")
+                    time.sleep(wait_time)
         
         raise last_error
 
     def _clean_json_response(self, content: str) -> str:
-        """清理 JSON 格式"""
+        """清理 JSON 格式 (移除 markdown code fence)"""
         content = content.strip()
         if content.startswith("```json"):
             content = content[7:].strip()
@@ -302,28 +292,22 @@ class VisionHandler:
             
         Returns:
             tuple: (result_dict, stats_dict)
-                - result_dict: 解析後的 JSON dict，若失敗則為空 dict
-                - stats_dict: 處理統計資訊
         """
         start_time = time.time()
-        logger.info(f"[VisionHandler] 開始收據識別 (Gemini: {self.model_name})")
+        logger.info(f"[VisionHandler] 開始收據識別 ({self.model_name})")
         
         if not self._client:
-            error_msg = "Gemini client 未初始化"
+            error_msg = "Client 未初始化"
             return {}, {"error": error_msg, "total_time_s": 0}
 
         try:
-            # 準備輸入元件
-            image_part = self._prepare_image_part(image_array)
+            image_url = self._prepare_image_b64(image_array)
             
             prompt = self.DEFAULT_PROMPT
             if prompt_context:
                 prompt += f"\n\n【參考資訊】\n{prompt_context}"
             
-            # 呼叫 API (with retry)
-            result_text, thoughts = self._call_with_retry(prompt, image_part)
-            
-            # 清理 JSON
+            result_text = self._call_with_retry(prompt, image_url)
             result_text = self._clean_json_response(result_text)
             
             # 解析 JSON
@@ -338,10 +322,9 @@ class VisionHandler:
             
             stats = {
                 "stage": "vlm",
-                "processor": "Gemini",
+                "processor": "VLM-OpenAI",
                 "model": self.model_name,
                 "total_time_s": round(total_time, 3),
-                "has_thoughts": bool(thoughts),
                 "started_at": int(start_time),
                 "completed_at": int(time.time())
             }
@@ -359,14 +342,14 @@ class VisionHandler:
         prompt = custom_prompt or "請描述這張圖片的內容。"
         
         if not self._client:
-            return "", {"error": "Gemini client 未初始化"}
+            return "", {"error": "Client 未初始化"}
         
         try:
-            image_part = self._prepare_image_part(image_array)
-            text, thoughts = self._call_with_retry(prompt, image_part)
+            image_url = self._prepare_image_b64(image_array)
+            text = self._call_with_retry(prompt, image_url)
             
             stats = {
-                "processor": "Gemini-2.5",
+                "processor": "VLM-OpenAI",
                 "model": self.model_name,
                 "total_time_s": round(time.time() - start_time, 3)
             }
@@ -386,6 +369,6 @@ if __name__ == "__main__":
         sys.exit(1)
 
     image = cv2.imread(sys.argv[1])
-    handler = VisionHandler({"vision_settings": {"debug": True, "think_mode": True}})
+    handler = VisionHandler({"vision_settings": {"debug": True, "reasoning_effort": "medium"}})
     result, stats = handler.image_to_markdown(image)
     print(f"Result: {result}\nStats: {stats}")
