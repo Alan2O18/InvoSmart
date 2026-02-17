@@ -116,3 +116,23 @@ def update_activity_info(project_id: str, info: dict, engine: Engine = Depends(g
     except Exception as e:
         logger.error(f"Error updating activity info: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/{project_id}/job-ids")
+def get_project_job_ids(project_id: str, engine: Engine = Depends(get_engine)):
+    """Get list of job IDs for navigation."""
+    try:
+        job_repo = engine.get_job_repo(project_id)
+        jobs = job_repo.list_jobs()
+        # Return lightweight list for navigation
+        return [
+            {
+                "job_id": job["job_id"],
+                "status": job["status"],
+                "image_path": job["image_path"]
+            }
+            for job in jobs
+        ]
+    except Exception as e:
+        logger.error(f"Error getting job IDs for {project_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -39,6 +39,16 @@ class ReceiptProcessor:
         
         logger.info("ReceiptProcessor 初始化完成 (VLM-First 架構)")
     
+    def update_config(self, config: dict):
+        """更新配置"""
+        self.config = config
+        # Propagate to sub-handlers
+        self.vision_handler.update_config(config)
+        # QRHandler and Validator might not need updates usually, but can be added if needed
+        # self.qr_handler.update_config(config) 
+        # self.validator.update_config(config)
+        logger.info("[ReceiptProcessor] 配置已更新")
+    
     def process(self, image_array: np.ndarray) -> dict:
         """
         處理收據圖片 - 單一入口點

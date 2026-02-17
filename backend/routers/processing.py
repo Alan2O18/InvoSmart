@@ -1,4 +1,13 @@
 # Processing Router - 處理操作端點 (VLM-First)
+"""
+Processing Router
+
+Handles pipeline operations:
+- Split
+- Processing (VLM)
+- Export
+- Archive
+"""
 import logging
 from fastapi import APIRouter, HTTPException, Form, Depends
 from backend.dependencies import get_engine
@@ -55,14 +64,4 @@ def run_archive(project_id: str, engine: Engine = Depends(get_engine)):
         return engine.archive_project(project_id)
     except Exception as e:
         logger.error(f"Error archiving project: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post("/{project_id}/regenerate")
-def regenerate_project(project_id: str, excel_path: str = Form(...), engine: Engine = Depends(get_engine)):
-    """Regenerate project from archived Excel."""
-    try:
-        return engine.regenerate_project(project_id, excel_path)
-    except Exception as e:
-        logger.error(f"Error regenerating project: {e}")
         raise HTTPException(status_code=500, detail=str(e))

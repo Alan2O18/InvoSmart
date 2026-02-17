@@ -2,10 +2,21 @@
   <div class="job-editor" v-if="job">
     <header class="editor-header">
       <button @click="goBack" class="back-btn">← Back</button>
-      <h1>Edit Job: {{ getFilename(job.image_path) }}</h1>
+      
+      <div class="nav-controls">
+         <button @click="goToPrev" :disabled="!hasPrev" class="nav-btn" title="Alt + Left">⟨ Prev</button>
+         <div class="job-info">
+            <h1>{{ getFilename(job.image_path) }}</h1>
+            <span class="job-count" v-if="jobList.length">
+                {{ currentIndex + 1 }} / {{ jobList.length }}
+            </span>
+         </div>
+         <button @click="goToNext" :disabled="!hasNext" class="nav-btn" title="Alt + Right">Next ⟩</button>
+      </div>
+
       <div class="header-actions">
-        <button @click="save" :disabled="saving" class="save-btn">
-          {{ saving ? 'Saving...' : 'Save' }}
+        <button @click="save" :disabled="saving" class="save-btn" :title="'Ctrl + S' + (isDirty ? ' (Unsaved)' : '')">
+          {{ saving ? 'Saving...' : (isDirty ? 'Save *' : 'Save') }}
         </button>
       </div>
     </header>
@@ -13,13 +24,13 @@
     <!-- 模式切換標籤 -->
     <div class="mode-tabs">
       <button 
-        :class="{ active: editMode === 'ocr' }" 
-        @click="editMode = 'ocr'"
-      >📝 OCR 文字編輯</button>
-      <button 
         :class="{ active: editMode === 'json' }" 
         @click="editMode = 'json'"
       >🔧 JSON 結構化編輯</button>
+      <button 
+        :class="{ active: editMode === 'raw' }" 
+        @click="editMode = 'raw'"
+      >🔍 Raw VLM Output</button>
     </div>
 
     <div class="panels-container">
@@ -32,201 +43,179 @@
           </div>
         </div>
         <div class="panel-content image-panel" v-show="panelSizes[0] > 0.1">
-          <img :src="imageUrl" alt="Invoice" @error="handleImgError" />
+          <ImageViewer 
+            :src="imageUrl" 
+            alt="Invoice" 
+          />
         </div>
         <div class="resize-handle" @mousedown="startResize(0, $event)"></div>
       </div>
 
-      <!-- Panel 2: Editor (OCR or JSON) -->
+      <!-- Panel 2: Editor (JSON or Raw) -->
       <div class="panel" :style="{ flex: panelSizes[1] }">
         <div class="panel-header">
-          <span class="panel-title">{{ editMode === 'ocr' ? '📝 OCR Text Editor' : '🔧 JSON Structured Editor' }}</span>
+          <span class="panel-title">{{ editMode === 'json' ? '🔧 JSON Structured Editor' : '🔍 Raw VLM Output' }}</span>
           <div class="panel-controls">
             <button @click="togglePanel(1)" class="panel-btn">{{ panelSizes[1] > 0.1 ? '−' : '+' }}</button>
           </div>
         </div>
         <div class="panel-content" v-show="panelSizes[1] > 0.1">
           
-          <!-- OCR Editor Mode -->
-          <div v-show="editMode === 'ocr'" class="editor-mode-ocr">
-            <div class="ocr-toolbar">
-              <button @click="regenerateLLM" :disabled="regenerating" class="regen-btn">
-                {{ regenerating ? 'Regenerating...' : '🔄 根據此 OCR 重新執行 LLM' }}
-              </button>
-              <small class="tip">提示: 修正 OCR 文字後，點擊按鈕可重新生成 LLM 結果。</small>
-            </div>
-            <textarea
-              v-model="manualOcrText"
-              @keydown="handleKeydown"
-              placeholder="Enter corrected OCR text here..."
-              class="manual-textarea"
-            ></textarea>
-            <div class="ocr-source">
-              <small>原始 OCR 結果 (唯讀):</small>
-              <pre class="ocr-preview">{{ formatOCRText(job.ocr_result) }}</pre>
-            </div>
-          </div>
-
           <!-- JSON Editor Mode -->
           <div v-show="editMode === 'json'" class="editor-mode-json">
-             <JsonFieldEditor v-model="manualJsonData" />
+             <SmartJsonEditor 
+                v-model="manualJsonData" 
+                @save="save"
+             />
+          </div>
+
+          <!-- Raw VLM Output Mode -->
+          <div v-show="editMode === 'raw'" class="editor-mode-raw">
+            <div class="raw-toolbar">
+              <button @click="rerunVLM" :disabled="regenerating" class="regen-btn">
+                {{ regenerating ? 'Processing...' : '⚡ Re-run VLM Processing' }}
+              </button>
+              <small class="tip">提示: 這將使用目前的 VLM 設定重新處理此圖片，並覆蓋當前編輯。</small>
+            </div>
+            <div class="raw-content">
+              <h3>VLM Response:</h3>
+              <pre class="raw-display">{{ formatLLMResult(job.llm_result) }}</pre>
+            </div>
           </div>
 
         </div>
         <div class="resize-handle" @mousedown="startResize(1, $event)"></div>
       </div>
 
-      <!-- Panel 3: Result Preview -->
+      <!-- Panel 3: JSON Preview -->
       <div class="panel" :style="{ flex: panelSizes[2] }">
         <div class="panel-header">
-          <span class="panel-title">👁️ Result Preview</span>
+          <span class="panel-title">👁️ Live Preview</span>
           <div class="panel-controls">
             <button @click="togglePanel(2)" class="panel-btn">{{ panelSizes[2] > 0.1 ? '−' : '+' }}</button>
           </div>
         </div>
         <div class="panel-content" v-show="panelSizes[2] > 0.1">
-          <div v-if="manualJsonData && Object.keys(manualJsonData).length > 0" class="preview-mode">
-             <div class="preview-badge">🔧 人工編輯預覽</div>
+          <div class="preview-mode">
+             <div class="preview-badge">🔧 即時預覽</div>
              <pre class="result-display">{{ JSON.stringify(manualJsonData, null, 2) }}</pre>
-          </div>
-          <div v-else class="preview-mode">
-             <div class="preview-badge">🤖 LLM 原始結果</div>
-             <pre class="result-display">{{ formatLLMResult(job.llm_result) }}</pre>
           </div>
         </div>
         <div class="resize-handle" @mousedown="startResize(2, $event)"></div>
       </div>
     </div>
   </div>
-  <div v-else class="loading">Loading...</div>
+  <div v-else class="loading">Loading... (Check console if stuck)</div>
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
+import { isEqual } from 'lodash-es'
 import api from '../services/api'
-import JsonFieldEditor from '../components/JsonFieldEditor.vue'
+import SmartJsonEditor from '../components/SmartJsonEditor.vue'
+import ImageViewer from '../components/ImageViewer.vue'
 
+// --- Helpers (Defined first to avoid TDZ) ---
+const getFilename = (path) => {
+  if (!path) return ''
+  return path.split('\\').pop().split('/').pop()
+}
+
+const formatLLMResult = (llmResult) => {
+  if (!llmResult) return 'No VLM result yet'
+  return JSON.stringify(llmResult, null, 2)
+}
+
+// --- Setup ---
 const route = useRoute()
 const router = useRouter()
 const projectId = route.params.id
 const jobId = route.query.jobId
 
+// --- State ---
 const job = ref(null)
-const editMode = ref('ocr') // 'ocr' | 'json'
-const manualOcrText = ref('')
+const editMode = ref('json') // 'json' | 'raw'
 const manualJsonData = ref({})
-const undoStack = ref([])
+const initialJsonData = ref({}) // To track original for dirty check
 const saving = ref(false)
 const regenerating = ref(false)
 const panelSizes = ref([1, 1.2, 0.8]) 
+const jobList = ref([])
 
+// --- Computed ---
 const imageUrl = computed(() => {
   if (!job.value?.image_path) return ''
   const filename = getFilename(job.value.image_path)
   return `http://localhost:8000/static/${encodeURIComponent(projectId)}/分割發票/${encodeURIComponent(filename)}`
 })
 
-const fetchJobDetails = async () => {
+const currentIndex = computed(() => jobList.value.findIndex(j => j.job_id === route.query.jobId))
+const hasPrev = computed(() => currentIndex.value > 0)
+const hasNext = computed(() => currentIndex.value < jobList.value.length - 1)
+const isDirty = computed(() => {
+    return !isEqual(manualJsonData.value, initialJsonData.value)
+})
+
+// --- Methods ---
+const goBack = () => {
+    router.push(`/project/${projectId}`)
+}
+
+const fetchJobList = async () => {
+    try {
+        const res = await api.getProjectJobIds(projectId)
+        jobList.value = res.data
+        // Preload next image if available
+        if (hasNext.value) {
+            preloadImage(jobList.value[currentIndex.value + 1])
+        }
+    } catch (e) {
+        console.error("Failed to load job list", e)
+    }
+}
+
+const fetchJobDetails = async (targetJobId = null) => {
+  const finalJobId = targetJobId || route.query.jobId
+  if (!finalJobId) return
+
   try {
-    const res = await api.getJobDetails(projectId, jobId)
+    const res = await api.getJobDetails(projectId, finalJobId)
     job.value = res.data
     
-    // 初始化 OCR 編輯器
-    // 優先順序: manual_ocr_text > ocr_result > empty
-    if (res.data.manual_ocr_text) {
-      manualOcrText.value = res.data.manual_ocr_text
-    } else if (res.data.ocr_result && formatOCRText(res.data.ocr_result).trim()) {
-      manualOcrText.value = formatOCRText(res.data.ocr_result)
-    } else {
-      manualOcrText.value = ''
-    }
-
-    // 初始化 JSON 編輯器
-    // 優先順序: manual_json_text (parsed) > llm_result > empty object
+    let parsedData = {}
     if (res.data.manual_json_text) {
         try {
-            manualJsonData.value = JSON.parse(res.data.manual_json_text)
-            // 如果只有 JSON 編輯，預設切換到 JSON 模式
-            if (res.data.edit_mode === 'json') {
-                editMode.value = 'json'
-            }
+            parsedData = JSON.parse(res.data.manual_json_text)
         } catch (e) {
-            console.error("Failed to parse manual_json_text", e)
-             manualJsonData.value = res.data.llm_result || {}
+            parsedData = res.data.llm_result || {}
         }
     } else if (res.data.llm_result) {
-        manualJsonData.value = res.data.llm_result
+        parsedData = res.data.llm_result
     }
-
-    // 恢復上次的編輯模式 (如果後端有存)
-    if (res.data.edit_mode) {
-        editMode.value = res.data.edit_mode
-    }
+    
+    manualJsonData.value = parsedData
+    initialJsonData.value = JSON.parse(JSON.stringify(parsedData)) // Deep Clone
     
   } catch (e) {
     alert('Error loading job: ' + e)
   }
 }
 
-onMounted(() => {
-  if (!jobId) {
-    alert('No job ID provided')
-    router.push(`/project/${projectId}`)
-    return
-  }
-  fetchJobDetails()
-})
-
-const goBack = () => {
-  router.push(`/project/${projectId}`)
-}
-
-const getFilename = (path) => {
-  if (!path) return ''
-  return path.split('\\').pop().split('/').pop()
-}
-
-const formatOCRText = (ocrResult) => {
-  if (!ocrResult) return ''
-  if (typeof ocrResult === 'string') return ocrResult
-  if (ocrResult.text) return ocrResult.text 
-  if (ocrResult.data) return ocrResult.data 
-  return JSON.stringify(ocrResult, null, 2)
-}
-
-const formatLLMResult = (llmResult) => {
-  if (!llmResult) return 'No LLM result yet'
-  return JSON.stringify(llmResult, null, 2)
-}
-
-const handleImgError = (e) => {
-  e.target.src = 'https://via.placeholder.com/400x600?text=No+Image'
-}
-
-// Undo support for OCR text
-const handleKeydown = (e) => {
-  if (e.ctrlKey && e.key === 'z') {
-    e.preventDefault()
-    if (undoStack.value.length > 0) {
-      manualOcrText.value = undoStack.value.pop()
-    }
-  } else if (!e.ctrlKey && !e.altKey && !e.metaKey) {
-    if (undoStack.value.length > 50) undoStack.value.shift()
-    undoStack.value.push(manualOcrText.value)
-  }
+const preloadImage = (jobMeta) => {
+    if (!jobMeta || !jobMeta.image_path) return
+    const filename = getFilename(jobMeta.image_path)
+    const url = `http://localhost:8000/static/${encodeURIComponent(projectId)}/分割發票/${encodeURIComponent(filename)}`
+    const img = new Image()
+    img.src = url
 }
 
 const save = async () => {
   saving.value = true
   try {
-    // 1. Save OCR Text
-    await api.saveManualText(projectId, jobId, manualOcrText.value)
-    
-    // 2. Save JSON Data
-    await api.saveManualJson(projectId, jobId, manualJsonData.value)
-    
-    alert('Saved both OCR Text and JSON Data!')
+    await api.saveManualJson(projectId, route.query.jobId, manualJsonData.value)
+    alert('Saved JSON Data!')
+    initialJsonData.value = JSON.parse(JSON.stringify(manualJsonData.value)) // Reset dirty
   } catch (e) {
     alert('Error saving: ' + e)
   } finally {
@@ -234,50 +223,60 @@ const save = async () => {
   }
 }
 
-const regenerateLLM = async () => {
-  if (!manualOcrText.value.trim()) {
-    alert('Please enter some text in OCR Editor first')
-    return
-  }
-  
-  // Auto-save OCR text before regenerating
-  try {
-      await api.saveManualText(projectId, jobId, manualOcrText.value)
-  } catch (e) {
-      alert('Failed to auto-save before regenerating: ' + e)
+const checkUnsavedChanges = async () => {
+    if (isDirty.value) {
+        return confirm("您有未儲存的變更。確定要離開嗎？變更將會遺失。")
+    }
+    return true
+}
+
+const navigateToJob = (newJobId) => {
+    router.push({ query: { jobId: newJobId } })
+}
+
+const goToPrev = async () => {
+    if (!hasPrev.value) return
+    if (!(await checkUnsavedChanges())) return
+    const prevJob = jobList.value[currentIndex.value - 1]
+    navigateToJob(prevJob.job_id)
+}
+
+const goToNext = async () => {
+    if (!hasNext.value) return
+    if (!(await checkUnsavedChanges())) return
+    const nextJob = jobList.value[currentIndex.value + 1]
+    navigateToJob(nextJob.job_id)
+}
+
+const rerunVLM = async () => {
+  if (!confirm("確定要重新執行 VLM 嗎？這將會覆蓋您目前的編輯內容。")) {
       return
   }
   
   regenerating.value = true
   try {
-    const res = await api.regenerateFromManual(projectId, jobId)
-    job.value.llm_result = res.data.llm_result
-    // 更新 JSON 編輯器的數據為最新的 LLM 結果 (如果用戶還沒手動編輯過 JSON，或者確認要覆蓋?)
-    // 這裡我們選擇更新，因為用戶剛做完 LLM 重跑，通常期望 JSON 編輯器看到最新結果
-    // 但為了安全，我們可以只在 JSON 還是空的時候自動更新，或者直接更新
-    // 簡單起見，直接更新
-    manualJsonData.value = res.data.llm_result
+    const res = await api.runSingleProcessing(projectId, route.query.jobId)
+    // 更新 Job 資料
+    job.value = res.data.result ? { ...job.value, llm_result: res.data.result } : job.value
     
-    alert('LLM Regenerated! JSON Editor updated.')
+    // 更新 JSON 編輯器
+    if (res.data.result) {
+        manualJsonData.value = res.data.result
+        alert('VLM Processing Complete! Data updated.')
+    } else {
+        alert('VLM Finished but no result returned.')
+    }
   } catch (e) {
-    alert('Error regenerating: ' + e)
+    alert('Error running VLM: ' + e)
   } finally {
     regenerating.value = false
   }
 }
 
-// Panel resize logic
-let resizingPanel = null
+// --- Resize Logic ---
 let startX = 0
 let startSizes = []
-
-const startResize = (panelIndex, event) => {
-  resizingPanel = panelIndex
-  startX = event.clientX
-  startSizes = [...panelSizes.value]
-  document.addEventListener('mousemove', doResize)
-  document.addEventListener('mouseup', stopResize)
-}
+let resizingPanel = null
 
 const doResize = (event) => {
   if (resizingPanel === null) return
@@ -294,6 +293,14 @@ const stopResize = () => {
   document.removeEventListener('mouseup', stopResize)
 }
 
+const startResize = (panelIndex, event) => {
+  resizingPanel = panelIndex
+  startX = event.clientX
+  startSizes = [...panelSizes.value]
+  document.addEventListener('mousemove', doResize)
+  document.addEventListener('mouseup', stopResize)
+}
+
 const togglePanel = (index) => {
   const sizes = [...panelSizes.value]
   if (sizes[index] > 0.1) {
@@ -303,6 +310,53 @@ const togglePanel = (index) => {
   }
   panelSizes.value = sizes
 }
+
+// --- Lifecycle & Watches ---
+
+const handleKeydown = (e) => {
+    // Alt + Left/Right
+    if (e.altKey && e.key === 'ArrowLeft') {
+        e.preventDefault()
+        goToPrev()
+    }
+    if (e.altKey && e.key === 'ArrowRight') {
+        e.preventDefault()
+        goToNext()
+    }
+}
+
+onMounted(() => {
+  if (!route.query.jobId) {
+    alert('No job ID provided')
+    router.push(`/project/${projectId}`)
+    return
+  }
+  
+  fetchJobList()
+  fetchJobDetails()
+  
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+    window.removeEventListener('keydown', handleKeydown)
+})
+
+onBeforeRouteLeave(async (to, from) => {
+    if (isDirty.value) {
+        const answer = window.confirm("您有未儲存的變更。確定要離開嗎？變更將會遺失。")
+        if (!answer) return false
+    }
+})
+
+watch(() => route.query.jobId, (newId, oldId) => {
+    if (newId && newId !== oldId) {
+        manualJsonData.value = {} 
+        job.value = null
+        fetchJobDetails(newId) 
+    }
+})
+
 </script>
 
 <style scoped>
@@ -358,6 +412,49 @@ const togglePanel = (index) => {
   margin-left: auto;
   display: flex;
   gap: 0.5rem;
+}
+
+.nav-controls {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex: 1;
+    justify-content: center;
+}
+
+.job-info {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.job-info h1 {
+    font-size: 1.1rem;
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 400px;
+}
+
+.job-count {
+    font-size: 0.8rem;
+    color: #888;
+}
+
+.nav-btn {
+    background: #333;
+    border: 1px solid #555;
+    color: #eee;
+    padding: 0.25rem 0.8rem;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.nav-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
 }
 
 .save-btn {
@@ -418,12 +515,8 @@ const togglePanel = (index) => {
   align-items: center;
   justify-content: center;
   background: #000;
-}
-
-.image-panel img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
+  overflow: hidden; /* Ensure viewer doesn't overflow */
+  padding: 0; /* Viewer handles its own layout */
 }
 
 .result-display {
@@ -437,27 +530,29 @@ const togglePanel = (index) => {
   color: #ccc;
 }
 
-.manual-textarea {
-  width: 100%;
-  height: calc(100% - 120px);
-  min-height: 300px;
-  background: #1a1a1a;
-  color: #e0e0e0;
-  border: 1px solid #444;
-  padding: 0.5rem;
-  font-family: monospace;
-  font-size: 0.9rem;
-  resize: none;
+.editor-mode-json {
+    height: 100%;
 }
 
-.ocr-toolbar {
+.raw-display {
+  white-space: pre-wrap;
+  font-family: monospace;
+  font-size: 0.8rem;
+  background: #1a1a1a;
+  padding: 0.5rem;
+  border-radius: 4px;
+  margin: 0;
+  color: #88ff88; 
+}
+
+.raw-toolbar {
     margin-bottom: 10px;
     padding-bottom: 10px;
     border-bottom: 1px solid #444;
 }
 
 .regen-btn {
-  background: #2563eb;
+  background: #e11d48;
   color: white;
   border: none;
   padding: 0.5rem 1rem;
@@ -469,25 +564,6 @@ const togglePanel = (index) => {
     display: block;
     margin-top: 5px;
     color: #888;
-}
-
-.ocr-source {
-  margin-top: 1rem;
-  border-top: 1px solid #444;
-  padding-top: 0.5rem;
-}
-
-.ocr-preview {
-  white-space: pre-wrap;
-  font-family: monospace;
-  font-size: 0.75rem;
-  background: #1a1a1a;
-  padding: 0.5rem;
-  max-height: 150px;
-  overflow: auto;
-  border-radius: 4px;
-  margin: 0.25rem 0 0 0;
-  color: #888; 
 }
 
 .preview-badge {

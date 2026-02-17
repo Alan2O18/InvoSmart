@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Zoom PoC</title>
+    <style>
+        body {
+            margin: 0;
+            background: #1a1a1a;
+            color: white;
+            font-family: sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        .header {
+            padding: 1rem;
+            background: #333;
+            display: flex;
+            gap: 1rem;
+            z-index: 10;
+        }
+        .container {
+            flex: 1;
+            overflow: hidden;
+            position: relative;
+            background: #2a2a2a;
+            cursor: grab;
+        }
+        .container:active {
+            cursor: grabbing;
+        }
+        .image-wrapper {
+            position: absolute;
+            top: 0;
+            left: 0;
+            transform-origin: 0 0;
+            transition: transform 0.1s ease-out;
+            will-change: transform;
+        }
+        img {
+            display: block;
+            pointer-events: none;
+            /* Pixelated for high zoom */
+            image-rendering: auto;
+        }
+        .debug-info {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <button onclick="resetZoom()">Reset / Fit</button>
+    <label><input type="checkbox" id="pixelated" onchange="togglePixelated()"> Pixelated Rendering</label>
+    <span>Scroll to Zoom, Drag to Pan</span>
+</div>
+
+<div class="container" id="container">
+    <div class="image-wrapper" id="wrapper">
+        <img src="https://via.placeholder.com/800x1200.png?text=Invoice+Example+Scale+Grid" id="image" alt="Test Image">
+    </div>
+    <div class="debug-info" id="debug">Scale: 1.00x</div>
+</div>
+
+<script>
+    const container = document.getElementById('container');
+    const wrapper = document.getElementById('wrapper');
+    const img = document.getElementById('image');
+    const debug = document.getElementById('debug');
+
+    let state = {
+        scale: 1,
+        x: 0,
+        y: 0,
+        imageWidth: 0,
+        imageHeight: 0,
+        containerWidth: 0,
+        containerHeight: 0
+    };
+
+    const CONFIG = {
+        minScale: 0.1,
+        maxScale: 5.0,
+        zoomSpeed: 0.1
+    };
+
+    img.onload = () => {
+        state.imageWidth = img.naturalWidth;
+        state.imageHeight = img.naturalHeight;
+        resetZoom();
+    };
+
+    function updateTransform() {
+        wrapper.style.transform = `translate(${state.x}px, ${state.y}px) scale(${state.scale})`;
+        debug.textContent = `Scale: ${state.scale.toFixed(2)}x | X: ${state.x.toFixed(0)} | Y: ${state.y.toFixed(0)}`;
+        
+        // Update pixelated rendering based on scale
+        if (document.getElementById('pixelated').checked) {
+            img.style.imageRendering = 'pixelated';
+        } else {
+            img.style.imageRendering = state.scale > 2 ? 'pixelated' : 'auto';
+        }
+    }
+
+    function togglePixelated() {
+        updateTransform();
+    }
+
+    function fitScale() {
+        const { clientWidth, clientHeight } = container;
+        const scaleX = clientWidth / state.imageWidth;
+        const scaleY = clientHeight / state.imageHeight;
+        return Math.min(scaleX, scaleY) * 0.95; // 95% fit
+    }
+
+    function resetZoom() {
+        const { clientWidth, clientHeight } = container;
+        state.containerWidth = clientWidth;
+        state.containerHeight = clientHeight;
+        
+        state.scale = fitScale();
+        
+        // Center the image
+        state.x = (clientWidth - state.imageWidth * state.scale) / 2;
+        state.y = (clientHeight - state.imageHeight * state.scale) / 2;
+        
+        updateTransform();
+    }
+
+    // --- Zoom Logic ---
+    container.addEventListener('wheel', (e) => {
+        e.preventDefault();
+
+        const rect = container.getBoundingClientRect();
+        // Mouse position relative to container
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        // Calculate delta
+        const delta = e.deltaY > 0 ? (1 - CONFIG.zoomSpeed) : (1 + CONFIG.zoomSpeed);
+        
+        // Calculate new scale with clamping
+        let newScale = state.scale * delta;
+        newScale = Math.min(Math.max(newScale, CONFIG.minScale), CONFIG.maxScale);
+
+        // Zoom to Cursor Math
+        // newX = mouseX - (mouseX - oldX) * (newScale / oldScale)
+        const scaleRatio = newScale / state.scale;
+        
+        let newX = mouseX - (mouseX - state.x) * scaleRatio;
+        let newY = mouseY - (mouseY - state.y) * scaleRatio;
+
+        state.scale = newScale;
+        state.x = newX;
+        state.y = newY;
+
+        updateTransform();
+    }, { passive: false });
+
+    // --- Pan Logic ---
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+    let initialX = 0;
+    let initialY = 0;
+
+    container.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        initialX = state.x;
+        initialY = state.y;
+        container.style.cursor = 'grabbing';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        e.preventDefault();
+
+        const deltaX = e.clientX - startX;
+        const deltaY = e.clientY - startY;
+
+        let nextX = initialX + deltaX;
+        let nextY = initialY + deltaY;
+
+        // Boundary Check (Keep at least 20% visible)
+        const currentWidth = state.imageWidth * state.scale;
+        const currentHeight = state.imageHeight * state.scale;
+        const containerW = container.clientWidth;
+        const containerH = container.clientHeight;
+        
+        const limitX = containerW - (currentWidth * 0.2);
+        const limitY = containerH - (currentHeight * 0.2);
+        const minX = - (currentWidth * 0.8);
+        const minY = - (currentHeight * 0.8);
+
+        // state.x = Math.min(Math.max(nextX, minX), limitX);
+        // state.y = Math.min(Math.max(nextY, minY), limitY);
+        // Simple unconstrained pan for now to match behavior, can add constraint later
+        state.x = nextX;
+        state.y = nextY;
+
+        updateTransform();
+    });
+
+    window.addEventListener('mouseup', () => {
+        isDragging = false;
+        container.style.cursor = 'grab';
+    });
+
+    // Resize Observer
+    new ResizeObserver(() => {
+        // ideally re-center or maintain relative position
+        // for PoC just logging
+        console.log('Container resized');
+    }).observe(container);
+
+</script>
+</body>
+</html>

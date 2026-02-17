@@ -12,6 +12,7 @@ setup_logging()
 
 from backend.routers import router as projects_router, websocket
 from backend.routers.suggestions import router as suggestions_router
+from backend.routers.config import router as config_router
 
 from fastapi.staticfiles import StaticFiles
 import json
@@ -39,6 +40,7 @@ app.mount("/static", StaticFiles(directory=workspace_root), name="static")
 # Include Routers
 app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
 app.include_router(suggestions_router, prefix="/api", tags=["suggestions"])
+app.include_router(config_router, prefix="/api/config", tags=["config"])
 app.include_router(websocket.router, tags=["websocket"])
 
 @app.get("/")

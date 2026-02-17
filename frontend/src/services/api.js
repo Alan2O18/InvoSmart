@@ -82,11 +82,6 @@ export default {
   runArchive(projectId) {
     return api.post(`/api/projects/${projectId}/run_archive`)
   },
-  regenerateProject(projectId, excelPath) {
-    const formData = new FormData()
-    formData.append('excel_path', excelPath)
-    return api.post(`/api/projects/${projectId}/regenerate`, formData)
-  },
 
   // =====================
   // Activity Info
@@ -114,14 +109,27 @@ export default {
   getJobDetails(projectId, jobId) {
     return api.get(`/api/projects/${projectId}/jobs/${jobId}/details`)
   },
-  saveManualText(projectId, jobId, manualText) {
-    return api.put(`/api/projects/${projectId}/jobs/${jobId}/manual`, { manual_text: manualText })
+  
+  getProjectJobIds(projectId) {
+    return api.get(`/api/projects/${projectId}/job-ids`)
   },
   saveManualJson(projectId, jobId, jsonData) {
     return api.put(`/api/projects/${projectId}/jobs/${jobId}/json`, { json_data: jsonData })
   },
   regenerateFromManual(projectId, jobId) {
-    return api.post(`/api/projects/${projectId}/jobs/${jobId}/regenerate_from_manual`)
+      // Deprecated, but keeping method signature for now if needed by legacy calls
+      console.warn("regenerateFromManual is deprecated. Use runSingleProcessing instead.")
+      return api.post(`/api/projects/${projectId}/jobs/${jobId}/regenerate_from_manual`)
+  },
+
+  // =====================
+  // Config
+  // =====================
+  getConfig() {
+    return api.get('/api/config/')
+  },
+  updateConfig(settings) {
+    return api.post('/api/config/', settings)
   },
 
   // =====================

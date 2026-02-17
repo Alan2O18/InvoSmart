@@ -76,6 +76,23 @@ class Engine:
         else:
             logger.info("[Engine] 初始化完成 (測試模式，Workers 未啟動)")
 
+    def update_config(self, config: dict):
+        """
+        更新系統配置 (Runtime)
+        
+        Args:
+            config: 完整的配置字典
+        """
+        self.config = config
+        # 更新組件配置
+        if self.receipt_processor:
+            self.receipt_processor.update_config(config)
+        
+        # ProjectRepository 可能也需要更新 (例如 workspace_root)，但這通常涉及重啟
+        # 暫不支援動態更改 workspace_root
+        
+        logger.info("[Engine] 系統配置已更新")
+
     def _load_config(self) -> dict:
         """載入配置檔案"""
         local_config = "config.json"

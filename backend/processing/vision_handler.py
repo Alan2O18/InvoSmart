@@ -116,6 +116,51 @@ class VisionHandler:
             f"base_url={self.base_url}, reasoning={self.reasoning_effort}"
         )
 
+    def update_config(self, config: dict):
+        """
+        更新配置 (Runtime Update)
+        
+        Args:
+            config: 新的配置字典
+        """
+        vision_settings = config.get("vision_settings", {})
+        
+        # 檢查關鍵參數是否變更
+        new_api_key = vision_settings.get("api_key") or os.environ.get("GOOGLE_API_KEY")
+        new_base_url = vision_settings.get(
+            "base_url", 
+            "https://generativelanguage.googleapis.com/v1beta/openai/"
+        )
+        
+        client_needs_update = (
+            new_api_key != self.api_key or 
+            new_base_url != self.base_url
+        )
+        
+        # 更新參數
+        self.api_key = new_api_key
+        self.base_url = new_base_url
+        self.model_name = vision_settings.get("model_name", "gemini-2.5-flash-lite")
+        self.temperature = vision_settings.get("temperature", 0.0)
+        self.max_retries = vision_settings.get("max_retries", 3)
+        self.timeout = vision_settings.get("timeout", 120)
+        self.debug = vision_settings.get("debug", False)
+        self.reasoning_effort = vision_settings.get("reasoning_effort", "medium")
+        
+        # 若需要，重啟 client
+        if client_needs_update:
+            logger.info("[VisionHandler] 偵測到 API 設定變更，重新初始化 Client...")
+            if self.api_key:
+                self._init_client()
+            else:
+                self._client = None
+                logger.warning("[VisionHandler] 新設定未包含 API Key")
+        
+        logger.info(
+            f"[VisionHandler] 設定已更新：model={self.model_name}, "
+            f"base_url={self.base_url}, reasoning={self.reasoning_effort}"
+        )
+
     def _init_client(self):
         """初始化 OpenAI client"""
         try:
