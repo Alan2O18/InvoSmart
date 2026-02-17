@@ -8,7 +8,7 @@
 
 ## 1. 系統需求 (Prerequisites)
 
-- **Python**: 3.10 或更高版本
+- **Python**: 3.12 (推薦 3.12.12 以獲得最佳效能與相容性)
 - **Node.js**: v16 或更高版本 (前端開發用)
 - **API Key**: 必須擁有一個支援 OpenAI 介面的 VLM 服務金鑰（推薦 Google Gemini Flash Lite）。
 
@@ -24,7 +24,7 @@
 pip install -r requirements.txt
 ```
 
-> **注意**: 專案已移除 PaddleOCR 與 Local LLM 依賴，安裝過程應相當快速。
+> **注意**: 專案已移除 PaddleOCR 與 Local LLM 依賴，安裝過程極快 (僅需數秒)。
 
 ### 設定環境變數
 
