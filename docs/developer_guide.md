@@ -1,231 +1,126 @@
 # 開發者指南 (Developer Guide)
 
-本指南提供開發者深入了解 Backend 架構和開發流程所需的資訊。
+> **版本**: V2 (VLM-First)
+> **日期**: 2026-02-17
+
+本指南協助開發者理解 AI Agent Lab 的後端架構與開發流程。系統已全面轉向 **VLM-First** 架構，移除傳統 OCR 流水線。
 
 ---
 
-## 專案架構
+## 1. 專案架構
 
 ```
 backend/
-├── main.py              # FastAPI 入口
-├── dependencies.py      # 依賴注入
-├── engine/              # 核心引擎 (Singleton)
-├── managers/            # 專案/任務管理 (Facade)
-├── processing/          # OCR/LLM/VLM 處理器
-├── routers/             # API 路由
-└── utils/               # 工具函數
+├── main.py              # FastAPI 應用程式入口
+├── dependencies.py      # 依賴注入 (get_engine)
+├── engine/              # 核心協調層
+│   ├── core.py          # Engine 類別 (Singleton)
+│   └── workers.py       # Global Worker 迴圈
+├── processing/          # 業務邏輯層
+│   ├── receipt_processor.py  # 主要處理入口
+│   ├── vision_handler.py     # VLM (OpenAI SDK)
+│   ├── qr_handler.py         # QR Code 解碼
+│   └── python_validator.py   # 邏輯驗算
+├── repositories/        # 資料存取層
+│   ├── project_repository.py # Global DB
+│   ├── job_repository.py     # Project DB
+│   └── suggestion_repository.py # Suggestion DB
+└── routers/             # API路由
+    ├── projects.py      # 專案管理
+    ├── jobs.py          # 任務操作
+    ├── processing.py    # 批次執行
+    └── ...
 ```
 
 ---
 
-## 核心元件
+## 2. 核心開發概念
 
-### 1. Engine (引擎單例)
+### 2.1 Engine (單例模式)
+系統的核心中樞，負責：
+- 管理 `TaskQueue` 與 `GlobalWorker`。
+- 持有 `ProjectRepository` 與 `ReceiptProcessor` 實例。
+- 協調跨模組操作。
 
 ```python
+# 取得 Engine 實例
 from backend.engine.core import get_engine
-
 engine = get_engine()
-engine.create_project("活動名稱")
-engine.run_ocr("project_id")
 ```
 
-**職責**: 協調所有子系統，管理專案生命週期。
+### 2.2 VLM-First 處理流程
+開發新功能時，請遵循 "High Trust, Verify Later" 原則：
+1. **相信 VLM**: 優先使用 `VisionHandler` 獲取結構化資料。
+2. **驗證**: 使用 `PythonValidator` 或 `QRHandler` 進行檢查。
+3. **不要** 引入繁瑣的 OCR 前處理或圖像切割。
 
-### 2. TaskManager (任務管理器)
-
-```python
-tm = engine.get_task_manager("project_id")
-jobs = tm.list_jobs()
-job = tm.get_job("job_id")
-```
-
-**狀態機流程**:
-```
-ready → running → done
-         ↓
-       failed
-```
-
-### 3. Processing 處理器
-
-| 處理器 | 用途 |
-|--------|------|
-| `ReceiptProcessorV2` | **核心流水線**：協調所有子處理器 |
-| `RapidOCRHandler` | 主要 OCR 引擎 (RapidOCR ONNX) |
-| `VisionHandler` | VLM 視覺識別 (Qwen VL) |
-| `AuditHandler` | 稽核與交叉驗證 (Rule + LLM) |
-| `KeywordClassifier` | 收據類型分類器 |
-| `QRHandler` | QR Code 偵測與解碼 |
-| `GemmaCorrector` | 自動錯誤修正器 |
-| `LLMHandler` | (Legacy) 文字校正和結構化 |
-| `OCRHandler` | (Legacy) PaddleOCR 處理器 |
+### 2.3 資料庫存取
+- **Global DB**: 用於專案列表、詞彙庫。(使用 `ProjectRepository`)
+- **Job DB**: 每個專案獨立一個 DB，用於儲存任務結果。(使用 `JobRepository`)
 
 ---
 
-## 資料流
+## 3. 環境設定與 API Key
 
-```
-圖片上傳 
-  ↓
-ReceiptProcessorV2.process()
-  ↓
-1. RapidOCR → 取得文字與座標
-  ↓
-2. KeywordClassifier → 判斷類型 (電子/手寫/其他)
-  ↓
-3. 分流處理:
-   ├─ 電子發票: QRHandler 解碼 + VLM 補強
-   ├─ 手寫收據: VisionHandler (VLM) 識別
-   └─ 其他收據: 純 OCR + LLM 結構化
-  ↓
-4. AuditHandler → 交叉驗證 (OCR vs QR vs VLM)
-  ↓
-5. DataValidator → 數學邏輯檢查
-  ↓
-6. (Optional) GemmaCorrector → 自動修正
-  ↓
-輸出最終 JSON
-```
+本專案依賴 OpenAI Compatible API (如 Google Gemini)。
 
-### 處理流水線
-
-```python
-# backend/processing/receipt_processor.py
-
-def process(self, image_array) -> dict:
-    # Step 1: 基礎 OCR 與資訊提取
-    ocr_result, stats = self.rapidocr.do_ocr(image_array)
-    qr_data = self.qr_handler.detect_and_decode(image_array)
-    
-    # Step 2: 智慧分類
-    receipt_type = self.classifier.classify(ocr_result, qr_data)
-    
-    # Step 3: 策略分發
-    if receipt_type == ReceiptType.ELECTRONIC:
-         result = self._process_electronic(image_array, ocr_result, qr_data)
-    elif receipt_type == ReceiptType.HANDWRITTEN:
-         result = self._process_handwritten(image_array)
-    else:
-         result = self._process_standard(ocr_result)
-         
-    # Step 4: 稽核與驗證
-    audit_result = self.audit_handler.audit(result, qr_data)
-    
-    # Step 5: 結果組合
-    return self._finalize_result(result, audit_result)
-```
-
----
-
-## JSON 資料格式
-
-### LLM 輸出 (新格式)
+### 設定方式
+1. **環境變數**: 在 `.env` 或系統環境變數中設定 `GOOGLE_API_KEY`。
+2. **設定檔**: 在 `config.json` 中設定 `vision_settings.api_key`。
 
 ```json
+// config.json
 {
-    "receipt_type": "電子發票",
-    "header": {
-        "supplier": "供應商",
-        "invoice_id": "AB12345678",
-        "date": "2024-12-19",
-        "tax_id": "12345678"
-    },
-    "items": [
-        {"name": "品名", "qty": 1, "price": 100, "total": 100}
-    ],
-    "summary": {"total": 100},
-    "audit": {
-        "confidence": 0.95,
-        "issues": [],
-        "corrections": [
-            {"source": "gemma", "timestamp": 1734567890, "description": "自動修正"}
-        ]
+    "vision_settings": {
+        "api_key": "YOUR_KEY",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "model_name": "gemini-2.5-flash-lite",
+        "reasoning_effort": "medium"  // 開啟思考模式 (low/medium/high)
     }
 }
 ```
 
-### OCR 統計
-
-```json
-{
-    "engine": "rapidocr",
-    "total_time_s": 2.35,
-    "text_blocks_count": 15,
-    "started_at": 1734567890,
-    "completed_at": 1734567893
-}
-```
-
 ---
 
-## 新增處理器
+## 4. 測試開發
 
-### 步驟 1: 建立處理器類別
+由於架構變更，舊有的測試可能已失效。請遵循 **V2 測試策略**：
 
-```python
-# processing/my_handler.py
-class MyHandler:
-    def __init__(self, config: dict):
-        self.config = config
-    
-    def process(self, data) -> tuple[dict, dict]:
-        # 返回 (result, stats)
-        return result, stats
-```
+### 執行單元測試
+(待更新 `tests/` 目錄後)
 
-### 步驟 2: 註冊到引擎
-
-```python
-# engine/core.py
-self.my_handler = MyHandler(self.config)
-```
-
----
-
-## 測試
-
-### 執行所有測試
 ```bash
 micromamba activate OCR_GA
-pytest tests/ -v
+pytest tests/
 ```
 
-### 執行特定測試
-```bash
-pytest tests/test_processing.py::TestLLMHandler -v
-```
-
-### 測試覆蓋率
-```bash
-pytest tests/ --cov=backend --cov-report=html
-```
+### 手動測試 (API)
+啟動後端後，可訪問 Swagger UI 進行測試：
+- URL: `http://localhost:8000/docs`
 
 ---
 
-## 常用命令
+## 5. 常見任務指引
 
-```bash
-# 啟動開發伺服器
-micromamba activate OCR_GA
-python -m uvicorn backend.main:app --reload
+### 新增一個 API 端點
+1. 在 `backend/routers/` 建立或修改對應的 `.py` 檔。
+2. 定義 Pydantic Model (若需要)。
+3. 在 `backend/main.py` 中 `include_router`。
 
-# 執行測試
-pytest tests/ -v
+### 修改 VLM Prompt
+1. 編輯 `backend/processing/vision_handler.py` 中的 `DEFAULT_PROMPT` 常數。
+2. 確保 Prompt 的 JSON 範例與 `docs/json_structure.md` 保持一致。
 
-# 格式化程式碼
-black backend/ tests/
-
-# 類型檢查
-mypy backend/
-```
+### 新增驗證邏輯
+1. 編輯 `backend/processing/python_validator.py`。
+2. 在 `validate()` 方法中加入新的檢查規則。
+3. 更新 `ValidationResult` 的評分權重。
 
 ---
 
-## 相關文檔
+## 6. 相關文檔索引
 
-- [快速開始](./quickstart.md)
-- [API 參考](./api_reference.md)
-- [JSON Schema](./json_schema.md)
-- [資料庫轉換計畫](./資料庫轉換計畫A.md)
+- [API 參考 (API)](./api.md)
+- [資料庫設計 (Database)](./database.md)
+- [處理流程 (Pipeline)](./pipeline.md)
+- [JSON 結構 (JSON Structure)](./json_structure.md)

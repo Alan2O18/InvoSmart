@@ -1,74 +1,59 @@
-# 快速開始指南 (Quickstart)
+# 快速開始 (Quickstart)
 
-本指南說明如何設置開發環境並運行 Backend 服務。
+> **版本**: VLM-First V2
+> **狀態**: 已更新 (Zero Ollama)
+> **日期**: 2026-02-17
 
-## 環境需求
+本指南將協助您快速建立 AI Agent Lab 的開發環境。本專案目前採用 VLM-First 架構，完全依賴 OpenAI 相容介面（如 Google Gemini 或 OpenRouter）進行視覺處理，**無需本地安裝 Ollama 或重型 OCR 引擎**。
 
-- **Python**: 3.10+
-- **虛擬環境**: micromamba (推薦) 或 conda
-- **Ollama**: 本地 LLM 服務
-- **SQLite**: 內建資料庫
+## 1. 系統需求 (Prerequisites)
 
----
+- **Python**: 3.10 或更高版本
+- **Node.js**: v16 或更高版本 (前端開發用)
+- **API Key**: 必須擁有一個支援 OpenAI 介面的 VLM 服務金鑰（推薦 Google Gemini Flash Lite）。
 
-## 1. 啟用虛擬環境
+## 2. 後端設置 (Backend Setup)
 
-```bash
-# 使用 micromamba 啟用 OCR_GA 虛擬環境
-micromamba activate OCR_GA
+目前我們使用 micromamba 進行虛擬環境管理。
+環境名稱為 OCR_GA
 
-# 確認 Python 版本
-python --version
-# 預期輸出: Python 3.10.x 或以上
-```
 
----
-
-## 2. 安裝依賴
+### 安裝依賴
 
 ```bash
-# 安裝 Python 依賴
 pip install -r requirements.txt
-
-# 主要依賴包括:
-# - fastapi, uvicorn (Web 框架)
-# - paddleocr, rapidocr-onnxruntime (OCR 引擎)
-# - ollama (LLM 客戶端)
-# - opencv-python, numpy (影像處理)
-# - pandas, openpyxl (Excel 匯出)
 ```
 
----
+> **注意**: 專案已移除 PaddleOCR 與 Local LLM 依賴，安裝過程應相當快速。
 
-## 3. 啟動 Ollama 服務
+### 設定環境變數
 
-Backend 依賴本地 Ollama 服務進行 LLM 處理：
+在專案根目錄建立 `.env` 檔案（或直接修改 `config.json`），設定您的 API Key：
 
 ```bash
-# 確認 Ollama 已安裝並運行
-ollama list
-
-# 如果未安裝，請前往 https://ollama.com 下載
-
-# 下載所需模型
-ollama pull qwen3:1.7b     # 文字校正和結構化
-ollama pull qwen3-vl:2b    # 視覺識別 (VLM)
-ollama pull gemma3:4b      # 修正器 (可選)
+# .env 範例
+GOOGLE_API_KEY=your_gemini_api_key_here
+# 若使用其他 OpenAI 相容服務：
+# OPENAI_BASE_URL=https://openrouter.ai/api/v1
+# OPENAI_API_KEY=your_openrouter_key
 ```
 
----
+或者，您可以直接編輯 `config.json` 中的 `vision_settings`：
 
-## 4. 啟動 Backend 服務
+```json
+{
+    "vision_settings": {
+        "api_key": "your_key",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "model_name": "gemini-2.5-flash-lite"
+    }
+}
+```
 
+## 4. 啟動後端服務
 ```bash
-# 進入專案目錄
-cd "c:\Users\tange\OneDrive\Desktop\all project\py for NKNU GA\AI_AGENT_LAB"
-
 # 啟動開發伺服器
 python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
-
-# 或使用快捷命令
-python -m backend.main
 ```
 
 服務啟動後可訪問：
@@ -77,74 +62,32 @@ python -m backend.main
 
 ---
 
-## 5. 驗證服務
+## 5. 前端設置 (Frontend Setup)
+
+開啟新的終端機視窗：
 
 ```bash
-# 檢查健康狀態
-curl http://localhost:8000/api/health
-
-# 列出專案
-curl http://localhost:8000/api/projects
-
-# 預期回應: {"status": "ok"} 或 []
+cd frontend
+npm install
+npm run dev
 ```
 
----
+前端介面預設運行於 `http://localhost:5173`。
 
-## 6. 執行測試
+## 6. 驗證安裝
 
-```bash
-# 啟用虛擬環境後執行測試
-micromamba activate OCR_GA
-pytest tests/ -v
-
-# 執行測試並生成覆蓋率報告
-pytest --cov=backend
-
-# 僅執行特定測試
-pytest tests/test_processing.py -v
-pytest tests/test_utils.py -v
-```
+1. 打開瀏覽器訪問 `http://localhost:5173`。
+2. 進入「專案管理」，建立一個新專案。
+3. 上傳一張收據圖片。
+4. 觀察後端 Log，確認 `VisionHandler` 成功調用遠端 API 並返回結果。
+5. 若能看到識別出的收據內容，即代表安裝成功。
 
 ---
 
 ## 常見問題
 
-### Q: `ModuleNotFoundError: No module named 'backend'`
+**Q: 我需要安裝 CUDA 嗎？**
+A: **不需要**。VLM 運算在雲端進行，RapidOCR (用於輔助驗證) 使用 ONNX Runtime CPU 版本即可流暢運行。
 
-**解決方案**: 確保從專案根目錄執行命令，並設置 PYTHONPATH：
-
-```bash
-# Windows
-set PYTHONPATH=.
-
-# Linux/Mac
-export PYTHONPATH=.
-```
-
-### Q: `ollama.ResponseError: model not found`
-
-**解決方案**: 下載所需模型：
-
-```bash
-ollama pull qwen3:1.7b
-ollama pull qwen3-vl:2b
-```
-
-### Q: `ImportError: PaddleOCR not found`
-
-**解決方案**: 安裝 PaddleOCR 或使用 RapidOCR：
-
-```bash
-pip install paddleocr
-# 或使用輕量替代
-pip install rapidocr-onnxruntime
-```
-
----
-
-## 下一步
-
-- 查看 [API 參考文檔](./api_reference.md) 了解完整 API
-- 查看 [架構說明](../backend/README.md) 了解模組設計
-- 查看 [JSON Schema](./json_schema.md) 了解資料格式
+**Q: 為什麼找不到 Ollama 設定？**
+A: 本專案已棄用 Ollama。所有圖文理解與邏輯判斷皆由 VLM (Gemini Flash Lite) 一次完成。
