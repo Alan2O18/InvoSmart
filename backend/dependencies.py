@@ -19,7 +19,7 @@ def get_engine():
     """
     獲取 Engine 實例。
     
-    生產環境：返回全局單例（延遲創建）
+    生產環境：返回全局單例（在 lifespan startup 中預先初始化）
     測試環境：返回通過 set_engine() 設置的實例
     
     Returns:

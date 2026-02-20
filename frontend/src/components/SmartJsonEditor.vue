@@ -2,7 +2,7 @@
   <div class="smart-json-editor">
     
     <!-- Quick Fields Header -->
-    <div class="quick-fields">
+    <div class="quick-fields" v-if="showQuickFields">
       <div class="field-group" v-for="field in quickFields" :key="field.key">
         <label>{{ field.label }}</label>
         <input 
@@ -49,6 +49,10 @@ const props = defineProps({
   modelValue: {
     type: Object,
     default: () => ({})
+  },
+  showQuickFields: {
+    type: Boolean,
+    default: true
   }
 })
 
@@ -111,20 +115,22 @@ const extensions = [json(), lintGutter(), jsonLinter, customKeymap]
 // 1. Initialize from Props
 watch(() => props.modelValue, (newVal) => {
   // Only update code if it's materially different (deep compare) 
-  // to avoid resetting cursor when typing in quick fields
+  // to avoid resetting cursor when typing in quick fields OR external form
   try {
     const currentObj = JSON.parse(code.value || '{}')
     if (!isEqual(newVal, currentObj)) {
       code.value = JSON.stringify(newVal, null, 2)
-      syncJsonToQuickFields(newVal)
+      if (props.showQuickFields) {
+          syncJsonToQuickFields(newVal)
+      }
     }
   } catch (e) {
     // If current code is invalid, we might legitimately want to replace it if prop changed from outside
-    // But usually props change because *we* emitted it. 
-    // Simplified: Just set it if we are not locked
     if (!isLocked.value) {
         code.value = JSON.stringify(newVal, null, 2)
-        syncJsonToQuickFields(newVal)
+        if (props.showQuickFields) {
+            syncJsonToQuickFields(newVal)
+        }
     }
   }
 }, { immediate: true, deep: true })

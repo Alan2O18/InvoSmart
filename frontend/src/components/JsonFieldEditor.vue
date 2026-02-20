@@ -1,89 +1,50 @@
 <template>
-  <div class="json-field-editor">
+  <div class="json-field-editor" :class="{ 'disabled-mode': isJsonInvalid }">
+    
+    <!-- Validation Guard Overlay -->
+    <div v-if="isJsonInvalid" class="validation-overlay">
+      <div class="validation-message">
+        <h3>⚠️ JSON Syntax Error</h3>
+        <p>Please fix the JSON syntax in the editor to enable Form View.</p>
+      </div>
+    </div>
+
     <!-- 收據類型 -->
     <div class="field-group">
       <label>收據類型</label>
-      <select v-model="formData.receipt_type">
+      <select v-model="formData.receipt_type" :disabled="isJsonInvalid">
         <option value="">請選擇</option>
-        <option value="電子發票">電子發票</option>
+        <option value="電子發票證明聯">電子發票證明聯</option>
         <option value="免用統一發票收據">免用統一發票收據</option>
-        <option value="其他收據">其他收據</option>
+        <option value="傳統發票">傳統發票</option>
+        <option value="其他">其他</option>
       </select>
     </div>
-
-    <!-- QR Code 區塊 (僅電子發票顯示) -->
-    <fieldset v-if="formData.receipt_type === '電子發票'">
-      <legend>📱 QR Code 資訊</legend>
-      <div v-if="formData.qr_decode">
-        <div class="field-row">
-          <label>發票號碼</label>
-          <input v-model="formData.qr_decode.invoice_id" />
-        </div>
-        <div class="field-row">
-          <label>日期</label>
-          <input v-model="formData.qr_decode.date" type="date" />
-        </div>
-        <div class="field-row">
-          <label>賣方統編</label>
-          <input v-model="formData.qr_decode.seller_id" list="seller_id-list" @blur="saveSuggestion('seller_id', formData.qr_decode.seller_id)" />
-          <datalist id="seller_id-list">
-            <option v-for="s in suggestions.seller_id" :key="s" :value="s" />
-          </datalist>
-        </div>
-        <div class="field-row">
-          <label>買方統編</label>
-          <input v-model="formData.qr_decode.buyer_id" list="buyer_id-list" @blur="saveSuggestion('buyer_id', formData.qr_decode.buyer_id)" />
-          <datalist id="buyer_id-list">
-            <option v-for="s in suggestions.buyer_id" :key="s" :value="s" />
-          </datalist>
-        </div>
-        <div class="field-row">
-          <label>總金額</label>
-          <input v-model.number="formData.qr_decode.total" type="number" />
-        </div>
-        <div class="field-row">
-          <label>隨機碼</label>
-          <input v-model="formData.qr_decode.random_code" />
-        </div>
-      </div>
-      <div v-else class="empty-qr">
-        無 QR Code 資料
-      </div>
-    </fieldset>
 
     <!-- Header 區塊 -->
     <fieldset v-if="formData.header">
       <legend>📋 發票資訊</legend>
       <div class="field-row">
         <label>商家名稱</label>
-        <input v-model="formData.header.supplier" list="supplier-list" @blur="saveSuggestion('supplier', formData.header.supplier)" />
+        <input v-model="formData.header.supplier" list="supplier-list" @blur="saveSuggestion('supplier', formData.header.supplier)" :disabled="isJsonInvalid" />
         <datalist id="supplier-list">
           <option v-for="s in suggestions.supplier" :key="s" :value="s" />
         </datalist>
       </div>
       <div class="field-row">
-        <label>買受人</label>
-        <input v-model="formData.header.buyer" list="buyer-list" @blur="saveSuggestion('buyer', formData.header.buyer)" />
+        <label>統一編號/買受人</label>
+        <input v-model="formData.header.buyer" list="buyer-list" @blur="saveSuggestion('buyer', formData.header.buyer)" :disabled="isJsonInvalid" placeholder="買方統編或名稱" />
         <datalist id="buyer-list">
           <option v-for="s in suggestions.buyer" :key="s" :value="s" />
         </datalist>
       </div>
-      
-      <!-- 僅電子發票顯示 -->
-      <template v-if="formData.receipt_type === '電子發票'">
-        <div class="field-row">
-          <label>發票號碼</label>
-          <input v-model="formData.header.invoice_id" />
-        </div>
-        <div class="field-row">
-          <label>統一編號</label>
-          <input v-model="formData.header.tax_id" />
-        </div>
-      </template>
-
+      <div class="field-row">
+        <label>發票號碼</label>
+        <input v-model="formData.header.invoice_id" :disabled="isJsonInvalid" />
+      </div>
       <div class="field-row">
         <label>日期</label>
-        <input v-model="formData.header.date" placeholder="YYYY-MM-DD" />
+        <input v-model="formData.header.date" placeholder="YYYY-MM-DD" :disabled="isJsonInvalid" />
       </div>
     </fieldset>
 
@@ -91,66 +52,109 @@
     <fieldset v-if="formData.items">
       <legend>🛒 品項明細</legend>
       <div v-for="(item, idx) in formData.items" :key="idx" class="item-row">
-        <input v-model="item.name" placeholder="品名" class="item-name" list="item_name-list" @blur="saveSuggestion('item_name', item.name)" />
-        <input v-model.number="item.qty" type="number" placeholder="數量" class="item-num" />
-        <input v-model.number="item.price" type="number" placeholder="單價" class="item-num" />
-        <input v-model.number="item.total" type="number" placeholder="小計" class="item-num" />
-        <button @click="removeItem(idx)" class="remove-btn">×</button>
+        <input v-model="item.name" placeholder="品名" class="item-name" list="item_name-list" @blur="saveSuggestion('item_name', item.name)" :disabled="isJsonInvalid" />
+        <input v-model.number="item.qty" type="number" placeholder="數量" class="item-num" :disabled="isJsonInvalid" />
+        <input v-model.number="item.price" type="number" placeholder="單價" class="item-num" :disabled="isJsonInvalid" />
+        <input v-model.number="item.total" type="number" placeholder="小計" class="item-num" :disabled="isJsonInvalid" />
+        <button @click="removeItem(idx)" class="remove-btn" :disabled="isJsonInvalid">×</button>
       </div>
       <datalist id="item_name-list">
         <option v-for="s in suggestions.item_name" :key="s" :value="s" />
       </datalist>
-      <button @click="addItem" class="add-btn">+ 新增品項</button>
+      <button @click="addItem" class="add-btn" :disabled="isJsonInvalid">+ 新增品項</button>
     </fieldset>
 
     <!-- Summary 區塊 -->
     <fieldset v-if="formData.summary">
-      <legend>💰 總計</legend>
+      <legend>💰 金額總結</legend>
       <div class="field-row">
-        <label>總金額</label>
-        <input v-model.number="formData.summary.total" type="number" />
+        <label>銷售額</label>
+        <input v-model.number="formData.summary.subtotal" type="number" :disabled="isJsonInvalid" placeholder="未稅或含稅小計" />
+      </div>
+      <div class="field-row">
+        <label>稅額</label>
+        <input v-model.number="formData.summary.tax" type="number" :disabled="isJsonInvalid" />
+      </div>
+      <div class="field-row">
+        <label>總計金額</label>
+        <input v-model.number="formData.summary.total" type="number" :disabled="isJsonInvalid" />
       </div>
     </fieldset>
 
-    <!-- Verification 區塊 (僅免用統一發票顯示) -->
-    <fieldset v-if="formData.receipt_type === '免用統一發票收據' && formData.verification">
-      <legend>✅ 驗證資訊</legend>
+    <!-- Verification 區塊 -->
+    <fieldset v-if="formData.verification">
+      <legend>✅ 驗證特徵</legend>
       <div class="field-row">
         <label>中文大寫</label>
-        <input v-model="formData.verification.handwritten_total_chinese" />
+        <input v-model="formData.verification.handwritten_total_chinese" :disabled="isJsonInvalid" placeholder="e.g. 壹佰元整" />
       </div>
       <div class="field-row">
         <label>店章店名</label>
-        <input v-model="formData.verification.stamp_shop_name" list="stamp_shop_name-list" @blur="saveSuggestion('stamp_shop_name', formData.verification.stamp_shop_name)" />
+        <input v-model="formData.verification.stamp_shop_name" list="stamp_shop_name-list" @blur="saveSuggestion('stamp_shop_name', formData.verification.stamp_shop_name)" :disabled="isJsonInvalid" />
         <datalist id="stamp_shop_name-list">
           <option v-for="s in suggestions.stamp_shop_name" :key="s" :value="s" />
         </datalist>
       </div>
+      <div class="field-row checkbox-row">
+        <label>QR Code</label>
+        <input type="checkbox" v-model="formData.verification.qr_code_detected" :disabled="isJsonInvalid" />
+        <span>已偵測到 QR Code</span>
+      </div>
     </fieldset>
 
-    <!-- Audit 區塊 (唯讀) -->
-    <fieldset v-if="formData.audit" class="readonly-section">
-      <legend>📊 稽核資訊 (唯讀)</legend>
+    <!-- Audit 區塊 (唯讀, 來自 props.validation) -->
+    <fieldset v-if="validation" class="readonly-section">
+      <legend>📊 邏輯驗證結果 (唯讀)</legend>
+      <div class="field-row">
+        <label>是否通過</label>
+        <span class="readonly-value" :class="validation.is_valid ? 'text-green' : 'text-red'">
+             {{ validation.is_valid ? 'PASS' : 'FAIL' }}
+        </span>
+      </div>
       <div class="field-row">
         <label>信心分數</label>
-        <span class="readonly-value">{{ formData.audit.confidence ? (formData.audit.confidence * 100).toFixed(1) + '%' : 'N/A' }}</span>
+        <span class="readonly-value">{{ validation.confidence ? (validation.confidence * 100).toFixed(1) + '%' : 'N/A' }}</span>
       </div>
-      <div class="field-row" v-if="formData.audit.issues?.length">
+      <div class="field-row" v-if="validation.issues?.length">
         <label>發現問題</label>
         <ul class="issues-list">
-          <li v-for="issue in formData.audit.issues" :key="issue">{{ issue }}</li>
+          <li v-for="issue in validation.issues" :key="issue">{{ issue }}</li>
         </ul>
       </div>
+      <div class="field-row">
+          <label>驗算比對</label>
+          <span class="readonly-value text-small">
+              計算={{ validation.calculated_total }} / 申報={{ validation.reported_total }}
+          </span>
+      </div>
     </fieldset>
+
+    <!-- Miscellaneous Fields Section -->
+    <fieldset v-if="miscFields.length > 0">
+        <legend>🔧 其他自定義欄位</legend>
+        <div v-for="key in miscFields" :key="key" class="field-row">
+            <label>{{ key }}</label>
+            <input v-model="formData[key]" :disabled="isJsonInvalid" />
+            <button @click="removeMiscField(key)" class="remove-btn" :disabled="isJsonInvalid">×</button>
+        </div>
+        <button @click="addMiscField" class="add-btn" :disabled="isJsonInvalid">+ 新增欄位</button>
+    </fieldset>
+    <div v-else>
+        <button @click="addMiscField" class="add-btn" style="margin-top: 10px;" :disabled="isJsonInvalid">+ 新增其他欄位</button>
+    </div>
+
   </div>
 </template>
 
 <script setup>
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
+import { isEqual, cloneDeep } from 'lodash-es'
 import api from '../services/api'
 
 const props = defineProps({
-  modelValue: { type: Object, default: () => ({}) }
+  modelValue: { type: Object, default: () => ({}) },
+  isJsonInvalid: { type: Boolean, default: false },
+  validation: { type: Object, default: null } // New prop for read-only validation data
 })
 
 const emit = defineEmits(['update:modelValue'])
@@ -195,66 +199,55 @@ onMounted(() => {
   loadAllSuggestions()
 })
 
-// 預設資料結構
+// 預設資料結構 (Aligned with VlmResult in json_structure.md)
 const getEmptyForm = () => ({
-  receipt_type: '',
-  qr_decode: {
-    invoice_id: '', date: '', seller_id: '', buyer_id: '', total: null, random_code: ''
+  receipt_type: '電子發票證明聯', // Default
+  header: { 
+      supplier: '', 
+      buyer: '', 
+      invoice_id: '', 
+      date: '' 
   },
-  header: { supplier: '', buyer: '', invoice_id: '', date: '', tax_id: '' },
   items: [{ name: '', qty: null, price: null, total: null }],
-  summary: { total: null },
-  verification: { handwritten_total_chinese: '', stamp_shop_name: '' },
-  audit: { confidence: null, issues: [], corrections: [] }
+  summary: { 
+      subtotal: null, 
+      tax: null, 
+      total: null 
+  },
+  verification: { 
+      handwritten_total_chinese: '', 
+      stamp_shop_name: '',
+      qr_code_detected: false
+  }
 })
 
 const formData = ref(getEmptyForm())
 
 // 從 props 初始化
 watch(() => props.modelValue, (newVal) => {
-  if (newVal && Object.keys(newVal).length > 0) {
+  // Infinite Loop Prevention: Only update if meaningfully different
+  if (newVal && !isEqual(newVal, formData.value)) {
     const empty = getEmptyForm()
+    // Defensively merge to avoid nulls
     formData.value = {
         ...empty,
         ...newVal,
         header: { ...empty.header, ...(newVal.header || {}) },
-        qr_decode: { ...empty.qr_decode, ...(newVal.qr_decode || {}) },
         items: newVal.items || empty.items,
         summary: { ...empty.summary, ...(newVal.summary || {}) },
-        verification: { ...empty.verification, ...(newVal.verification || {}) },
-        audit: { ...empty.audit, ...(newVal.audit || {}) }
+        verification: { ...empty.verification, ...(newVal.verification || {}) }
     }
   }
 }, { immediate: true, deep: true })
 
 // 同步回 parent
 watch(formData, (newVal) => {
-  emit('update:modelValue', newVal)
+  // Infinite Loop Prevention: check if different from prop before emitting
+  // Note: Parent also has checks, but this saves an emit
+  if (!isEqual(newVal, props.modelValue)) {
+      emit('update:modelValue', newVal)
+  }
 }, { deep: true })
-
-// 監聽收據類型改變
-watch(() => formData.value.receipt_type, (newType) => {
-  if (newType !== '電子發票') {
-    formData.value.qr_decode = null
-    if (formData.value.header) {
-      formData.value.header.invoice_id = ''
-      formData.value.header.tax_id = ''
-    }
-  } else {
-    if (!formData.value.qr_decode) {
-      formData.value.qr_decode = {
-        invoice_id: '', date: '', seller_id: '', buyer_id: '', total: null, random_code: ''
-      }
-    }
-  }
-  
-  if (newType !== '免用統一發票收據') {
-      if (formData.value.verification) {
-          formData.value.verification.handwritten_total_chinese = ''
-          formData.value.verification.stamp_shop_name = ''
-      }
-  }
-})
 
 const addItem = () => {
   if (!formData.value.items) formData.value.items = []
@@ -265,6 +258,24 @@ const removeItem = (idx) => {
   if (formData.value.items && formData.value.items.length > 0) {
     formData.value.items.splice(idx, 1)
   }
+}
+
+// --- Miscellaneous Fields Logic ---
+const KNOWN_KEYS = ['receipt_type', 'header', 'items', 'summary', 'verification']
+const miscFields = computed(() => {
+    const allKeys = Object.keys(formData.value)
+    return allKeys.filter(k => !KNOWN_KEYS.includes(k))
+})
+
+const addMiscField = () => {
+    const key = prompt("Enter new field name:")
+    if (key && !formData.value[key]) {
+        formData.value[key] = ""
+    }
+}
+
+const removeMiscField = (key) => {
+    delete formData.value[key]
 }
 </script>
 
@@ -322,9 +333,18 @@ legend {
   gap: 8px;
 }
 
+.checkbox-row {
+    justify-content: flex-start;
+}
+.checkbox-row input {
+    flex: 0;
+    width: auto;
+    margin-right: 10px;
+}
+
 .field-row label {
-  width: 80px;
-  min-width: 80px;
+  width: 90px;
+  min-width: 90px;
   font-size: 0.85em;
   color: #aaa;
 }
@@ -395,16 +415,35 @@ legend {
   color: #fff;
 }
 
+.text-green { color: #4ade80; }
+.text-red { color: #f87171; }
+.text-small { font-size: 0.8em; color: #bbb; }
+
 .issues-list {
   padding-left: 20px;
   margin: 0;
   color: #ef5350;
 }
 
-.empty-qr {
-  color: #888;
-  font-style: italic;
-  padding: 10px;
-  text-align: center;
+.validation-overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+}
+.validation-message {
+    background: #2a2a2a;
+    padding: 20px;
+    border: 2px solid #ef5350;
+    border-radius: 8px;
+    text-align: center;
+}
+.disabled-mode {
+    pointer-events: none;
+    opacity: 0.8;
 }
 </style>

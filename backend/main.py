@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 import sys
 import os
 
@@ -23,7 +24,18 @@ with open(config_path, "r", encoding="utf-8") as f:
     config = json.load(f)
 workspace_root = config["project_manager_settings"]["workspace_root"]
 
-app = FastAPI(title="AI Agent Lab API")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Initialize Engine before accepting requests
+    from backend.dependencies import get_engine, reset_engine
+    get_engine()
+    yield
+    # Shutdown: Stop worker threads gracefully
+    reset_engine()
+
+
+app = FastAPI(title="AI Agent Lab API", lifespan=lifespan)
 
 # Setup CORS
 app.add_middleware(

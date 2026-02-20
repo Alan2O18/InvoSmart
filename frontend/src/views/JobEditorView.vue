@@ -15,29 +15,20 @@
       </div>
 
       <div class="header-actions">
-        <button @click="save" :disabled="saving" class="save-btn" :title="'Ctrl + S' + (isDirty ? ' (Unsaved)' : '')">
+        <button @click="rerunVLM" :disabled="regenerating" class="regen-btn" title="Re-run VLM">
+            {{ regenerating ? 'Thinking...' : '⚡ Re-run' }}
+        </button>
+        <button @click="save" :disabled="saving" class="save-btn" :title="'Ctrl + Enter / Ctrl + S' + (isDirty ? ' (Unsaved)' : '')">
           {{ saving ? 'Saving...' : (isDirty ? 'Save *' : 'Save') }}
         </button>
       </div>
     </header>
 
-    <!-- 模式切換標籤 -->
-    <div class="mode-tabs">
-      <button 
-        :class="{ active: editMode === 'json' }" 
-        @click="editMode = 'json'"
-      >🔧 JSON 結構化編輯</button>
-      <button 
-        :class="{ active: editMode === 'raw' }" 
-        @click="editMode = 'raw'"
-      >🔍 Raw VLM Output</button>
-    </div>
-
     <div class="panels-container">
       <!-- Panel 1: Image -->
-      <div class="panel" :style="{ flex: panelSizes[0] }">
-        <div class="panel-header">
-          <span class="panel-title">📷 Invoice Image</span>
+      <div class="panel" :style="{ flex: panelSizes[0] }" ref="panel1">
+        <div class="panel-header" :class="{ 'focused': focusedPanel === 1 }">
+          <span class="panel-title">📷 Reference (Alt+1)</span>
           <div class="panel-controls">
             <button @click="togglePanel(0)" class="panel-btn">{{ panelSizes[0] > 0.1 ? '−' : '+' }}</button>
           </div>
@@ -51,55 +42,39 @@
         <div class="resize-handle" @mousedown="startResize(0, $event)"></div>
       </div>
 
-      <!-- Panel 2: Editor (JSON or Raw) -->
-      <div class="panel" :style="{ flex: panelSizes[1] }">
-        <div class="panel-header">
-          <span class="panel-title">{{ editMode === 'json' ? '🔧 JSON Structured Editor' : '🔍 Raw VLM Output' }}</span>
+      <!-- Panel 2: Form Editor -->
+      <div class="panel" :style="{ flex: panelSizes[1] }" ref="panel2">
+        <div class="panel-header" :class="{ 'focused': focusedPanel === 2 }">
+          <span class="panel-title">📝 Form Editor (Alt+2) <span v-if="isDirty" class="dirty-mark">*</span></span>
           <div class="panel-controls">
             <button @click="togglePanel(1)" class="panel-btn">{{ panelSizes[1] > 0.1 ? '−' : '+' }}</button>
           </div>
         </div>
         <div class="panel-content" v-show="panelSizes[1] > 0.1">
-          
-          <!-- JSON Editor Mode -->
-          <div v-show="editMode === 'json'" class="editor-mode-json">
-             <SmartJsonEditor 
-                v-model="manualJsonData" 
-                @save="save"
-             />
-          </div>
-
-          <!-- Raw VLM Output Mode -->
-          <div v-show="editMode === 'raw'" class="editor-mode-raw">
-            <div class="raw-toolbar">
-              <button @click="rerunVLM" :disabled="regenerating" class="regen-btn">
-                {{ regenerating ? 'Processing...' : '⚡ Re-run VLM Processing' }}
-              </button>
-              <small class="tip">提示: 這將使用目前的 VLM 設定重新處理此圖片，並覆蓋當前編輯。</small>
-            </div>
-            <div class="raw-content">
-              <h3>VLM Response:</h3>
-              <pre class="raw-display">{{ formatLLMResult(job.llm_result) }}</pre>
-            </div>
-          </div>
-
+           <JsonFieldEditor 
+              :modelValue="debouncedJsonData"
+              @update:modelValue="updateFromForm"
+              :isJsonInvalid="isJsonInvalid"
+              :validation="job?.validation"
+           />
         </div>
         <div class="resize-handle" @mousedown="startResize(1, $event)"></div>
       </div>
 
-      <!-- Panel 3: JSON Preview -->
-      <div class="panel" :style="{ flex: panelSizes[2] }">
-        <div class="panel-header">
-          <span class="panel-title">👁️ Live Preview</span>
+      <!-- Panel 3: JSON Editor -->
+      <div class="panel" :style="{ flex: panelSizes[2] }" ref="panel3">
+        <div class="panel-header" :class="{ 'focused': focusedPanel === 3 }">
+          <span class="panel-title">🔧 JSON Editor (Alt+3) <span v-if="isDirty" class="dirty-mark">*</span></span>
           <div class="panel-controls">
             <button @click="togglePanel(2)" class="panel-btn">{{ panelSizes[2] > 0.1 ? '−' : '+' }}</button>
           </div>
         </div>
         <div class="panel-content" v-show="panelSizes[2] > 0.1">
-          <div class="preview-mode">
-             <div class="preview-badge">🔧 即時預覽</div>
-             <pre class="result-display">{{ JSON.stringify(manualJsonData, null, 2) }}</pre>
-          </div>
+             <SmartJsonEditor 
+                v-model="manualJsonData" 
+                @save="save"
+                :showQuickFields="false"
+             />
         </div>
         <div class="resize-handle" @mousedown="startResize(2, $event)"></div>
       </div>
@@ -111,37 +86,34 @@
 <script setup>
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
-import { isEqual } from 'lodash-es'
+import { isEqual, debounce } from 'lodash-es'
 import api from '../services/api'
 import SmartJsonEditor from '../components/SmartJsonEditor.vue'
+import JsonFieldEditor from '../components/JsonFieldEditor.vue'
 import ImageViewer from '../components/ImageViewer.vue'
 
-// --- Helpers (Defined first to avoid TDZ) ---
+// --- Helpers ---
 const getFilename = (path) => {
   if (!path) return ''
   return path.split('\\').pop().split('/').pop()
-}
-
-const formatLLMResult = (llmResult) => {
-  if (!llmResult) return 'No VLM result yet'
-  return JSON.stringify(llmResult, null, 2)
 }
 
 // --- Setup ---
 const route = useRoute()
 const router = useRouter()
 const projectId = route.params.id
-const jobId = route.query.jobId
 
 // --- State ---
 const job = ref(null)
-const editMode = ref('json') // 'json' | 'raw'
-const manualJsonData = ref({})
-const initialJsonData = ref({}) // To track original for dirty check
+const manualJsonData = ref({}) // Source of Truth
+const debouncedJsonData = ref({}) // Delayed for Form View
+const initialJsonData = ref({}) // Track original
 const saving = ref(false)
 const regenerating = ref(false)
-const panelSizes = ref([1, 1.2, 0.8]) 
+const panelSizes = ref([1, 1, 1]) 
 const jobList = ref([])
+const isJsonInvalid = ref(false) // Track if SmartJsonEditor has massive error
+const focusedPanel = ref(2) // Default focus Form
 
 // --- Computed ---
 const imageUrl = computed(() => {
@@ -153,23 +125,31 @@ const imageUrl = computed(() => {
 const currentIndex = computed(() => jobList.value.findIndex(j => j.job_id === route.query.jobId))
 const hasPrev = computed(() => currentIndex.value > 0)
 const hasNext = computed(() => currentIndex.value < jobList.value.length - 1)
-const isDirty = computed(() => {
-    return !isEqual(manualJsonData.value, initialJsonData.value)
-})
+const isDirty = computed(() => !isEqual(manualJsonData.value, initialJsonData.value))
+
+// --- Debounce Logic for Sync ---
+// When JSON changes, update debouncedJsonData after 300ms
+const updateDebouncedData = debounce((newVal) => {
+    debouncedJsonData.value = JSON.parse(JSON.stringify(newVal))
+}, 300)
+
+watch(manualJsonData, (newVal) => {
+    updateDebouncedData(newVal)
+}, { deep: true })
+
+const updateFromForm = (newVal) => {
+    // Form updates immediate source of truth
+    manualJsonData.value = newVal
+}
 
 // --- Methods ---
-const goBack = () => {
-    router.push(`/project/${projectId}`)
-}
+const goBack = () => router.push(`/project/${projectId}`)
 
 const fetchJobList = async () => {
     try {
         const res = await api.getProjectJobIds(projectId)
         jobList.value = res.data
-        // Preload next image if available
-        if (hasNext.value) {
-            preloadImage(jobList.value[currentIndex.value + 1])
-        }
+        if (hasNext.value) preloadImage(jobList.value[currentIndex.value + 1])
     } catch (e) {
         console.error("Failed to load job list", e)
     }
@@ -195,7 +175,8 @@ const fetchJobDetails = async (targetJobId = null) => {
     }
     
     manualJsonData.value = parsedData
-    initialJsonData.value = JSON.parse(JSON.stringify(parsedData)) // Deep Clone
+    debouncedJsonData.value = JSON.parse(JSON.stringify(parsedData)) // Init immediately
+    initialJsonData.value = JSON.parse(JSON.stringify(parsedData))
     
   } catch (e) {
     alert('Error loading job: ' + e)
@@ -214,44 +195,19 @@ const save = async () => {
   saving.value = true
   try {
     await api.saveManualJson(projectId, route.query.jobId, manualJsonData.value)
-    alert('Saved JSON Data!')
-    initialJsonData.value = JSON.parse(JSON.stringify(manualJsonData.value)) // Reset dirty
+    // alert('Saved JSON Data!') 
+    initialJsonData.value = JSON.parse(JSON.stringify(manualJsonData.value))
+    return true
   } catch (e) {
     alert('Error saving: ' + e)
+    return false
   } finally {
     saving.value = false
   }
 }
 
-const checkUnsavedChanges = async () => {
-    if (isDirty.value) {
-        return confirm("您有未儲存的變更。確定要離開嗎？變更將會遺失。")
-    }
-    return true
-}
-
-const navigateToJob = (newJobId) => {
-    router.push({ query: { jobId: newJobId } })
-}
-
-const goToPrev = async () => {
-    if (!hasPrev.value) return
-    if (!(await checkUnsavedChanges())) return
-    const prevJob = jobList.value[currentIndex.value - 1]
-    navigateToJob(prevJob.job_id)
-}
-
-const goToNext = async () => {
-    if (!hasNext.value) return
-    if (!(await checkUnsavedChanges())) return
-    const nextJob = jobList.value[currentIndex.value + 1]
-    navigateToJob(nextJob.job_id)
-}
-
 const rerunVLM = async () => {
-  if (!confirm("確定要重新執行 VLM 嗎？這將會覆蓋您目前的編輯內容。")) {
-      return
-  }
+  if (!confirm("確定要重新執行 VLM 嗎？這將會覆蓋您目前的編輯內容。")) return
   
   regenerating.value = true
   try {
@@ -262,6 +218,7 @@ const rerunVLM = async () => {
     // 更新 JSON 編輯器
     if (res.data.result) {
         manualJsonData.value = res.data.result
+        initialJsonData.value = JSON.parse(JSON.stringify(res.data.result))
         alert('VLM Processing Complete! Data updated.')
     } else {
         alert('VLM Finished but no result returned.')
@@ -273,10 +230,39 @@ const rerunVLM = async () => {
   }
 }
 
+
+const checkUnsavedChanges = async () => {
+    if (isDirty.value) return confirm("您有未儲存的變更。確定要離開嗎？")
+    return true
+}
+
+const navigateToJob = (newJobId) => router.push({ query: { jobId: newJobId } })
+
+const goToPrev = async () => {
+    if (!hasPrev.value) return
+    if (!(await checkUnsavedChanges())) return
+    navigateToJob(jobList.value[currentIndex.value - 1].job_id)
+}
+
+const goToNext = async () => {
+    if (!hasNext.value) return
+    if (!(await checkUnsavedChanges())) return
+    navigateToJob(jobList.value[currentIndex.value + 1].job_id)
+}
+
+const handleSaveAndNext = async () => {
+    if (await save()) {
+         if (hasNext.value) {
+             const nextJob = jobList.value[currentIndex.value + 1]
+             navigateToJob(nextJob.job_id)
+         } else {
+             alert("已儲存 (這是最後一張)")
+         }
+    }
+}
+
 // --- Resize Logic ---
-let startX = 0
-let startSizes = []
-let resizingPanel = null
+let startX = 0, startSizes = [], resizingPanel = null
 
 const doResize = (event) => {
   if (resizingPanel === null) return
@@ -303,38 +289,36 @@ const startResize = (panelIndex, event) => {
 
 const togglePanel = (index) => {
   const sizes = [...panelSizes.value]
-  if (sizes[index] > 0.1) {
-    sizes[index] = 0.05
-  } else {
-    sizes[index] = 1
-  }
+  sizes[index] = sizes[index] > 0.1 ? 0.05 : 1
   panelSizes.value = sizes
 }
 
 // --- Lifecycle & Watches ---
-
 const handleKeydown = (e) => {
     // Alt + Left/Right
-    if (e.altKey && e.key === 'ArrowLeft') {
+    if (e.altKey && e.key === 'ArrowLeft') { e.preventDefault(); goToPrev(); }
+    if (e.altKey && e.key === 'ArrowRight') { e.preventDefault(); goToNext(); }
+    
+    // Ctrl + Enter (Save & Next)
+    if (e.ctrlKey && e.key === 'Enter') {
         e.preventDefault()
-        goToPrev()
+        handleSaveAndNext()
     }
-    if (e.altKey && e.key === 'ArrowRight') {
+    
+    // Alt + 1/2/3 Focus
+    if (e.altKey && ['1','2','3'].includes(e.key)) {
         e.preventDefault()
-        goToNext()
+        focusedPanel.value = parseInt(e.key)
     }
 }
 
 onMounted(() => {
   if (!route.query.jobId) {
-    alert('No job ID provided')
     router.push(`/project/${projectId}`)
     return
   }
-  
   fetchJobList()
   fetchJobDetails()
-  
   window.addEventListener('keydown', handleKeydown)
 })
 
@@ -342,10 +326,9 @@ onUnmounted(() => {
     window.removeEventListener('keydown', handleKeydown)
 })
 
-onBeforeRouteLeave(async (to, from) => {
+onBeforeRouteLeave(async () => {
     if (isDirty.value) {
-        const answer = window.confirm("您有未儲存的變更。確定要離開嗎？變更將會遺失。")
-        if (!answer) return false
+        if (!confirm("您有未儲存的變更。確定要離開嗎？")) return false
     }
 })
 
@@ -372,98 +355,46 @@ watch(() => route.query.jobId, (newId, oldId) => {
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 1rem;
+  padding: 0.5rem 1rem;
   background: #2a2a2a;
   border-bottom: 1px solid #444;
-}
-
-.mode-tabs {
-  display: flex;
-  background: #333;
-  padding: 0 1rem;
-  border-bottom: 1px solid #444;
-}
-
-.mode-tabs button {
-  background: transparent;
-  border: none;
-  color: #888;
-  padding: 10px 20px;
-  cursor: pointer;
-  font-weight: bold;
-  border-bottom: 3px solid transparent;
-}
-
-.mode-tabs button.active {
-  color: #fff;
-  border-bottom-color: #0ea5e9;
-  background: #2a2a2a;
+  height: 50px;
 }
 
 .back-btn {
   background: transparent;
   border: 1px solid #666;
   color: #e0e0e0;
-  padding: 0.5rem 1rem;
+  padding: 0.25rem 0.5rem;
   cursor: pointer;
 }
 
-.header-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 0.5rem;
-}
+.header-actions { margin-left: auto; display: flex; gap: 0.5rem; }
 
 .nav-controls {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    flex: 1;
-    justify-content: center;
+    display: flex; align-items: center; gap: 1rem; flex: 1; justify-content: center;
 }
 
-.job-info {
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-}
-
-.job-info h1 {
-    font-size: 1.1rem;
-    margin: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 400px;
-}
-
-.job-count {
-    font-size: 0.8rem;
-    color: #888;
-}
+.job-info { text-align: center; }
+.job-info h1 { font-size: 1rem; margin: 0; max-width: 400px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.job-count { font-size: 0.75rem; color: #888; }
 
 .nav-btn {
-    background: #333;
-    border: 1px solid #555;
-    color: #eee;
-    padding: 0.25rem 0.8rem;
-    border-radius: 4px;
-    cursor: pointer;
+    background: #333; border: 1px solid #555; color: #eee;
+    padding: 0.25rem 0.8rem; border-radius: 4px; cursor: pointer;
 }
-
-.nav-btn:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-}
+.nav-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 
 .save-btn {
-  background: #059669;
-  color: white;
-  border: none;
-  padding: 0.5rem 1rem;
-  cursor: pointer;
-  border-radius: 4px;
+  background: #059669; color: white; border: none;
+  padding: 0.25rem 1rem; cursor: pointer; border-radius: 4px; font-weight: bold;
+}
+.save-btn:disabled { opacity: 0.7; cursor: wait; }
+
+.regen-btn {
+    background: #e11d48; color: white; border: none;
+    padding: 0.25rem 1rem; cursor: pointer; border-radius: 4px; font-weight: bold;
+    margin-right: 10px;
 }
 
 .panels-container {
@@ -473,129 +404,41 @@ watch(() => route.query.jobId, (newId, oldId) => {
 }
 
 .panel {
-  display: flex;
-  flex-direction: column;
-  min-width: 50px;
-  position: relative;
-  background: #222;
-  border-right: 1px solid #444;
+  display: flex; flex-direction: column;
+  min-width: 50px; position: relative;
+  background: #222; border-right: 1px solid #444;
 }
 
 .panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.5rem;
-  background: #333;
-  border-bottom: 1px solid #444;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0.25rem 0.5rem; background: #333; border-bottom: 1px solid #444;
+  font-size: 0.8rem; color: #aaa;
+}
+.panel-header.focused {
+    background: #444; color: #fff;
+    border-bottom: 2px solid #0ea5e9;
 }
 
-.panel-title {
-  font-weight: bold;
-  font-size: 0.875rem;
-}
+.panel-content { flex: 1; overflow: auto; padding: 0.5rem; }
+
+.panel-title { font-weight: bold; }
+.dirty-mark { color: #f59e0b; margin-left: 5px; }
 
 .panel-btn {
-  background: #444;
-  border: none;
-  color: white;
-  padding: 0.25rem 0.5rem;
-  cursor: pointer;
-  border-radius: 3px;
-}
-
-.panel-content {
-  flex: 1;
-  overflow: auto;
-  padding: 0.5rem;
+  background: #444; border: none; color: white;
+  padding: 0 5px; cursor: pointer; border-radius: 3px;
 }
 
 .image-panel {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #000;
-  overflow: hidden; /* Ensure viewer doesn't overflow */
-  padding: 0; /* Viewer handles its own layout */
-}
-
-.result-display {
-  white-space: pre-wrap;
-  font-family: monospace;
-  font-size: 0.8rem;
-  background: #1a1a1a;
-  padding: 0.5rem;
-  border-radius: 4px;
-  margin: 0;
-  color: #ccc;
-}
-
-.editor-mode-json {
-    height: 100%;
-}
-
-.raw-display {
-  white-space: pre-wrap;
-  font-family: monospace;
-  font-size: 0.8rem;
-  background: #1a1a1a;
-  padding: 0.5rem;
-  border-radius: 4px;
-  margin: 0;
-  color: #88ff88; 
-}
-
-.raw-toolbar {
-    margin-bottom: 10px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #444;
-}
-
-.regen-btn {
-  background: #e11d48;
-  color: white;
-  border: none;
-  padding: 0.5rem 1rem;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.tip {
-    display: block;
-    margin-top: 5px;
-    color: #888;
-}
-
-.preview-badge {
-    background: #0ea5e9;
-    color: white;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 0.8rem;
-    margin-bottom: 5px;
-    display: inline-block;
+  display: flex; align-items: center; justify-content: center;
+  background: #000; overflow: hidden; padding: 0;
 }
 
 .resize-handle {
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 5px;
-  cursor: col-resize;
-  background: transparent;
-  z-index: 10;
+  position: absolute; right: 0; top: 0; bottom: 0; width: 5px;
+  cursor: col-resize; background: transparent; z-index: 10;
 }
+.resize-handle:hover { background: #0ea5e9; }
 
-.resize-handle:hover {
-  background: #0ea5e9;
-}
-
-.loading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100vh;
-  color: #888;
-}
+.loading { display: flex; align-items: center; justify-content: center; height: 100vh; color: #888; }
 </style>
