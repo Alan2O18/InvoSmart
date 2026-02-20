@@ -42,15 +42,16 @@ class ExcelExporter:
         root = self.project_repo._project_root(project_id)
         if not root.exists():
             raise FileNotFoundError("project root not found")
-        db_path = root / "jobs.db"
-        if not db_path.exists():
-            raise FileNotFoundError("jobs.db not found")
 
-        conn = sqlite3.connect(str(db_path))
-        try:
-            df_jobs = pd.read_sql_query("SELECT * FROM jobs ORDER BY created_at", conn)
-        finally:
-            conn.close()
+        # 從全域集中資料庫讀取 (透過 JobRepository)
+        from backend.repositories.job_repository import JobRepository
+        job_repo = JobRepository(project_id)
+        jobs_list = job_repo.list_jobs()
+        
+        if not jobs_list:
+            raise FileNotFoundError("No jobs found for this project")
+        
+        df_jobs = pd.DataFrame(jobs_list)
 
         # Define new column layout
         main_cols = [

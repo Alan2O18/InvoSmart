@@ -17,6 +17,7 @@ from pathlib import Path
 from backend.processing.python_validator import PythonValidator
 from backend.processing.qr_handler import QRHandler
 from backend.processing.vision_handler import VisionHandler
+from backend.repositories.suggestion_repository import SuggestionRepository
 
 logger = logging.getLogger(__name__)
 
@@ -25,28 +26,25 @@ class ReceiptProcessor:
     """
     收據處理器 (VLM-First 架構)
     
-    極簡化流程：VLM → QR 驗證 → 邏輯驗算
+    極簡化流程：RAG Context → VLM → QR 驗證 → 邏輯驗算
     """
     
     def __init__(self, config: dict):
         """初始化處理器"""
         self.config = config
         
-        # 核心模組 (僅保留 3 個)
+        # 核心模組
         self.vision_handler = VisionHandler(config)
         self.qr_handler = QRHandler(config)
         self.validator = PythonValidator(config)
+        self.suggestion_repo = SuggestionRepository()
         
         logger.info("ReceiptProcessor 初始化完成 (VLM-First 架構)")
     
     def update_config(self, config: dict):
         """更新配置"""
         self.config = config
-        # Propagate to sub-handlers
         self.vision_handler.update_config(config)
-        # QRHandler and Validator might not need updates usually, but can be added if needed
-        # self.qr_handler.update_config(config) 
-        # self.validator.update_config(config)
         logger.info("[ReceiptProcessor] 配置已更新")
     
     def process(self, image_array: np.ndarray) -> dict:
@@ -68,9 +66,20 @@ class ReceiptProcessor:
         
         stats_list = []
         
-        # ===== Step 1: VLM 分析 =====
+        # ===== Step 0: 建立 RAG 上下文 (從歷史建議詞庫) =====
+        rag_context = ""
+        try:
+            rag_context = self.suggestion_repo.build_rag_context()
+            if rag_context:
+                logger.info(f"[Step 0] RAG 上下文已建立 ({len(rag_context)} chars)")
+            else:
+                logger.info("[Step 0] 建議詞庫尚無資料，跳過 RAG 注入")
+        except Exception as e:
+            logger.warning(f"[Step 0] 建立 RAG 上下文失敗（不影響辨識）: {e}")
+        
+        # ===== Step 1: VLM 分析 (含 RAG 上下文) =====
         logger.info("[Step 1] VLM 分析...")
-        vlm_result, vlm_stats = self.vision_handler.process_image(image_array)
+        vlm_result, vlm_stats = self.vision_handler.process_image(image_array, prompt_context=rag_context)
         stats_list.append(vlm_stats)
         
         if "error" in vlm_stats:

@@ -1,6 +1,5 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import asyncio
-import sqlite3
 from backend.dependencies import get_engine
 
 router = APIRouter()
@@ -10,20 +9,8 @@ def get_jobs(project_id: str):
     """Get jobs for a project (called from websocket, uses global engine)."""
     try:
         engine = get_engine()
-        root = engine.project_repo._project_root(project_id)
-        db_path = root / "jobs.db"
-        if not db_path.exists():
-             return []
-        
-        conn = sqlite3.connect(str(db_path))
-        conn.row_factory = sqlite3.Row
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT * FROM jobs ORDER BY created_at")
-            rows = cur.fetchall()
-            return [dict(row) for row in rows]
-        finally:
-            conn.close()
+        job_repo = engine.get_job_repo(project_id)
+        return job_repo.list_jobs()
     except Exception:
         return []
 

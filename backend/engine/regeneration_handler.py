@@ -35,10 +35,6 @@ class RegenerationHandler:
         logger.info(f"Starting regeneration for project '{project_id}' from '{excel_path}'")
 
         root = self.project_repo._project_root(project_id)
-        db_path = root / "jobs.db"
-        if not db_path.exists():
-            logger.error(f"Jobs database not found for project '{project_id}' at '{db_path}'")
-            return None
 
         # --- Read the Excel file ---
         try:
@@ -57,59 +53,57 @@ class RegenerationHandler:
             logger.error(f"Failed to initialize LLMHandler: {e}")
             return None
         
-        # --- Process each row ---
-        conn = sqlite3.connect(str(db_path))
-        try:
-            cursor = conn.cursor()
-            for index, row in df.iterrows():
-                manual_correction = row.get("人工修正")
-                filename = row.get("檔名")
+        # --- Process each row (使用全域集中 JobRepository) ---
+        from backend.repositories.job_repository import JobRepository
+        job_repo = JobRepository(project_id)
+        
+        for index, row in df.iterrows():
+            manual_correction = row.get("人工修正")
+            filename = row.get("檔名")
 
-                if pd.isna(manual_correction) or not manual_correction or not filename:
-                    continue
+            if pd.isna(manual_correction) or not manual_correction or not filename:
+                continue
 
-                # Find the job_id from the filename
-                cursor.execute("SELECT job_id FROM jobs WHERE image_path LIKE ?", (f"%{filename}",))
-                job_row = cursor.fetchone()
-                if not job_row:
-                    logger.warning(f"No job found in database for filename '{filename}'. Skipping.")
-                    continue
-                
-                job_id = job_row[0]
-                logger.info(f"Processing job_id '{job_id}' for file '{filename}'...")
-
-                # Regenerate structured data from LLM
-                structured_part = llm_handler.regenerate_from_corrected_text(manual_correction)
-                
-                # Construct the final JSON object in the new flat format
-                final_json_obj = {
-                    "receipt_type": structured_part.get("receipt_type", ""),
-                    "header": structured_part.get("header", {}),
-                    "items": structured_part.get("items", []),
-                    "summary": structured_part.get("summary", {}),
-                    "audit": {
-                        "confidence": 1.0,
-                        "issues": [],
-                        "corrections": [{
-                            "source": "human",
-                            "timestamp": int(time.time()),
-                            "description": "人工修正"
-                        }]
-                    }
-                }
-                final_json_str = json.dumps(final_json_obj, ensure_ascii=False)
-
-                # Update llm_result_json and status in DB
-                cursor.execute(
-                    "UPDATE jobs SET llm_result_json = ?, status = 'human_correct' WHERE job_id = ?", 
-                    (final_json_str, job_id)
-                )
+            # Find the job from the global DB
+            all_jobs = job_repo.list_jobs()
+            matched_job = None
+            for j in all_jobs:
+                if j.get("image_path", "").endswith(str(filename)):
+                    matched_job = j
+                    break
             
-            conn.commit()
-            logger.info("Finished processing all rows from Excel file.")
+            if not matched_job:
+                logger.warning(f"No job found in database for filename '{filename}'. Skipping.")
+                continue
+            
+            job_id = matched_job["job_id"]
+            logger.info(f"Processing job_id '{job_id}' for file '{filename}'...")
 
-        finally:
-            conn.close()
+            # Regenerate structured data from LLM
+            structured_part = llm_handler.regenerate_from_corrected_text(manual_correction)
+            
+            # Construct the final JSON object in the new flat format
+            final_json_obj = {
+                "receipt_type": structured_part.get("receipt_type", ""),
+                "header": structured_part.get("header", {}),
+                "items": structured_part.get("items", []),
+                "summary": structured_part.get("summary", {}),
+                "audit": {
+                    "confidence": 1.0,
+                    "issues": [],
+                    "corrections": [{
+                        "source": "human",
+                        "timestamp": int(time.time()),
+                        "description": "人工修正"
+                    }]
+                }
+            }
+            final_json_str = json.dumps(final_json_obj, ensure_ascii=False)
+
+            # Update via JobRepository
+            job_repo.update_job(job_id, vlm_result_json=final_json_str, status="human_correct")
+        
+        logger.info("Finished processing all rows from Excel file.")
         
         # --- Re-archive to a new Excel file ---
         new_excel_name = f"{project_id}_regenerated_{int(time.time())}.xlsx"

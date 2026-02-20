@@ -300,20 +300,19 @@ class ProjectRepository:
 
         existed = root.exists()
         self._ensure_layout(root)
-        jobs_db = root / "jobs.db"
 
-        if existed and jobs_db.exists() and resume_if_db_exists:
+        if existed and resume_if_db_exists:
             self.register_project(project_id, name, str(root), notes, metadata)
-            logger.info("resume project %s from existing jobs.db %s", project_id, str(jobs_db))
+            logger.info("resume project %s from existing dir %s", project_id, str(root))
             return {
                 "status": "resumed_registered",
                 "project_root": str(root),
                 "project_status": "NEW",
             }
         else:
-            self._init_jobs_db(str(jobs_db), overwrite=True)
+            # Jobs 資料現在統一儲存在 global.db，不再建立 per-project jobs.db
             self.register_project(project_id, name, str(root), notes, metadata)
-            logger.info("created new project %s at %s (jobs.db init)", project_id, str(root))
+            logger.info("created new project %s at %s (global.db)", project_id, str(root))
 
             if input_image:
                 for i in input_image:
@@ -338,27 +337,18 @@ class ProjectRepository:
         layout = self._ensure_layout(root)
         ingested = any(layout["raws"].iterdir())
         split = any(layout["splits"].iterdir())
-        db_path = root / "jobs.db"
         processing = False
         processed = False
 
-        if db_path.exists():
-            conn = sqlite3.connect(str(db_path))
-            conn.row_factory = sqlite3.Row
-            try:
-                cur = conn.cursor()
-                cur.execute(
-                    "SELECT COUNT(1) AS cnt FROM jobs WHERE status IN ('running','processing','pending')"
-                )
-                r = cur.fetchone()
-                processing = r and r["cnt"] and r["cnt"] > 0
-                cur.execute(
-                    "SELECT COUNT(1) AS cnt FROM jobs WHERE status = 'done' AND vlm_result_json IS NOT NULL"
-                )
-                r2 = cur.fetchone()
-                processed = r2 and r2["cnt"] and r2["cnt"] > 0
-            finally:
-                conn.close()
+        # 從全域集中資料庫 (global.db) 查詢 job 狀態
+        try:
+            from backend.repositories.job_repository import JobRepository
+            job_repo = JobRepository(project_id)
+            counts = job_repo.count_jobs()
+            processing = sum(counts.get(s, 0) for s in ("running", "processing", "pending")) > 0
+            processed = counts.get("done", 0) > 0
+        except Exception as e:
+            logger.warning(f"[ProjectRepo] 無法從 global.db 取得 job 狀態: {e}")
 
         suggested = "NEW"
         if processing:

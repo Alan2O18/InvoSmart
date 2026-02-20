@@ -155,11 +155,10 @@ class Engine:
     # ========================================
 
     def get_job_repo(self, project_id: str) -> JobRepository:
-        """取得特定專案的 JobRepository (singleton per project)。"""
+        """取得特定專案的 JobRepository (singleton per project, 全域集中 DB)。"""
         with self._repo_lock:
             if project_id not in self._job_repos:
-                root = self.project_repo._project_root(project_id)
-                self._job_repos[project_id] = JobRepository(str(root))
+                self._job_repos[project_id] = JobRepository(project_id)
             return self._job_repos[project_id]
 
     # Backward compat alias (for workers.py etc.)
