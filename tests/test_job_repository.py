@@ -16,8 +16,10 @@ class TestJobRepository:
 
     @pytest.fixture
     def repo(self, tmpdir):
-        """Create a JobRepository in a temporary directory."""
-        return JobRepository(str(tmpdir), db_name="test_jobs.db")
+        """Create a JobRepository using a temporary global DB."""
+        from pathlib import Path
+        db_path = Path(tmpdir) / "global_test.db"
+        return JobRepository("test_proj", db_path=db_path)
 
     def test_init_creates_tables(self, repo):
         """Test that tables are created on initialization."""

@@ -160,10 +160,9 @@ class TestEngineFileOps:
         """Test adding split files (should enqueue jobs)."""
         engine = real_engine_with_temp_workspace
         
-        # Setup project
+        # Setup project (Phase 2: no per-project jobs.db needed)
         engine.project_repo.register_project("add_split", "Add", str(engine.project_repo.workspace_root / "add_split"))
         engine.project_repo._ensure_layout(engine.project_repo._project_root("add_split"))
-        engine.project_repo._init_jobs_db(str(engine.project_repo._project_root("add_split") / "jobs.db"))
         
         # Create temp file
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
@@ -174,9 +173,9 @@ class TestEngineFileOps:
             res = engine.add_project_files("add_split", [f_path], type="split")
             assert res["status"] == "added"
             
-            # Check job was enqueued
-            tm = engine.get_task_manager("add_split")
-            jobs = tm.list_jobs()
+            # Check job was enqueued (Phase 2: use get_job_repo)
+            job_repo = engine.get_job_repo("add_split")
+            jobs = job_repo.list_jobs()
             assert len(jobs) == 1
         finally:
             if os.path.exists(f_path):

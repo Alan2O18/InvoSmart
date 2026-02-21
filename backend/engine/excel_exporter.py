@@ -11,6 +11,8 @@ from typing import Optional
 from backend.utils.parser import extract_structured_data
 
 logger = logging.getLogger(__name__)
+from backend.repositories.job_repository import JobRepository
+
 
 
 class ExcelExporter:
@@ -44,7 +46,6 @@ class ExcelExporter:
             raise FileNotFoundError("project root not found")
 
         # 從全域集中資料庫讀取 (透過 JobRepository)
-        from backend.repositories.job_repository import JobRepository
         job_repo = JobRepository(project_id)
         jobs_list = job_repo.list_jobs()
         

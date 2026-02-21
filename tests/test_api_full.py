@@ -173,6 +173,7 @@ class TestBackendAPI(unittest.TestCase):
         response = self.client.post("/api/projects/test_proj_1/run_archive")
         self.assertEqual(response.status_code, 200)
 
+    @unittest.skip("/regenerate 專案級端點已移除；regenerate 功能已改為 per-job 端點")
     def test_09_regenerate(self):
         self.engine.export_handler.regenerate_from_archive = MagicMock(return_value="path/to/new_archive.zip")
         response = self.client.post("/api/projects/test_proj_1/regenerate", data={"excel_path": "dummy.xlsx"})

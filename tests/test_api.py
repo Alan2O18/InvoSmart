@@ -196,46 +196,24 @@ class TestAPIJobs:
         mock_engine_for_api.delete_job.assert_called_with("test_proj", "job1")
 
     def test_get_project_jobs(self, mock_engine_for_api):
-        """GET /{id}/jobs - Get project jobs."""
-        # This endpoint accesses engine.project_manager._project_root directly
-        # which is not covered by our fixture. We need to mock the entire chain.
-        from pathlib import Path
-        import sqlite3
-        import tempfile
-        
-        # Create a temp db with jobs
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "jobs.db"
-            conn = sqlite3.connect(str(db_path))
-            conn.execute("""
-                CREATE TABLE jobs (
-                    job_id TEXT PRIMARY KEY,
-                    image_path TEXT,
-                    status TEXT,
-                    stage TEXT,
-                    ocr_start_at REAL,
-                    ocr_done_at REAL,
-                    llm_start_at REAL,
-                    llm_done_at REAL,
-                    ocr_result_json TEXT,
-                    llm_result_json TEXT,
-                    created_at REAL,
-                    updated_at REAL,
-                    auto_advance INTEGER
-                )
-            """)
-            conn.execute("INSERT INTO jobs (job_id, image_path, status, stage, created_at) VALUES ('j1', 'img.jpg', 'pending', 'ocr', 0)")
-            conn.commit()
-            conn.close()
-            
-            # Patch _project_root to return our temp dir
-            mock_engine_for_api.project_repo._project_root.return_value = Path(tmpdir)
-            
-            response = client.get("/api/projects/test_proj/jobs")
-            assert response.status_code == 200
-            jobs = response.json()
-            assert len(jobs) == 1
-            assert jobs[0]["job_id"] == "j1"
+        """GET /{id}/jobs - Get project jobs (Phase 2: via engine.get_job_repo)."""
+        from unittest.mock import MagicMock
+
+        # Mock the job_repo returned by engine.get_job_repo()
+        mock_job_repo = MagicMock()
+        mock_job_repo.list_jobs.return_value = [
+            {"job_id": "j1", "image_path": "img.jpg", "status": "pending",
+             "project_id": "test_proj", "vlm_result_json": None,
+             "created_at": 0.0, "updated_at": 0.0}
+        ]
+        mock_engine_for_api.get_job_repo.return_value = mock_job_repo
+        # sync_status_to_db is called first; it's already a MagicMock
+
+        response = client.get("/api/projects/test_proj/jobs")
+        assert response.status_code == 200
+        jobs = response.json()
+        assert len(jobs) == 1
+        assert jobs[0]["job_id"] == "j1"
 
 
 # ============================================================================
@@ -262,16 +240,10 @@ class TestAPIExport:
         assert response.status_code == 200
         mock_engine_for_api.archive_project.assert_called_with("test_proj")
 
+    @pytest.mark.skip(reason="/regenerate 專案級端點已移除；regenerate 功能已改為 per-job 端點 /{project_id}/jobs/{job_id}/regenerate_from_manual")
     def test_regenerate(self, mock_engine_for_api):
-        """POST /{id}/regenerate - Regenerate from archive."""
-        mock_engine_for_api.regenerate_project.return_value = "/path/to/new.zip"
-        
-        response = client.post(
-            "/api/projects/test_proj/regenerate",
-            data={"excel_path": "/path/to/excel.xlsx"}
-        )
-        assert response.status_code == 200
-        mock_engine_for_api.regenerate_project.assert_called_with("test_proj", "/path/to/excel.xlsx")
+        """POST /{id}/regenerate - Regenerate from archive (已廢棄)."""
+        pass
 
 
 # ============================================================================

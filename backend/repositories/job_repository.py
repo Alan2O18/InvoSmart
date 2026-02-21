@@ -64,22 +64,22 @@ class JobRepository:
     All data is stored in the centralized global.db.
     """
 
-    _db_initialized = False
+    _db_initialized: set = set()  # set of DB paths already initialized
     _init_lock = threading.Lock()
 
     def __init__(self, project_id: str, db_path: Optional[Path] = None):
         self.project_id = project_id
         self.db_path = db_path or GLOBAL_DB_PATH
         self.lock = threading.Lock()
-        self._ensure_schema()
+        self._ensure_schema(self.db_path)
 
     @classmethod
     def _ensure_schema(cls, db_path: Optional[Path] = None):
-        """Ensure global DB schema exists (runs once per process)."""
+        """Ensure global DB schema exists (runs once per db_path per process)."""
+        target = db_path or GLOBAL_DB_PATH
         with cls._init_lock:
-            if cls._db_initialized:
+            if str(target) in cls._db_initialized:
                 return
-            target = db_path or GLOBAL_DB_PATH
             target.parent.mkdir(parents=True, exist_ok=True)
             conn = sqlite3.connect(str(target), timeout=30, check_same_thread=False)
             conn.execute("PRAGMA journal_mode=WAL;")
@@ -89,7 +89,7 @@ class JobRepository:
             cur.executescript(EVENTS_TABLE_SQL)
             conn.commit()
             conn.close()
-            cls._db_initialized = True
+            cls._db_initialized.add(str(target))
             logger.info(f"[JobRepository] 全域 Schema 初始化完成: {target}")
 
     def _get_conn(self):

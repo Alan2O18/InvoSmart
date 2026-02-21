@@ -2,13 +2,13 @@
 excel_exporter.py 單元測試
 
 測試 ExcelExporter 的 archive_to_excel 與 _generate_text_from_llm_result。
+Phase 2 更新：改用 mock.patch 攔截 JobRepository，不再依賴 per-project jobs.db。
 """
 import pytest
 import json
-import sqlite3
 import time
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from backend.engine.excel_exporter import ExcelExporter
 
@@ -19,7 +19,7 @@ from backend.engine.excel_exporter import ExcelExporter
 
 @pytest.fixture
 def mock_project_repo(tmp_path):
-    """建立帶有 jobs.db 的 mock project repo"""
+    """建立 mock project repo (Phase 2：不需要 jobs.db 檔案)"""
     repo = MagicMock()
     project_root = tmp_path / "test_project"
     project_root.mkdir()
@@ -28,47 +28,23 @@ def mock_project_repo(tmp_path):
     return repo
 
 
-def _create_jobs_db(project_root, jobs=None):
-    """在 project_root 中建立 jobs.db 並插入測試資料"""
-    db_path = project_root / "jobs.db"
-    conn = sqlite3.connect(str(db_path))
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS jobs (
-            job_id TEXT PRIMARY KEY,
-            image_path TEXT,
-            status TEXT,
-            ocr_result_json TEXT,
-            llm_result_json TEXT,
-            ocr_stats TEXT,
-            llm_stats TEXT,
-            created_at REAL,
-            updated_at REAL
-        )
-    """)
-
-    if jobs:
-        for j in jobs:
-            cursor.execute("""
-                INSERT INTO jobs (job_id, image_path, status, ocr_result_json,
-                                  llm_result_json, ocr_stats, llm_stats,
-                                  created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                j.get("job_id", "j1"),
-                j.get("image_path", "/tmp/img.jpg"),
-                j.get("status", "done"),
-                j.get("ocr_result_json"),
-                j.get("llm_result_json"),
-                j.get("ocr_stats"),
-                j.get("llm_stats"),
-                j.get("created_at", time.time() - 10),
-                j.get("updated_at", time.time()),
-            ))
-
-    conn.commit()
-    conn.close()
-    return db_path
+def _make_job(**kwargs):
+    """建立測試用 job dict（模擬 JobRepository.list_jobs() 的回傳格式）"""
+    defaults = {
+        "job_id": "j1",
+        "project_id": "test_project",
+        "image_path": "/tmp/receipt.jpg",
+        "status": "done",
+        "vlm_result_json": None,
+        "vlm_stats": None,
+        "validation_json": None,
+        "manual_json_text": None,
+        "qr_verified": 0,
+        "created_at": time.time() - 10,
+        "updated_at": time.time(),
+    }
+    defaults.update(kwargs)
+    return defaults
 
 
 # ============================================================================
@@ -78,51 +54,50 @@ def _create_jobs_db(project_root, jobs=None):
 class TestArchiveToExcel:
     """測試 Excel 匯出"""
 
-    def test_export_empty_project(self, mock_project_repo):
-        """空專案匯出空 Excel"""
-        root = mock_project_repo._project_root.return_value
-        _create_jobs_db(root, jobs=[])
+    @patch("backend.engine.excel_exporter.JobRepository")
+    def test_export_empty_project(self, MockJobRepo, mock_project_repo):
+        """空專案（無 jobs）→ FileNotFoundError: No jobs found"""
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.list_jobs.return_value = []
+        MockJobRepo.return_value = mock_repo_instance
 
         exporter = ExcelExporter(mock_project_repo)
-        result_path = exporter.archive_to_excel("test_project")
+        with pytest.raises(FileNotFoundError, match="No jobs found"):
+            exporter.archive_to_excel("test_project")
 
-        assert Path(result_path).exists()
-        assert result_path.endswith(".xlsx")
-
-    def test_export_with_jobs(self, mock_project_repo):
-        """含有 jobs 的專案匯出"""
-        root = mock_project_repo._project_root.return_value
-        llm_json = json.dumps({
+    @patch("backend.engine.excel_exporter.JobRepository")
+    def test_export_with_jobs(self, MockJobRepo, mock_project_repo):
+        """含有 jobs 的專案正常匯出 Excel"""
+        vlm_json = json.dumps({
             "receipt_type": "electronic",
             "header": {"supplier": "Test Store", "date": "2025-01-01"},
             "items": [{"description": "Item A", "quantity": 1, "price": 100}],
             "summary": {"total": 100},
         }, ensure_ascii=False)
 
-        _create_jobs_db(root, jobs=[{
-            "job_id": "j1",
-            "image_path": "/tmp/receipt1.jpg",
-            "status": "done",
-            "llm_result_json": llm_json,
-            "ocr_stats": json.dumps({"total_time_s": 1.5}),
-            "llm_stats": json.dumps([{"total_time_s": 2.3}]),
-        }])
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.list_jobs.return_value = [
+            _make_job(job_id="j1", vlm_result_json=vlm_json,
+                      vlm_stats=json.dumps({"processing_time_ms": 1500}))
+        ]
+        MockJobRepo.return_value = mock_repo_instance
 
         exporter = ExcelExporter(mock_project_repo)
         result_path = exporter.archive_to_excel("test_project")
 
         assert Path(result_path).exists()
 
-        # 驗證工作表名稱
         import pandas as pd
         xls = pd.ExcelFile(result_path)
         assert "主表" in xls.sheet_names
         assert "細項表" in xls.sheet_names
 
-    def test_export_with_custom_name(self, mock_project_repo):
+    @patch("backend.engine.excel_exporter.JobRepository")
+    def test_export_with_custom_name(self, MockJobRepo, mock_project_repo):
         """自訂匯出檔名"""
-        root = mock_project_repo._project_root.return_value
-        _create_jobs_db(root, jobs=[])
+        mock_repo_instance = MagicMock()
+        mock_repo_instance.list_jobs.return_value = [_make_job()]
+        MockJobRepo.return_value = mock_repo_instance
 
         exporter = ExcelExporter(mock_project_repo)
         result_path = exporter.archive_to_excel("test_project", excel_name="custom_name.xlsx")
@@ -130,20 +105,13 @@ class TestArchiveToExcel:
         assert "custom_name.xlsx" in result_path
 
     def test_export_nonexistent_project(self, mock_project_repo):
-        """專案不存在 → FileNotFoundError"""
+        """專案資料夾不存在 → FileNotFoundError"""
         nonexistent = mock_project_repo._project_root.return_value / "ghost"
         mock_project_repo._project_root.return_value = nonexistent
 
         exporter = ExcelExporter(mock_project_repo)
         with pytest.raises(FileNotFoundError):
             exporter.archive_to_excel("ghost_project")
-
-    def test_export_no_db(self, mock_project_repo):
-        """專案存在但無 jobs.db → FileNotFoundError"""
-        # root 目錄存在但沒有 jobs.db
-        exporter = ExcelExporter(mock_project_repo)
-        with pytest.raises(FileNotFoundError, match="jobs.db"):
-            exporter.archive_to_excel("test_project")
 
 
 # ============================================================================
@@ -172,5 +140,4 @@ class TestGenerateText:
         """空 LLM 結果"""
         exporter = ExcelExporter(mock_project_repo)
         text = exporter._generate_text_from_llm_result({})
-        # 不應崩潰
         assert text is not None

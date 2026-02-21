@@ -158,7 +158,10 @@ class Engine:
         """取得特定專案的 JobRepository (singleton per project, 全域集中 DB)。"""
         with self._repo_lock:
             if project_id not in self._job_repos:
-                self._job_repos[project_id] = JobRepository(project_id)
+                # 使用與 workspace 同層的 global.db，確保測試環境隔離
+                from pathlib import Path
+                db_path = Path(self.project_repo.workspace_root) / "global.db"
+                self._job_repos[project_id] = JobRepository(project_id, db_path=db_path)
             return self._job_repos[project_id]
 
     # Backward compat alias (for workers.py etc.)
