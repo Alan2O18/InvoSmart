@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any
 
 def extract_structured_data(raw_text_or_json: Optional[str]) -> Dict[str, Any]:
     """
-    從 llm_result_json 提取結構化資料。
+    從 vlm_result_json 提取結構化資料。
     
     支援新格式（扁平結構）：
     {"receipt_type": "...", "header": {...}, "items": [...], "summary": {...}}
@@ -35,17 +35,19 @@ def extract_structured_data(raw_text_or_json: Optional[str]) -> Dict[str, Any]:
 
     out = {}
     
-    # 從 header 提取 supplier, invoice_id, date
+    # 從 header 提取 supplier, invoice_id, voucher_id, date
     header = parsed.get("header", {})
     if isinstance(header, dict):
         out["supplier"] = header.get("supplier", "")
         out["invoice_id"] = header.get("invoice_id", "")
+        out["voucher_id"] = header.get("voucher_id", "")
         out["date"] = header.get("date", "")
         out["tax_id"] = header.get("tax_id", "")
     else:
         # 相容頂層欄位
         out["supplier"] = parsed.get("supplier", "")
         out["invoice_id"] = parsed.get("invoice_id", "")
+        out["voucher_id"] = parsed.get("voucher_id", "")
         out["date"] = parsed.get("date", "")
     
     # 從 summary 提取 total
@@ -66,6 +68,7 @@ def extract_structured_data(raw_text_or_json: Optional[str]) -> Dict[str, Any]:
                 qty = it.get("qty") or it.get("quantity")
                 price = it.get("price")
                 total = it.get("total")
+                category = it.get("category", "")
                 
                 try:
                     qty = int(qty) if qty is not None and qty != "" else None
@@ -80,14 +83,16 @@ def extract_structured_data(raw_text_or_json: Optional[str]) -> Dict[str, Any]:
                     "description": desc,
                     "quantity": qty,
                     "price": price,
-                    "total": total
+                    "total": total,
+                    "category": category
                 })
             else:
                 normalized_items.append({
                     "description": str(it),
                     "quantity": None,
                     "price": None,
-                    "total": None
+                    "total": None,
+                    "category": ""
                 })
     out["items"] = normalized_items
     

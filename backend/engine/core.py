@@ -55,7 +55,7 @@ class Engine:
         
         # 內部組件
         self.file_ops = FileOps(self.project_repo, self.receipt_splitter, self)
-        self.export_handler = ExportHandler(self.project_repo)
+        self.export_handler = ExportHandler(self.project_repo, self)
 
         # JobRepository 緩存 (per-project)
         self._job_repos: Dict[str, JobRepository] = {}
@@ -109,7 +109,7 @@ class Engine:
         """創建 ReceiptProcessor"""
         from backend.processing.receipt_processor import ReceiptProcessor
         logger.info("使用統一收據處理器 (ReceiptProcessor)")
-        return ReceiptProcessor(config=self.config)
+        return ReceiptProcessor(config=self.config, db_path=self.global_db_path)
 
     def _start_global_workers(self):
         """啟動全局 Worker 線程"""
@@ -154,14 +154,16 @@ class Engine:
     # Repository Access
     # ========================================
 
+    @property
+    def global_db_path(self):
+        """單一真理：唯一的全域 SQLite 資料庫路徑（遵照 config.json 裡的設定）。"""
+        return self.project_repo.global_db_path
+
     def get_job_repo(self, project_id: str) -> JobRepository:
         """取得特定專案的 JobRepository (singleton per project, 全域集中 DB)。"""
         with self._repo_lock:
             if project_id not in self._job_repos:
-                # 使用與 workspace 同層的 global.db，確保測試環境隔離
-                from pathlib import Path
-                db_path = Path(self.project_repo.workspace_root) / "global.db"
-                self._job_repos[project_id] = JobRepository(project_id, db_path=db_path)
+                self._job_repos[project_id] = JobRepository(project_id, db_path=self.global_db_path)
             return self._job_repos[project_id]
 
     # Backward compat alias (for workers.py etc.)

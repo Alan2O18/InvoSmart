@@ -10,8 +10,11 @@ Handles pipeline operations:
 """
 import logging
 from fastapi import APIRouter, HTTPException, Form, Depends
+from fastapi.responses import FileResponse
 from backend.dependencies import get_engine
 from backend.engine.core import Engine
+import os
+import pathlib
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -54,6 +57,31 @@ def run_export(project_id: str, engine: Engine = Depends(get_engine)):
         return engine.run_excel(project_id)
     except Exception as e:
         logger.error(f"Error exporting excel: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/{project_id}/run_word_export")
+def run_word_export(project_id: str, engine: Engine = Depends(get_engine)):
+    """Export project to Word template."""
+    try:
+        base_dir = pathlib.Path(__file__).parent.parent.parent
+        template_path = base_dir / "dev_data" / "空白 模板 (1).docx"
+        
+        if not template_path.exists():
+            raise HTTPException(status_code=500, detail="Word template not found")
+            
+        out_path = engine.export_handler.run_word(project_id, str(template_path))
+        
+        if not os.path.exists(out_path):
+            raise HTTPException(status_code=500, detail="Generated Word file not found")
+            
+        filename = os.path.basename(out_path)
+        return FileResponse(
+            path=out_path,
+            filename=filename,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+    except Exception as e:
+        logger.error(f"Error exporting word: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

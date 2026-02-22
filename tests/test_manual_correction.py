@@ -64,7 +64,7 @@ class TestManualCorrectionWorkflow:
         
         # Retrieve and verify
         job_details = tm.get_job_details(job_id)
-        assert job_details["manual_json"] == manual_data
+        assert json.loads(job_details["manual_json_text"]) == manual_data
 
     def test_regenerate_from_manual_text(self, setup_project_with_job):
         """Test that manual JSON can override VLM result."""
@@ -92,7 +92,7 @@ class TestManualCorrectionWorkflow:
         # Verify both results are saved
         job_details = tm.get_job_details(job_id)
         assert job_details["vlm_result"]["store_name"] == "原始店家"
-        assert job_details["manual_json"]["store_name"] == "修正後店家"
+        assert json.loads(job_details["manual_json_text"])["store_name"] == "修正後店家"
 
     def test_full_manual_correction_workflow(self, setup_project_with_job):
         """Test complete manual correction workflow."""
@@ -130,7 +130,7 @@ class TestManualCorrectionWorkflow:
         
         # Step 4: Verify final result
         final_job = tm.get_job_details(job_id)
-        manual_result = final_job["manual_json"]
+        manual_result = json.loads(final_job["manual_json_text"])
         
         assert manual_result["items"][0]["name"] == "海報紙"
         assert manual_result["items"][1]["name"] == "圓頭筆"
@@ -151,14 +151,14 @@ class TestManualCorrectionWorkflow:
         
         # Verify manual JSON is saved
         job_details = tm.get_job_details(job_id)
-        assert job_details["manual_json"]["store_name"] == "修正後"
+        assert json.loads(job_details["manual_json_text"])["store_name"] == "修正後"
         
         # Simulate new session by getting a new job repo for same project
         tm2 = engine.get_task_manager(project_id)
         job_details2 = tm2.get_job_details(job_id)
         
         # Manual JSON should still be there
-        assert job_details2["manual_json"]["store_name"] == "修正後"
+        assert json.loads(job_details2["manual_json_text"])["store_name"] == "修正後"
 
     def test_get_display_result_precedence(self, setup_project_with_job):
         """Test that display result prefers manual_json over vlm_result."""

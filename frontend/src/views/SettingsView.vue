@@ -60,6 +60,45 @@
           </div>
         </div>
 
+        <!-- Group Management Section -->
+        <div class="section">
+          <h2>👥 群組人員管理 (Group Management)</h2>
+          <p class="section-desc">管理組別與預算編製者(組長)的對應關係。設定後可在建立專案時自動帶入。</p>
+          
+          <div class="group-management">
+            <div class="add-group-form">
+              <input type="text" v-model="newGroupName" placeholder="組別名稱 (e.g. 餐食組)" />
+              <input type="text" v-model="newLeaderName" placeholder="組長名稱 (e.g. 王大明)" />
+              <button @click="addGroup" :disabled="!newGroupName || !newLeaderName || processingGroup" class="add-btn">
+                {{ processingGroup ? 'Adding...' : '新增群組' }}
+              </button>
+            </div>
+
+            <div v-if="loadingGroups" class="loading-small">載入中...</div>
+            <table v-else class="group-table">
+              <thead>
+                <tr>
+                  <th>組別名稱</th>
+                  <th>組長名稱</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="g in groups" :key="g.group_name">
+                  <td>{{ g.group_name }}</td>
+                  <td>{{ g.leader_name }}</td>
+                  <td>
+                    <button @click="deleteGroup(g.group_name)" class="delete-btn" :disabled="processingGroup">刪除</button>
+                  </td>
+                </tr>
+                <tr v-if="groups.length === 0">
+                  <td colspan="3" class="empty-state">目前還沒有建立任何群組。</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="actions">
           <button @click="saveSettings" :disabled="saving" class="save-btn">
             {{ saving ? 'Saving...' : '💾 Save Settings' }}
@@ -78,6 +117,13 @@ import api from '../services/api'
 const loading = ref(true)
 const saving = ref(false)
 const showApiKey = ref(false)
+
+// Group state
+const groups = ref([])
+const loadingGroups = ref(false)
+const processingGroup = ref(false)
+const newGroupName = ref('')
+const newLeaderName = ref('')
 
 // Local state mapping
 const settings = ref({
@@ -145,8 +191,50 @@ const saveSettings = async () => {
   }
 }
 
+// Group Fetching Operations
+const fetchGroups = async () => {
+  loadingGroups.value = true
+  try {
+    const res = await api.listGroups()
+    groups.value = res.data
+  } catch (e) {
+    console.error('Failed to load groups', e)
+  } finally {
+    loadingGroups.value = false
+  }
+}
+
+const addGroup = async () => {
+  if (!newGroupName.value || !newLeaderName.value) return
+  processingGroup.value = true
+  try {
+    await api.upsertGroup(newGroupName.value, newLeaderName.value)
+    newGroupName.value = ''
+    newLeaderName.value = ''
+    await fetchGroups()
+  } catch (e) {
+    alert('Failed to add group: ' + e)
+  } finally {
+    processingGroup.value = false
+  }
+}
+
+const deleteGroup = async (groupName) => {
+  if (!confirm(`確定要刪除群組 "${groupName}" 嗎？`)) return
+  processingGroup.value = true
+  try {
+    await api.deleteGroup(groupName)
+    await fetchGroups()
+  } catch (e) {
+    alert('Failed to delete group: ' + e)
+  } finally {
+    processingGroup.value = false
+  }
+}
+
 onMounted(() => {
   fetchSettings()
+  fetchGroups()
 })
 </script>
 
@@ -276,6 +364,94 @@ onMounted(() => {
 .loading {
   text-align: center;
   padding: 2rem;
+  color: #888;
+}
+
+/* Group Management Styles */
+.group-management {
+  background: #1a1a1a;
+  padding: 1.5rem;
+  border-radius: 8px;
+  border: 1px solid #444;
+}
+
+.add-group-form {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.add-group-form input {
+  flex: 1;
+  padding: 0.75rem;
+  background: #2a2a2a;
+  border: 1px solid #444;
+  color: #fff;
+  border-radius: 4px;
+}
+
+.add-btn {
+  background: #0ea5e9;
+  color: white;
+  border: none;
+  padding: 0 1.5rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: bold;
+}
+
+.add-btn:hover:not(:disabled) {
+  background: #0284c7;
+}
+
+.add-btn:disabled {
+  background: #444;
+  cursor: not-allowed;
+}
+
+.group-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.group-table th, .group-table td {
+  padding: 1rem;
+  text-align: left;
+  border-bottom: 1px solid #333;
+}
+
+.group-table th {
+  color: #888;
+  font-weight: normal;
+}
+
+.delete-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.delete-btn:hover:not(:disabled) {
+  background: #dc2626;
+}
+
+.delete-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.empty-state {
+  text-align: center;
+  color: #888;
+  padding: 2rem !important;
+}
+
+.loading-small {
+  text-align: center;
+  padding: 1rem;
   color: #888;
 }
 </style>

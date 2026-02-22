@@ -21,6 +21,7 @@
       "supplier": "7-ELEVEN", 
       "buyer": "99999999", 
       "invoice_id": "AB12345678", 
+      "voucher_id": "VCH-001",
       "date": "2024-01-15"
   }, 
   "items": [
@@ -28,7 +29,8 @@
           "name": "美式咖啡大杯", 
           "qty": 1, 
           "price": 45, 
-          "total": 45
+          "total": 45,
+          "category": "茶水"
       }
   ], 
   "summary": {
@@ -56,6 +58,7 @@ interface VlmResult {
         supplier: string;      // 店家/供應商名稱
         buyer: string;         // 買受人 (統編或名稱)
         invoice_id: string;    // 發票號碼 (e.g., AB12345678)
+        voucher_id?: string;   // 內部憑證編號 (e.g., VCH-001)
         date: string;          // 交易日期 (YYYY-MM-DD)
     };
     
@@ -65,6 +68,7 @@ interface VlmResult {
         qty: number;           // 數量
         price: number;         // 單價
         total: number;         // 小計 (qty * price)
+        category?: string;     // 報帳名目/費用類別 (e.g. 餐食, 茶水, 交通)
     }>;
     
     // 金額總結

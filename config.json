@@ -1,17 +1,17 @@
 {
     "project_manager_settings": {
-        "global_db_path": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB/global_projects.db",
-        "workspace_root": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB"
+        "global_db_path": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB/backend/data/global.db",
+        "workspace_root": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB/backend/data"
     },
     "vision_settings": {
         "api_key": "AIzaSyA3H3NTq42dzu1YORmIPl-rgEgMXZndJCE",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-        "model_name": "gemini-2.0-flash",
+        "model_name": "gemini-2.5-flash-lite",
         "temperature": 0.0,
         "debug": true,
         "timeout": 120,
         "max_retries": 3,
-        "reasoning_effort": "medium"
+        "reasoning_effort": "low"
     },
     "ocr_settings": {
         "engine": "rapidocr",

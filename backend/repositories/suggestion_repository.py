@@ -20,9 +20,6 @@ from typing import List, Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-# 全域資料庫路徑
-GLOBAL_DB_PATH = Path(__file__).parent.parent / "data" / "global.db"
-
 # 嚴格定義的分類標籤 (避免 AI 混淆欄位屬性)
 VALID_CATEGORIES = {
     "supplier_name":   "賣方/供應商名稱",
@@ -31,6 +28,7 @@ VALID_CATEGORIES = {
     "buyer_tax_id":    "買方統一編號",
     "item_name":       "品項名稱",
     "shop_name":       "店家/章名稱",
+    "expense_category":"報帳名目",
     # 舊版相容 (legacy)
     "supplier":        "賣方 (舊版相容)",
     "buyer":           "買方 (舊版相容)",
@@ -47,7 +45,12 @@ class SuggestionRepository:
     """管理跨專案共用的建議詞資料庫（統合版）"""
 
     def __init__(self, db_path: Optional[Path] = None):
-        self.db_path = db_path or GLOBAL_DB_PATH
+        if db_path is None:
+            raise ValueError(
+                "SuggestionRepository requires an explicit db_path. "
+                "Pass the unified global.db path from Engine/config."
+            )
+        self.db_path = Path(db_path)
         self._ensure_db()
 
     def _get_conn(self):

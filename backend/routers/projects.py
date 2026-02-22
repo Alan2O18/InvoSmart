@@ -81,7 +81,7 @@ def update_project(project_id: str, metadata: dict, engine: Engine = Depends(get
                 finally:
                     conn.close()
         
-        return engine.project_repo.update_metadata(project_id, metadata)
+        return engine.project_repo.update_project_metadata(project_id, metadata)
     except Exception as e:
         logger.error(f"Error updating project: {e}")
         raise HTTPException(status_code=500, detail=str(e))

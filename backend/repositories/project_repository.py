@@ -248,6 +248,37 @@ class ProjectRepository:
             conn.close()
 
     # ===================================================
+    # Group Management
+    # ===================================================
+    def list_groups(self) -> List[dict]:
+        conn = self._conn_global()
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT group_name, leader_name FROM groups ORDER BY group_name")
+            return [dict(row) for row in cur.fetchall()]
+        finally:
+            conn.close()
+
+    def upsert_group(self, group_name: str, leader_name: str):
+        conn = self._conn_global()
+        try:
+            conn.execute(
+                "INSERT OR REPLACE INTO groups (group_name, leader_name) VALUES (?, ?)",
+                (group_name, leader_name)
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def delete_group(self, group_name: str):
+        conn = self._conn_global()
+        try:
+            conn.execute("DELETE FROM groups WHERE group_name = ?", (group_name,))
+            conn.commit()
+        finally:
+            conn.close()
+
+    # ===================================================
     # Project Setup / Directory Management
     # ===================================================
     def _ensure_layout(self, root: Path):
@@ -343,7 +374,7 @@ class ProjectRepository:
         # 從全域集中資料庫 (global.db) 查詢 job 狀態
         try:
             from backend.repositories.job_repository import JobRepository
-            job_repo = JobRepository(project_id)
+            job_repo = JobRepository(project_id, db_path=self.global_db_path)
             counts = job_repo.count_jobs()
             processing = sum(counts.get(s, 0) for s in ("running", "processing", "pending")) > 0
             processed = counts.get("done", 0) > 0

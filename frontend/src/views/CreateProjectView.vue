@@ -20,15 +20,22 @@
         <div class="form-row">
           <div class="form-group">
             <label for="group">Group</label>
-            <input type="text" id="group" v-model="form.group" />
+            <input type="text" id="group" v-model="form.group" list="group-list" @change="onGroupChange" />
+            <datalist id="group-list">
+              <option v-for="g in groups" :key="g.group_name" :value="g.group_name"></option>
+            </datalist>
           </div>
           <div class="form-group">
             <label for="leader">Leader</label>
             <input type="text" id="leader" v-model="form.leader" />
           </div>
           <div class="form-group">
-            <label for="coordinator">Coordinator</label>
+            <label for="coordinator">Coordinator (活動總召)</label>
             <input type="text" id="coordinator" v-model="form.coordinator" />
+          </div>
+          <div class="form-group">
+            <label for="generalAffairs">General Affairs (活動總務)</label>
+            <input type="text" id="generalAffairs" v-model="form.generalAffairs" />
           </div>
         </div>
       </section>
@@ -128,7 +135,7 @@
 </template>
 
 <script setup>
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
 
@@ -143,6 +150,7 @@ const form = reactive({
   group: '',
   leader: '',
   coordinator: '',
+  generalAffairs: '',
   startTime: '',
   endTime: '',
   location: '',
@@ -155,6 +163,24 @@ const form = reactive({
   budgetDate: '',
   finalAccountDate: ''
 })
+
+const groups = ref([])
+
+onMounted(async () => {
+  try {
+    const res = await api.listGroups()
+    groups.value = res.data
+  } catch(e) {
+    console.error('Failed to load groups', e)
+  }
+})
+
+const onGroupChange = () => {
+  const selected = groups.value.find(g => g.group_name === form.group)
+  if (selected && !form.leader) {
+    form.leader = selected.leader_name
+  }
+}
 
 const handleFileUpload = (event) => {
   files.value = Array.from(event.target.files)
@@ -194,6 +220,7 @@ const createProject = async () => {
       group: form.group,
       leader: form.leader,
       coordinator: form.coordinator,
+      generalAffairs: form.generalAffairs,
       startTime: form.startTime,
       endTime: form.endTime,
       location: form.location,

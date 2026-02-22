@@ -168,10 +168,10 @@ const fetchJobDetails = async (targetJobId = null) => {
         try {
             parsedData = JSON.parse(res.data.manual_json_text)
         } catch (e) {
-            parsedData = res.data.llm_result || {}
+            parsedData = res.data.vlm_result || {}
         }
-    } else if (res.data.llm_result) {
-        parsedData = res.data.llm_result
+    } else if (res.data.vlm_result) {
+        parsedData = res.data.vlm_result
     }
     
     manualJsonData.value = parsedData
@@ -213,7 +213,7 @@ const rerunVLM = async () => {
   try {
     const res = await api.runSingleProcessing(projectId, route.query.jobId)
     // 更新 Job 資料
-    job.value = res.data.result ? { ...job.value, llm_result: res.data.result } : job.value
+    job.value = res.data.result ? { ...job.value, vlm_result: res.data.result } : job.value
     
     // 更新 JSON 編輯器
     if (res.data.result) {

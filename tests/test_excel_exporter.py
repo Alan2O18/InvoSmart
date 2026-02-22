@@ -1,7 +1,7 @@
 """
 excel_exporter.py 單元測試
 
-測試 ExcelExporter 的 archive_to_excel 與 _generate_text_from_llm_result。
+測試 ExcelExporter 的 archive_to_excel 與 _generate_text_from_vlm_result。
 Phase 2 更新：改用 mock.patch 攔截 JobRepository，不再依賴 per-project jobs.db。
 """
 import pytest
@@ -115,7 +115,7 @@ class TestArchiveToExcel:
 
 
 # ============================================================================
-# _generate_text_from_llm_result 測試
+# _generate_text_from_vlm_result 測試
 # ============================================================================
 
 class TestGenerateText:
@@ -132,12 +132,12 @@ class TestGenerateText:
             ],
             "summary": {"total": 180},
         }
-        text = exporter._generate_text_from_llm_result(parsed_llm)
+        text = exporter._generate_text_from_vlm_result(parsed_llm)
         assert text is not None
         assert len(text) > 0
 
     def test_generate_text_empty(self, mock_project_repo):
         """空 LLM 結果"""
         exporter = ExcelExporter(mock_project_repo)
-        text = exporter._generate_text_from_llm_result({})
+        text = exporter._generate_text_from_vlm_result({})
         assert text is not None

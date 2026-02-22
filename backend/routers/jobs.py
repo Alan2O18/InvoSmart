@@ -75,7 +75,7 @@ def save_manual_json(project_id: str, job_id: str, request: ManualJsonRequest, e
         # === 回饋機制：從人工確認的 JSON 萃取知識 ===
         try:
             from backend.repositories.suggestion_repository import SuggestionRepository
-            suggestion_repo = SuggestionRepository()
+            suggestion_repo = SuggestionRepository(db_path=engine.global_db_path)
             added = suggestion_repo.extract_from_manual_json(request.json_data)
             logger.info(f"[FeedbackLoop] 儲存成功，已萃取 {added} 筆建議詞")
         except Exception as fb_err:

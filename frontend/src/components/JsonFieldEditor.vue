@@ -43,6 +43,10 @@
         <input v-model="formData.header.invoice_id" :disabled="isJsonInvalid" />
       </div>
       <div class="field-row">
+        <label>內部憑證編號</label>
+        <input v-model="formData.header.voucher_id" placeholder="自訂流水號 e.g. V-001" :disabled="isJsonInvalid" />
+      </div>
+      <div class="field-row">
         <label>日期</label>
         <input v-model="formData.header.date" placeholder="YYYY-MM-DD" :disabled="isJsonInvalid" />
       </div>
@@ -52,12 +56,16 @@
     <fieldset v-if="formData.items">
       <legend>🛒 品項明細</legend>
       <div v-for="(item, idx) in formData.items" :key="idx" class="item-row">
+        <input v-model="item.category" placeholder="報帳名目" class="item-cat" list="expense_category-list" @blur="saveSuggestion('expense_category', item.category)" :disabled="isJsonInvalid" />
         <input v-model="item.name" placeholder="品名" class="item-name" list="item_name-list" @blur="saveSuggestion('item_name', item.name)" :disabled="isJsonInvalid" />
         <input v-model.number="item.qty" type="number" placeholder="數量" class="item-num" :disabled="isJsonInvalid" />
         <input v-model.number="item.price" type="number" placeholder="單價" class="item-num" :disabled="isJsonInvalid" />
         <input v-model.number="item.total" type="number" placeholder="小計" class="item-num" :disabled="isJsonInvalid" />
         <button @click="removeItem(idx)" class="remove-btn" :disabled="isJsonInvalid">×</button>
       </div>
+      <datalist id="expense_category-list">
+        <option v-for="s in suggestions.expense_category" :key="s" :value="s" />
+      </datalist>
       <datalist id="item_name-list">
         <option v-for="s in suggestions.item_name" :key="s" :value="s" />
       </datalist>
@@ -163,6 +171,7 @@ const emit = defineEmits(['update:modelValue'])
 const suggestions = ref({
   supplier: [],
   item_name: [],
+  expense_category: [],
   buyer: [],
   seller_id: [],
   buyer_id: [],
@@ -171,7 +180,7 @@ const suggestions = ref({
 
 // 載入所有建議詞
 const loadAllSuggestions = async () => {
-  const categories = ['supplier', 'item_name', 'buyer', 'seller_id', 'buyer_id', 'stamp_shop_name']
+  const categories = ['supplier', 'item_name', 'expense_category', 'buyer', 'seller_id', 'buyer_id', 'stamp_shop_name']
   for (const cat of categories) {
     try {
       const res = await api.getSuggestions(cat)
@@ -208,7 +217,7 @@ const getEmptyForm = () => ({
       invoice_id: '', 
       date: '' 
   },
-  items: [{ name: '', qty: null, price: null, total: null }],
+  items: [{ name: '', qty: null, price: null, total: null, category: '' }],
   summary: { 
       subtotal: null, 
       tax: null, 
@@ -251,7 +260,7 @@ watch(formData, (newVal) => {
 
 const addItem = () => {
   if (!formData.value.items) formData.value.items = []
-  formData.value.items.push({ name: '', qty: null, price: null, total: null })
+  formData.value.items.push({ name: '', qty: null, price: null, total: null, category: '' })
 }
 
 const removeItem = (idx) => {
@@ -378,6 +387,7 @@ legend {
 }
 
 .item-name { flex: 2; }
+.item-cat { flex: 1; max-width: 100px; }
 .item-num { flex: 1; max-width: 70px; }
 
 .remove-btn {

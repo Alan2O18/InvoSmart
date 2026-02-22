@@ -20,15 +20,22 @@
         <div class="form-row">
           <div class="form-group">
             <label for="group">Group</label>
-            <input type="text" id="group" v-model="form.group" />
+            <input type="text" id="group" v-model="form.group" list="group-list" @change="onGroupChange" />
+            <datalist id="group-list">
+              <option v-for="g in groups" :key="g.group_name" :value="g.group_name"></option>
+            </datalist>
           </div>
           <div class="form-group">
             <label for="leader">Leader</label>
             <input type="text" id="leader" v-model="form.leader" />
           </div>
           <div class="form-group">
-            <label for="coordinator">Coordinator</label>
+            <label for="coordinator">Coordinator (活動總召)</label>
             <input type="text" id="coordinator" v-model="form.coordinator" />
+          </div>
+          <div class="form-group">
+            <label for="generalAffairs">General Affairs (活動總務)</label>
+            <input type="text" id="generalAffairs" v-model="form.generalAffairs" />
           </div>
         </div>
       </section>
@@ -127,6 +134,7 @@ const form = reactive({
   group: '',
   leader: '',
   coordinator: '',
+  generalAffairs: '',
   startTime: '',
   endTime: '',
   location: '',
@@ -139,6 +147,25 @@ const form = reactive({
   budgetDate: '',
   finalAccountDate: ''
 })
+
+const groups = ref([])
+
+onMounted(async () => {
+  fetchProject()
+  try {
+    const res = await api.listGroups()
+    groups.value = res.data
+  } catch(e) {
+    console.error('Failed to load groups', e)
+  }
+})
+
+const onGroupChange = () => {
+  const selected = groups.value.find(g => g.group_name === form.group)
+  if (selected && !form.leader) {
+    form.leader = selected.leader_name
+  }
+}
 
 const fetchProject = async () => {
   try {
@@ -209,7 +236,15 @@ const updateProject = async () => {
   }
 }
 
-onMounted(fetchProject)
+onMounted(async () => {
+  await fetchProject()
+  try {
+    const res = await api.listGroups()
+    groups.value = res.data
+  } catch(e) {
+    console.error('Failed to load groups', e)
+  }
+})
 </script>
 
 <style scoped>

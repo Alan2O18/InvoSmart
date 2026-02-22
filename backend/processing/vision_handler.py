@@ -52,7 +52,7 @@ class VisionHandler:
       "date": "2024-01-15"
   }, 
   "items": [
-      {"name": "品項名稱", "qty": 1, "price": 100, "total": 100}
+      {"name": "品項名稱", "qty": 1, "price": 100, "total": 100, "category": "餐食"}
   ], 
   "summary": {
       "subtotal": 100,
@@ -70,7 +70,7 @@ class VisionHandler:
 1. "receipt_type": 判斷收據類型，例如 "電子發票證明聯"、"免用統一發票收據"、"二聯式發票" 等。
 2. "date": 請使用 ISO 格式 "YYYY-MM-DD"，若為民國年請轉換。
 3. "invoice_id": 電子發票請填寫發票號碼 (如 AB12345678)。
-4. "items": 請列出所有品項，確保 "total" = "qty" * "price"。
+4. "items": 請列出所有品項，確保 "total" = "qty" * "price"。必須根據品項名稱自行判斷並填寫 "category" (報帳名目)，例如 "餐食"、"茶水"、"文具教材"、"交通"、"電信" 等。
 5. "summary.total": 必須等於 items 的總和 (或加上稅額)。
 6. "verification": 辨識手寫的大寫金額、蓋章店名、是否有 QR Code。
 7. 若欄位無法辨識或不存在，請留空字串 "" 或 null。
@@ -279,6 +279,18 @@ class VisionHandler:
             try:
                 logger.debug(f"[VisionHandler] API 呼叫嘗試 {attempt}/{self.max_retries}")
                 
+                # --- ARCHIVED: 測試原生 API 抓取思考過程 ---
+                # if self.debug and "gemini" in self.model_name.lower():
+                #     # 在 Debug 模式下，為了擷取思考過程又省錢，我們**只**打 Google Native API，跳過 OpenAI SDK
+                #     try:
+                #         result_text = self._call_gemini_native(prompt, image_data_url)
+                #         if result_text:
+                #             return result_text
+                #     except Exception as native_e:
+                #         logger.warning(f"[VisionHandler] Debug 原生呼叫失敗，將退回標準 OpenAI SDK: {native_e}")
+                # ---------------------------------------------
+                        
+                # 標準流程
                 response = self._client.chat.completions.create(**api_kwargs)
                 
                 if self.debug:
@@ -286,9 +298,16 @@ class VisionHandler:
                                  f"usage: {response.usage}")
                 
                 # 提取回應文字
-                result_text = response.choices[0].message.content
+                message = response.choices[0].message
+                result_text = message.content
                 
+                # 若支援 reasoning_content (如 o1 系列或 gemini experimental) 則嘗試取出
+                reasoning = getattr(message, "reasoning_content", None)
+                if reasoning:
+                    logger.info(f"[{self.model_name} 思考過程]\n{reasoning}\n" + "="*40)
+                    
                 if result_text:
+                    logger.info(f"[{self.model_name} 原始回應]\n{result_text}\n" + "="*40)
                     return result_text
                 else:
                     raise ValueError("回應中找不到文字內容")
@@ -310,8 +329,77 @@ class VisionHandler:
         
         raise last_error
 
+    # === ARCHIVED: 原生 API 呼叫保留區塊 ===
+    '''
+    def _call_gemini_native(self, prompt: str, image_data_url: str) -> str:
+        """
+        [Debug 專用] 使用原生 Google REST API 請求，並取代原本的 OpenAI SDK。
+        這是為了把 OpenAI 相容層吃掉的「思考過程 (Thought)」拔出來印在 Log 裡，
+        同時返回最終文字結果，避免重複呼叫浪費 Token。
+        """
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            import json
+            try:
+                with open("config.json", "r", encoding="utf-8") as f:
+                    config = json.load(f)
+                    api_key = config.get("vlm_settings", {}).get("api_key")
+            except Exception:
+                pass
+                
+        if not api_key:
+            raise ValueError("找不到 GEMINI_API_KEY。")
+            
+        logger.info(f"[{self.model_name} 🧠 原生大腦解剖術啟動]")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self.model_name}:generateContent?key={api_key}"
+        
+        # 準備圖片資料 (需要去掉 data:image/jpeg;base64, 前綴)
+        mime_type = "image/jpeg"
+        base64_data = image_data_url
+        if "," in image_data_url:
+            mime_type = image_data_url.split(";")[0].split(":")[1]
+            base64_data = image_data_url.split(",")[1]
+
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": prompt},
+                    {"inline_data": {"mime_type": mime_type, "data": base64_data}}
+                ]
+            }],
+            "generationConfig": {
+                "thinkingConfig": {
+                    "thinkingBudget": 1024 # Limit thinking for fast debug
+                }
+            }
+        }
+        
+        import requests
+        resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"})
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            parts = data['candidates'][0]['content']['parts']
+            
+            thinking_text = next((p['thought'] for p in parts if 'thought' in p), None)
+            final_text = next((p['text'] for p in parts if 'text' in p), None)
+            
+            if thinking_text:
+                logger.info(f"[{self.model_name} 🧠 真實思考過程 (Native API)]\n{thinking_text}\n" + "="*40)
+            else:
+                logger.info(f"[{self.model_name} 🧠 未產生思考] 模型內部沒有 thought 區塊回傳。")
+                
+            if final_text:
+                logger.info(f"[{self.model_name} 原始回應 (Native API)]\n{final_text}\n" + "="*40)
+                return final_text
+            else:
+                raise ValueError("原生 API 回傳結果中不包含 text 區塊。")
+        else:
+            raise RuntimeError(f"Native API 呼叫失敗: HTTP {resp.status_code} - {resp.text}")
+    '''
+
     def _clean_json_response(self, content: str) -> str:
-        """清理 JSON 格式 (移除 markdown code fence)"""
+        """清理 JSON 格式 (移除 markdown code fence) 並嘗試修復截斷"""
         content = content.strip()
         if content.startswith("```json"):
             content = content[7:].strip()
@@ -319,6 +407,83 @@ class VisionHandler:
             content = content[3:].strip()
         if content.endswith("```"):
             content = content[:-3].strip()
+            
+        return self._repair_json(content)
+
+    def _repair_json(self, content: str) -> str:
+        """
+        修復被截斷或缺少右括號的 JSON。
+        
+        策略：
+        1. 移除尾端多餘的逗號
+        2. 根據缺少的右括號進行補全
+        """
+        content = content.strip()
+        
+        # 移除可能導致錯誤的不完整尾端字元
+        if content.endswith(","):
+            content = content[:-1].strip()
+            
+        # 計算括號深度
+        braces = 0
+        brackets = 0
+        in_string = False
+        escape = False
+        
+        for char in content:
+            if escape:
+                escape = False
+                continue
+            if char == "\\":
+                escape = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            
+            if not in_string:
+                if char == "{": braces += 1
+                elif char == "}": braces -= 1
+                elif char == "[": brackets += 1
+                elif char == "]": brackets -= 1
+                
+        # 補全括號
+        if in_string:
+            content += '"'
+        
+        # heuristically close brackets and braces (stack-based would be better, but this is simple)
+        # Note: A real stack is safer to know *which* to close first.
+        # Let's do a quick stack parse for closing:
+        stack = []
+        in_string = False
+        escape = False
+        for char in content:
+            if escape:
+                escape = False
+                continue
+            if char == "\\":
+                escape = True
+                continue
+            if char == '"':
+                in_string = not in_string
+                continue
+            if not in_string:
+                if char in "{[":
+                    stack.append(char)
+                elif char == "}":
+                    if stack and stack[-1] == "{":
+                        stack.pop()
+                elif char == "]":
+                    if stack and stack[-1] == "[":
+                        stack.pop()
+                        
+        while stack:
+            top = stack.pop()
+            if top == "{":
+                content += "}"
+            elif top == "[":
+                content += "]"
+                
         return content
 
     def image_to_markdown(self, image_array: np.ndarray) -> tuple:

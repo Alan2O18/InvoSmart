@@ -54,8 +54,10 @@ class RegenerationHandler:
             return None
         
         # --- Process each row (使用全域集中 JobRepository) ---
+        from pathlib import Path
+        db_path = Path(config["project_manager_settings"]["global_db_path"]).expanduser().resolve()
         from backend.repositories.job_repository import JobRepository
-        job_repo = JobRepository(project_id)
+        job_repo = JobRepository(project_id, db_path=db_path)
         
         for index, row in df.iterrows():
             manual_correction = row.get("人工修正")

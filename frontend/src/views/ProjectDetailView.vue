@@ -1,8 +1,11 @@
 <template>
   <div class="project-detail" v-if="project">
     <header class="detail-header">
-      <button @click="$router.push('/')" class="back-btn">← Back</button>
-      <h1>{{ project.name || project.project_id }}</h1>
+      <div style="display: flex; gap: 1rem; align-items: center; justify-content: flex-start;">
+        <button @click="$router.push('/')" class="back-btn">← Back</button>
+        <h1 style="margin: 0;">{{ project.name || project.project_id }}</h1>
+        <button @click="$router.push(`/edit/${project.project_id}`)" class="edit-btn">編輯活動資訊</button>
+      </div>
       <div class="header-info">
         <span class="activity-id">Activity ID: {{ project.project_id }}</span>
         <span class="status-badge" :class="project.status">{{ project.status }}</span>
@@ -23,7 +26,10 @@
       <div class="arrow">→</div>
       <div class="step" :class="{ active: canExport }">
         <h3>3. Export</h3>
-        <button @click="runExport" :disabled="!canExport || loading">匯出 Excel</button>
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; justify-content: center; align-items: center;">
+          <button @click="runExport" :disabled="!canExport || loading">匯出 Excel</button>
+          <button @click="runWordExport" :disabled="!canExport || loading" class="secondary-btn">匯出 Word</button>
+        </div>
       </div>
       <div class="arrow">→</div>
       <div class="step" :class="{ active: canArchive }">
@@ -285,6 +291,25 @@ const runExport = async () => {
   finally { loading.value = false; }
 }
 
+const runWordExport = async () => {
+  loading.value = true
+  try {
+      const res = await api.runWordExport(projectId);
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${projectId}_word_export.docx`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      alert('Word 報表已匯出並下載！檔案也已同步存至專案目錄的 Word匯出 資料夾下。');
+  } 
+  catch (e) { alert('Word export failed. Please check backend logs.'); } 
+  finally { loading.value = false; }
+}
+
 const runArchive = async () => {
   loading.value = true
   try { 
@@ -436,11 +461,29 @@ const editJob = (job) => {
     padding: 0.5rem 1rem;
     border-radius: 4px;
     cursor: pointer;
+    width: 100%;
+}
+
+.step button.secondary-btn {
+    background: #10b981;
 }
 
 .step button:disabled {
     cursor: not-allowed;
     opacity: 0.7;
+}
+
+.edit-btn {
+  background: transparent;
+  border: 1px solid #10b981;
+  color: #10b981;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.edit-btn:hover {
+  background: #10b98122;
 }
 
 .arrow {

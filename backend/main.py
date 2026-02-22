@@ -23,6 +23,16 @@ config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__fil
 with open(config_path, "r", encoding="utf-8") as f:
     config = json.load(f)
 workspace_root = config["project_manager_settings"]["workspace_root"]
+global_db_path = config["project_manager_settings"]["global_db_path"]
+
+# Ensure workspace root exists to prevent StaticFiles mount crash
+os.makedirs(workspace_root, exist_ok=True)
+
+print("="*60)
+print(f"🚀 AI Agent Lab Server Starting...")
+print(f"📂 Workspace Root: {os.path.abspath(workspace_root)}")
+print(f"🛢️  Global DB Path:  {os.path.abspath(global_db_path)}")
+print("="*60)
 
 
 @asynccontextmanager

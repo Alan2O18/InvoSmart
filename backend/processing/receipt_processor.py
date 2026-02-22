@@ -29,7 +29,7 @@ class ReceiptProcessor:
     極簡化流程：RAG Context → VLM → QR 驗證 → 邏輯驗算
     """
     
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, db_path=None):
         """初始化處理器"""
         self.config = config
         
@@ -37,7 +37,14 @@ class ReceiptProcessor:
         self.vision_handler = VisionHandler(config)
         self.qr_handler = QRHandler(config)
         self.validator = PythonValidator(config)
-        self.suggestion_repo = SuggestionRepository()
+
+        from backend.repositories.suggestion_repository import SuggestionRepository
+        from pathlib import Path
+        if db_path is None:
+            # fallback: read from config (project_manager_settings.global_db_path)
+            gdb = config.get("project_manager_settings", {}).get("global_db_path")
+            db_path = Path(gdb) if gdb else None
+        self.suggestion_repo = SuggestionRepository(db_path=db_path) if db_path else None
         
         logger.info("ReceiptProcessor 初始化完成 (VLM-First 架構)")
     

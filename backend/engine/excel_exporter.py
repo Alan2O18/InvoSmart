@@ -46,7 +46,7 @@ class ExcelExporter:
             raise FileNotFoundError("project root not found")
 
         # 從全域集中資料庫讀取 (透過 JobRepository)
-        job_repo = JobRepository(project_id)
+        job_repo = JobRepository(project_id, db_path=self.project_repo.global_db_path)
         jobs_list = job_repo.list_jobs()
         
         if not jobs_list:
@@ -59,16 +59,14 @@ class ExcelExporter:
             "狀態",
             "檔名",
             "來源檔案(位置)",
-            "CPU處理時間",
-            "GPU處理時間",
+            "VLM處理時間",
             "總時間",
             "備註",
             "檔案日期",
             "供應商",
             "金額",
             "人工修正",
-            "LLM結果本文",
-            "RAW_OCR",
+            "VLM結果本文",
         ]
         main_rows = []
         detail_rows = []
@@ -79,24 +77,12 @@ class ExcelExporter:
             )
             
             # Parse stats from JSON fields
-            cpu_time = 0
-            gpu_time = 0
+            vlm_time = 0
             try:
-                ocr_stats = row.get("ocr_stats")
-                if ocr_stats:
-                    ocr_stats_data = json.loads(ocr_stats) if isinstance(ocr_stats, str) else ocr_stats
-                    cpu_time = ocr_stats_data.get("total_time_s", 0)
-            except (json.JSONDecodeError, TypeError):
-                pass
-            try:
-                llm_stats = row.get("llm_stats")
-                if llm_stats:
-                    llm_stats_data = json.loads(llm_stats) if isinstance(llm_stats, str) else llm_stats
-                    # llm_stats is an array, sum up all stages
-                    if isinstance(llm_stats_data, list):
-                        gpu_time = sum(s.get("total_time_s", 0) for s in llm_stats_data)
-                    else:
-                        gpu_time = llm_stats_data.get("total_time_s", 0)
+                vlm_stats = row.get("vlm_stats")
+                if vlm_stats:
+                    vlm_stats_data = json.loads(vlm_stats) if isinstance(vlm_stats, str) else vlm_stats
+                    vlm_time = vlm_stats_data.get("total_time_s", 0)
             except (json.JSONDecodeError, TypeError):
                 pass
             
@@ -107,32 +93,38 @@ class ExcelExporter:
             except Exception:
                 total = None
 
-            raw_llm = row.get("llm_result_json")
-            raw_ocr = row.get("ocr_result_json")
+            raw_vlm = row.get("vlm_result_json")
+            manual_json_text = row.get("manual_json_text")
             job_status = row.get("status")
 
             human_correction_text = None
-            llm_body_text = None
+            vlm_body_text = None
             
-            # Parse LLM JSON to extract multiple pieces of information
-            parsed_llm = {}
-            if isinstance(raw_llm, str) and raw_llm.strip():
+            # Parse VLM JSON to extract multiple pieces of information
+            parsed_vlm = {}
+            if isinstance(raw_vlm, str) and raw_vlm.strip():
                 try:
-                    parsed_llm = json.loads(raw_llm)
+                    parsed_vlm = json.loads(raw_vlm)
                 except json.JSONDecodeError:
-                    parsed_llm = {}
+                    parsed_vlm = {}
 
-            # Generate text from flat structure or use existing text
-            llm_body_text = self._generate_text_from_llm_result(parsed_llm)
+            # Generate text from flat structure
+            vlm_body_text = self._generate_text_from_vlm_result(parsed_vlm)
 
-            # The "人工修正" column is only populated if the status is 'human_correct'
-            if job_status == 'human_correct':
-                human_correction_text = llm_body_text
+            # 處理人工修正文字
+            parsed_manual = {}
+            if isinstance(manual_json_text, str) and manual_json_text.strip():
+                try:
+                    parsed_manual = json.loads(manual_json_text)
+                    human_correction_text = self._generate_text_from_vlm_result(parsed_manual)
+                except json.JSONDecodeError:
+                    pass
 
             # extract_structured_data handles flat structure
-            structured = extract_structured_data(raw_llm)
-            if not structured and isinstance(raw_ocr, str) and raw_ocr.strip():
-                structured = extract_structured_data(raw_ocr)
+            # Priority: manual_json_text > vlm_result_json
+            structured = extract_structured_data(manual_json_text)
+            if not structured:
+                structured = extract_structured_data(raw_vlm)
 
             supplier = structured.get("supplier", "")
             total_amount = structured.get("total_amount", "")
@@ -145,16 +137,14 @@ class ExcelExporter:
                     "狀態": job_status,
                     "檔名": filename,
                     "來源檔案(位置)": row.get("image_path"),
-                    "CPU處理時間": cpu_time,
-                    "GPU處理時間": gpu_time,
+                    "VLM處理時間": vlm_time,
                     "總時間": total,
                     "備註": None,
                     "檔案日期": file_date,
                     "供應商": supplier,
                     "金額": total_amount,
                     "人工修正": human_correction_text,
-                    "LLM結果本文": llm_body_text,
-                    "RAW_OCR": raw_ocr,
+                    "VLM結果本文": vlm_body_text,
                 }
             )
 
@@ -163,16 +153,26 @@ class ExcelExporter:
             for it in items:
                 detail_rows.append(
                     {
+                        "狀態": job_status,
                         "檔名": filename,
-                        "品項描述": it.get("description"),
-                        "數量": it.get("quantity"),
-                        "金額": it.get("price"),
+                        "來源檔案(位置)": row.get("image_path"),
+                        "專案": project_id,
+                        "發票號碼": structured.get("invoice_id", ""),
+                        "供應商": supplier,
+                        "報帳名目": it.get("category", ""),
+                        "品項名稱": it.get("description", ""),
+                        "數量": it.get("quantity", ""),
+                        "單價": it.get("price", ""),
+                        "小計": it.get("total", ""),
                     }
                 )
 
         df_main = pd.DataFrame(main_rows, columns=main_cols)
         df_detail = pd.DataFrame(
-            detail_rows, columns=["檔名", "品項描述", "數量", "金額"]
+            detail_rows, columns=[
+                "狀態", "檔名", "來源檔案(位置)", "專案", "發票號碼", "供應商", 
+                "報帳名目", "品項名稱", "數量", "單價", "小計"
+            ]
         )
 
         ts = int(time.time())
@@ -228,14 +228,14 @@ class ExcelExporter:
         logger.info("archive_to_excel completed: %s", str(out_path))
         return str(out_path)
     
-    def _generate_text_from_llm_result(self, parsed_llm: dict) -> str:
-        """從扁平 LLM 結果生成文字摘要"""
-        if not parsed_llm:
+    def _generate_text_from_vlm_result(self, parsed_vlm: dict) -> str:
+        """從扁平 VLM 結果生成文字摘要"""
+        if not parsed_vlm:
             return ""
         
         lines = []
         
-        header = parsed_llm.get("header", {})
+        header = parsed_vlm.get("header", {})
         if header.get("supplier"):
             lines.append(f"# {header['supplier']}")
         if header.get("invoice_id"):
@@ -243,19 +243,20 @@ class ExcelExporter:
         if header.get("date"):
             lines.append(f"日期: {header['date']}")
         
-        items = parsed_llm.get("items", [])
+        items = parsed_vlm.get("items", [])
         if items:
             lines.append("")
-            lines.append("| 品名 | 數量 | 單價 | 小計 |")
-            lines.append("|------|------|------|------|")
+            lines.append("| 名目 | 單價 | 數量 | 小計 | 品名 |")
+            lines.append("|------|------|------|------|------|")
             for item in items:
-                name = item.get("name", item.get("description", ""))
-                qty = item.get("qty", item.get("quantity", ""))
+                cat = item.get("category", "")
                 price = item.get("price", "")
+                qty = item.get("qty", item.get("quantity", ""))
                 total = item.get("total", "")
-                lines.append(f"| {name} | {qty} | {price} | {total} |")
+                name = item.get("name", item.get("description", ""))
+                lines.append(f"| {cat} | {price} | {qty} | {total} | {name} |")
         
-        summary = parsed_llm.get("summary", {})
+        summary = parsed_vlm.get("summary", {})
         if summary.get("total"):
             lines.append("")
             lines.append(f"**合計**: {summary['total']}")

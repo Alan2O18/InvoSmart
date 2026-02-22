@@ -10,6 +10,7 @@ import logging
 from typing import Optional, Dict, Any
 from backend.engine.excel_exporter import ExcelExporter
 from backend.engine.archive_handler import ArchiveHandler
+from backend.engine.word_exporter import WordExporter
 
 logger = logging.getLogger(__name__)
 
@@ -19,12 +20,14 @@ class ExportHandler:
     Facade 類別，整合所有匯出相關功能。
     """
     
-    def __init__(self, project_repo):
+    def __init__(self, project_repo, engine=None):
         self.project_repo = project_repo
+        self.engine = engine
         
         # Initialize sub-handlers
         self._excel_exporter = ExcelExporter(project_repo)
         self._archive_handler = ArchiveHandler(project_repo)
+        self._word_exporter = WordExporter(project_repo)
     
     # Excel Export Methods
     def run_excel(self, project_id: str):
@@ -34,6 +37,14 @@ class ExportHandler:
     def archive_to_excel(self, project_id: str, excel_name: Optional[str] = None) -> str:
         """Export project jobs data to Excel file."""
         return self._excel_exporter.archive_to_excel(project_id, excel_name)
+    
+    # Word Export Methods
+    def run_word(self, project_id: str, template_path: str) -> str:
+        """Export project jobs data to Word template file."""
+        if not self.engine:
+            raise ValueError("Engine instance is required for word export.")
+        job_repo = self.engine.get_job_repo(project_id)
+        return self._word_exporter.process_export(project_id, template_path, job_repo)
     
     # Archive Methods
     def seal_project(

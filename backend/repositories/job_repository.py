@@ -20,9 +20,6 @@ from typing import Optional, Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
-# 全域資料庫路徑
-GLOBAL_DB_PATH = Path(__file__).parent.parent / "data" / "global.db"
-
 # VLM-First 全域集中版 Schema
 JOB_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS jobs (
@@ -64,19 +61,25 @@ class JobRepository:
     All data is stored in the centralized global.db.
     """
 
-    _db_initialized: set = set()  # set of DB paths already initialized
+    #: set of db_paths (as str) already initialized in this process
+    _db_initialized: set = set()
     _init_lock = threading.Lock()
 
     def __init__(self, project_id: str, db_path: Optional[Path] = None):
+        if db_path is None:
+            raise ValueError(
+                "JobRepository requires an explicit db_path. "
+                "Pass the unified global.db path from Engine/config."
+            )
         self.project_id = project_id
-        self.db_path = db_path or GLOBAL_DB_PATH
+        self.db_path = Path(db_path)
         self.lock = threading.Lock()
         self._ensure_schema(self.db_path)
 
     @classmethod
-    def _ensure_schema(cls, db_path: Optional[Path] = None):
-        """Ensure global DB schema exists (runs once per db_path per process)."""
-        target = db_path or GLOBAL_DB_PATH
+    def _ensure_schema(cls, db_path: Path):
+        """Ensure schema exists for a given db_path (runs once per path per process)."""
+        target = Path(db_path)
         with cls._init_lock:
             if str(target) in cls._db_initialized:
                 return
@@ -90,7 +93,7 @@ class JobRepository:
             conn.commit()
             conn.close()
             cls._db_initialized.add(str(target))
-            logger.info(f"[JobRepository] 全域 Schema 初始化完成: {target}")
+            logger.info(f"[JobRepository] Schema 初始化完成: {target}")
 
     def _get_conn(self):
         """Get database connection with optimal settings."""
@@ -341,7 +344,7 @@ class JobRepository:
             "validation": validation,
             "vlm_stats": vlm_stats,
             "qr_verified": bool(job.get("qr_verified")),
-            "manual_json": manual_json,
+            "manual_json_text": json.dumps(manual_json, ensure_ascii=False) if manual_json else None,
             "manual_updated_at": job.get("manual_updated_at"),
             "created_at": job["created_at"],
             "updated_at": job["updated_at"],
