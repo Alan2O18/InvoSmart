@@ -1,12 +1,12 @@
 ---
-description: How to start the backend development server
+description: How to start the backend FastAPI server (VLM-First V2)
 ---
 
 # Backend Development Server
 
 ## Prerequisites
-1. Ensure micromamba and OCR_GA environment are set up
-2. Ensure Ollama is running with required models
+1. Ensure the `OCR_GA` environment is set up and activated.
+2. Ensure your `GOOGLE_API_KEY` is set in `.env` or `config.json` (VLM-First architecture). No local Ollama is required.
 
 ## Start the Server
 
@@ -17,19 +17,12 @@ description: How to start the backend development server
 micromamba activate OCR_GA
 ```
 
-2. Pull required Ollama models (if not already done):
+2. Start the FastAPI backend server:
 ```bash
-ollama pull qwen3-vl:2b
-ollama pull qwen3:1.7b
-```
-
-3. Start the FastAPI backend server:
-```bash
-cd backend
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ## Notes
-- The server runs on port 8000 by default
+- The server API docs are available at http://localhost:8000/docs
 - Use `--reload` for development (auto-restart on code changes)
-- The unified ReceiptProcessor handles both OCR and LLM in a single pipeline
+- The system uses cloud VLM (Gemini/OpenRouter) for OCR and processing.

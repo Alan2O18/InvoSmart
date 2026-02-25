@@ -2,12 +2,12 @@
   <div class="project-detail" v-if="project">
     <header class="detail-header">
       <div style="display: flex; gap: 1rem; align-items: center; justify-content: flex-start;">
-        <button @click="$router.push('/')" class="back-btn">← Back</button>
+        <button @click="$router.push('/')" class="back-btn">← 返回列表</button>
         <h1 style="margin: 0;">{{ project.name || project.project_id }}</h1>
-        <button @click="$router.push(`/edit/${project.project_id}`)" class="edit-btn">編輯活動資訊</button>
+        <button @click="$router.push(`/edit/${project.project_id}`)" class="edit-btn">編輯預算與報表</button>
       </div>
       <div class="header-info">
-        <span class="activity-id">Activity ID: {{ project.project_id }}</span>
+        <span class="activity-id">活動編號：{{ project.project_id }}</span>
         <span class="status-badge" :class="project.status">{{ project.status }}</span>
       </div>
     </header>
@@ -15,7 +15,7 @@
     <!-- VLM-First Pipeline: 簡化為 3 步驟 -->
     <div class="pipeline-controls">
       <div class="step" :class="{ active: canSplit }">
-        <h3>1. Split</h3>
+        <h3>1. 分割</h3>
         <button @click="runSplit" :disabled="!canSplit || loading">分割圖片</button>
       </div>
       <div class="arrow">→</div>
@@ -25,41 +25,40 @@
       </div>
       <div class="arrow">→</div>
       <div class="step" :class="{ active: canExport }">
-        <h3>3. Export</h3>
+        <h3>3. 匯出</h3>
         <div style="display: flex; flex-direction: column; gap: 0.5rem; justify-content: center; align-items: center;">
           <button @click="runExport" :disabled="!canExport || loading">匯出 Excel</button>
-          <button @click="runWordExport" :disabled="!canExport || loading" class="secondary-btn">匯出 Word</button>
         </div>
       </div>
       <div class="arrow">→</div>
       <div class="step" :class="{ active: canArchive }">
-        <h3>4. Archive</h3>
-        <button @click="runArchive" :disabled="!canArchive || loading">封存</button>
+        <h3>4. 封存</h3>
+        <button @click="runArchive" :disabled="!canArchive || loading">封存活動</button>
       </div>
     </div>
 
     <div class="actions-section">
-      <h3>Actions</h3>
+      <h3>新增憑證圖片</h3>
       <div class="action-group">
-        <label>Add Files (Raw):</label>
+        <label>上傳未分割的原始圖 (Raw):</label>
         <input type="file" multiple @change="(e) => handleFileUpload(e, 'raw')" />
       </div>
       <div class="action-group">
-        <label>Add Files (Split):</label>
+        <label>上傳已分割的圖 (Split):</label>
         <input type="file" multiple @change="(e) => handleFileUpload(e, 'split')" />
       </div>
     </div>
 
     <div class="jobs-section">
-      <h3>Raw Files</h3>
+      <h3>原始圖清單 (Raw Files)</h3>
       <div class="table-container">
         <table>
           <thead>
             <tr>
-              <th>Preview</th>
-              <th>Filename</th>
-              <th>Split Count</th>
-              <th>Actions</th>
+              <th>預覽</th>
+              <th>檔名</th>
+              <th>分割數</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -74,12 +73,12 @@
                 </span>
               </td>
               <td>
-                <button @click="runSplitSingle(file)" class="mini-btn">Split This File</button>
-                <button @click="deleteRawFile(file)" class="mini-btn danger">Delete</button>
+                <button @click="runSplitSingle(file)" class="mini-btn">分割此圖</button>
+                <button @click="deleteRawFile(file)" class="mini-btn danger">刪除</button>
               </td>
             </tr>
             <tr v-if="rawFiles.length === 0">
-              <td colspan="4" class="no-data">No raw files found.</td>
+              <td colspan="4" class="no-data">尚無原始檔。</td>
             </tr>
           </tbody>
         </table>
@@ -87,15 +86,15 @@
     </div>
 
     <div class="jobs-section">
-      <h3>Jobs / Invoices</h3>
+      <h3>單張憑證處理 (Jobs / Invoices)</h3>
       <div class="table-container">
         <table>
           <thead>
             <tr>
-              <th>Preview</th>
-              <th>Filename</th>
+              <th>預覽</th>
+              <th>檔名</th>
               <th>狀態</th>
-              <th>Actions</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody>
@@ -288,25 +287,6 @@ const runExport = async () => {
       await fetchProjectData(); 
   } 
   catch (e) { alert(e); } 
-  finally { loading.value = false; }
-}
-
-const runWordExport = async () => {
-  loading.value = true
-  try {
-      const res = await api.runWordExport(projectId);
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `${projectId}_word_export.docx`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-      alert('Word 報表已匯出並下載！檔案也已同步存至專案目錄的 Word匯出 資料夾下。');
-  } 
-  catch (e) { alert('Word export failed. Please check backend logs.'); } 
   finally { loading.value = false; }
 }
 

@@ -99,6 +99,104 @@ class WordExporter:
         p.addnext(new_tbl)
         return new_tbl
 
+    def _set_cell_text_formatted(self, cell, text: str):
+        from docx.enum.text import WD_ALIGN_PARAGRAPH
+        from docx.oxml.ns import qn
+        from docx.oxml import OxmlElement
+        
+        # 垂直置中 (Vertical Alignment)
+        tcPr = cell._tc.get_or_add_tcPr()
+        vAlign = tcPr.find(qn('w:vAlign'))
+        if vAlign is None:
+            vAlign = OxmlElement('w:vAlign')
+            tcPr.append(vAlign)
+        vAlign.set(qn('w:val'), 'center')
+
+        cell.text = text
+        for p in cell.paragraphs:
+            # 水平置中 (Horizontal Alignment)
+            p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            for run in p.runs:
+                run.font.name = '標楷體'
+                r = run._element
+                rPr = r.get_or_add_rPr()
+                # 確保存在 rFonts 並且設定東亞語系字體為標楷體
+                rFonts = rPr.find(qn('w:rFonts'))
+                if rFonts is None:
+                    rFonts = OxmlElement('w:rFonts')
+                    rPr.append(rFonts)
+                rFonts.set(qn('w:eastAsia'), '標楷體')
+                rFonts.set(qn('w:ascii'), '標楷體')
+                rFonts.set(qn('w:hAnsi'), '標楷體')
+
+    def _fill_budget_income(self, table, placeholder, data_list):
+        if not data_list: return
+        row_idx = self._find_row_with_placeholder(table, placeholder)
+        if row_idx != -1:
+            target_row = table.rows[row_idx]
+            target_tr = target_row._tr
+            
+            for item in data_list:
+                new_tr = copy.deepcopy(target_tr)
+                target_tr.addprevious(new_tr)
+                
+                from docx.table import _Row
+                new_row = _Row(new_tr, table)
+                
+                amount = item.get("amount", "")
+                
+                cells = new_row.cells
+                if len(cells) >= 3:
+                    self._set_cell_text_formatted(cells[0], str(item.get("name", "")))
+                    self._set_cell_text_formatted(cells[1], str(amount))
+                    self._set_cell_text_formatted(cells[2], str(item.get("note", "")))
+                    
+            target_tr.getparent().remove(target_tr)
+
+    def _fill_budget_expense(self, table, placeholder, data_list):
+        if not data_list: return
+        row_idx = self._find_row_with_placeholder(table, placeholder)
+        if row_idx != -1:
+            target_row = table.rows[row_idx]
+            target_tr = target_row._tr
+            
+            for item in data_list:
+                new_tr = copy.deepcopy(target_tr)
+                target_tr.addprevious(new_tr)
+                
+                from docx.table import _Row
+                new_row = _Row(new_tr, table)
+                
+                total = item.get("total", "")
+                
+                cells = new_row.cells
+                if len(cells) >= 5:
+                    self._set_cell_text_formatted(cells[0], str(item.get("name", "")))
+                    self._set_cell_text_formatted(cells[1], str(item.get("qty", "")))
+                    self._set_cell_text_formatted(cells[2], str(item.get("price", "")))
+                    self._set_cell_text_formatted(cells[3], str(total))
+                    self._set_cell_text_formatted(cells[4], str(item.get("purpose", "")))
+                    
+            target_tr.getparent().remove(target_tr)
+
+    def _format_roc_date(self, date_str):
+        if not date_str: return ""
+        try:
+            parts = date_str.split("-")
+            if len(parts) == 3:
+                return f"{int(parts[0]) - 1911}年{int(parts[1])}月{int(parts[2])}日"
+        except: pass
+        return date_str
+
+    def _set_cell_vmerge(self, cell, val):
+        from docx.oxml import OxmlElement
+        tcPr = cell._tc.get_or_add_tcPr()
+        vMerge = tcPr.find('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}vMerge')
+        if vMerge is None:
+            vMerge = OxmlElement('w:vMerge')
+            tcPr.append(vMerge)
+        vMerge.set('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}val', val)
+
     def _add_page_break(self, doc):
         doc.add_page_break()
 
@@ -116,7 +214,8 @@ class WordExporter:
         grouped_items = {}
         import json
         for job in jobs:
-            vlm_raw = job.get("vlm_result_json")
+            # 優先使用使用者手動修正的 manual_json_text，若無才 fallback 到 vlm_result_json
+            vlm_raw = job.get("manual_json_text") or job.get("vlm_result_json")
             vlm = {}
             if isinstance(vlm_raw, str) and vlm_raw.strip():
                 try:
@@ -160,16 +259,23 @@ class WordExporter:
         sect_pr = body.xpath('./w:sectPr')
         sect_pr = sect_pr[0] if sect_pr else None
         
-        template_elements = []
+        budget_elements = []
+        receipt_elements = []
+        current_list = budget_elements
+        tables_seen = 0
         for e in list(body.iterchildren()):
             if e.tag.endswith('sectPr'):
                 continue
-            template_elements.append(copy.deepcopy(e))
+            current_list.append(copy.deepcopy(e))
+            if e.tag.endswith('tbl'):
+                tables_seen += 1
+                if tables_seen == 1:
+                    current_list = receipt_elements
             body.remove(e)
 
         categories = list(grouped_items.keys())
-        if not categories:
-            categories = ["無報帳記錄"]
+        # We will no longer loop over categories to create pages.
+        # We just insert budget_elements, then receipt_elements ONCE.
             
         # 準備通用的替換字典 (Metadata)
         t_count = int(meta.get("teacherCount", 0) or 0)
@@ -180,6 +286,19 @@ class WordExporter:
         end_time = meta.get("endTime", "")
         period = f"{start_time} ~ {end_time}" if (start_time and end_time) else (start_time or "")
             
+        budget_income = meta.get("budgetIncome", [])
+        budget_expense = meta.get("budgetExpense", [])
+        
+        income_total_sum = 0
+        for item in budget_income:
+            try: income_total_sum += int(item.get("amount", 0))
+            except: pass
+            
+        expense_total_sum = 0
+        for item in budget_expense:
+            try: expense_total_sum += int(item.get("total", 0))
+            except: pass
+            
         base_replacements = {
             "{{組別}}": meta.get("group", ""),
             "{{組長}}": meta.get("leader", ""),
@@ -188,92 +307,136 @@ class WordExporter:
             "{{活動總務}}": meta.get("generalAffairs", ""),
             "{{活動期間}}": period,
             "{{活動地點}}": meta.get("location", ""),
-            "{{總人數}}": str(total_count) if total_count else "",
-            "{{老師人數}}": str(t_count) if t_count else "",
-            "{{學生人數}}": str(s_count) if s_count else "",
+            "{{總人數}}": str(total_count),
+            "{{老師人數}}": str(t_count),
+            "{{學生人數}}": str(s_count),
+            "{{核備日期_預算}}": self._format_roc_date(meta.get("budgetDate", "")),
+            "{{核備日期_決算}}": self._format_roc_date(meta.get("finalAccountDate", "")),
+            "{{擬請補助_原因}}": meta.get("subsidyReason", ""),
+            "{{擬請補助_方式}}": meta.get("subsidyMethod", ""),
+            "{{結餘_處理方式}}": meta.get("balanceHandling", ""),
+            "{{超支_處理方式}}": meta.get("overdraftHandling", ""),
+            "{{預算總額}}": str(income_total_sum) if income_total_sum or budget_income else "",
+            "{{預算_支出總計}}": str(expense_total_sum) if expense_total_sum or budget_expense else "",
         }
 
-        for idx, cat in enumerate(categories):
-            old_p_len = len(doc.paragraphs)
-            
-            for e in template_elements:
-                new_e = copy.deepcopy(e)
-                if sect_pr is not None:
-                    sect_pr.addprevious(new_e)
-                else:
-                    body.append(new_e)
+        # 1. 插入預算表
+        for e in budget_elements:
+            new_e = copy.deepcopy(e)
+            if sect_pr is not None: sect_pr.addprevious(new_e)
+            else: body.append(new_e)
 
-            # Metadata for current page
-            rep = dict(base_replacements)
-            if len(categories) > 1 and cat != "無報帳記錄":
-                rep["{{活動名稱}}"] = f"{meta.get('name', '')} - {cat}"
-            else:
-                rep["{{活動名稱}}"] = meta.get('name', '')
-                
-            # 處理剛插入頁面的表格 (Table 0 預算表, Table 1 結算表)
-            t0 = doc.tables[idx * 2] if (idx * 2) < len(doc.tables) else None
-            t1 = doc.tables[idx * 2 + 1] if (idx * 2 + 1) < len(doc.tables) else None
+        # 2. 插入唯一的結算表
+        for e in receipt_elements:
+            new_e = copy.deepcopy(e)
+            if sect_pr is not None: sect_pr.addprevious(new_e)
+            else: body.append(new_e)
+
+        # 取回所有的表格並處理替換
+        t0 = doc.tables[0] if len(doc.tables) > 0 else None
+        if t0:
+            self._fill_budget_income(t0, "{{預算經費列}}", budget_income)
+            self._fill_budget_expense(t0, "{{預算支出列}}", budget_expense)
+            self._replace_text_in_table(t0, base_replacements)
+
+        t1 = doc.tables[1] if len(doc.tables) > 1 else None
+        
+        all_flattened_items = []
+        # 將所有的 category 合併，保持同 voucher 的項目相鄰
+        for cat in categories:
+            cat_items = grouped_items.get(cat, [])
             
-            if t0:
-                self._replace_text_in_table(t0, rep)
-            
-            sum_total = 0
-            if t1:
-                # 填入明細到 t1
-                row_idx = self._find_row_with_placeholder(t1, "{{決算支出列}}")
-                if row_idx != -1:
-                    target_row = t1.rows[row_idx]
-                    target_tr = target_row._tr
-                    cat_items = grouped_items.get(cat, [])
-                    
-                    for item in cat_items:
-                        new_tr = copy.deepcopy(target_tr)
-                        target_tr.addprevious(new_tr)
-                        
-                        from docx.table import _Row
-                        new_row = _Row(new_tr, t1)
-                        
-                        try:
-                            val = item.get("total", 0)
-                            if val == "": val = 0
-                            t = float(val)
-                            sum_total += int(t)
-                        except Exception:
-                            pass
-                            
-                        cells = new_row.cells
-                        if len(cells) >= 6:
-                            cells[0].text = str(item["name"])
-                            cells[1].text = str(item["qty"]) if item["qty"] else ""
-                            cells[2].text = str(item["price"]) if item["price"] else ""
-                            cells[3].text = str(item["total"]) if item["total"] else ""
-                            cells[4].text = str(item["purpose"])
-                            cells[5].text = str(item["voucher_id"])
-                            
-                    # 移除模板的那一行 {{決算支出列}}
-                    target_tr.getparent().remove(target_tr)
-                    
-                rep["{{決算_支出總計}}"] = str(sum_total)
-                self._replace_text_in_table(t1, rep)
-            
-            # 替換此頁段落的變數 (如標題)
-            new_p_len = len(doc.paragraphs)
-            for i in range(old_p_len, new_p_len):
-                self._replace_text_in_paragraph(doc.paragraphs[i], rep)
-                
-            # 若不是最後一頁，強制插入分頁符號
-            if idx < len(categories) - 1:
-                from docx.oxml import OxmlElement
-                p = OxmlElement('w:p')
-                r = OxmlElement('w:r')
-                br = OxmlElement('w:br')
-                br.set('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}type', 'page')
-                r.append(br)
-                p.append(r)
-                if sect_pr is not None:
-                    sect_pr.addprevious(p)
+            voucher_groups = {}
+            no_voucher = []
+            for it in cat_items:
+                vid = it.get("voucher_id", "")
+                if not vid:
+                    no_voucher.append(it)
                 else:
-                    body.append(p)
+                    if vid not in voucher_groups:
+                        voucher_groups[vid] = []
+                    voucher_groups[vid].append(it)
+                    
+            for vid in voucher_groups:
+                for it in voucher_groups[vid]:
+                    it["_category"] = cat
+                    all_flattened_items.append(it)
+            for it in no_voucher:
+                it["_category"] = cat
+                all_flattened_items.append(it)
+
+        sum_total = 0
+        for item in all_flattened_items:
+            try: sum_total += float(item.get("total", 0) or 0)
+            except: pass
+        sum_total = int(sum_total)
+
+        rep = dict(base_replacements)
+        rep["{{決算_支出總計}}"] = str(sum_total)
+        balance = income_total_sum - sum_total
+        if balance > 0:
+            rep["{{結餘_餘額}}"] = str(balance)
+            rep["{{超支_金額}}"] = "0"
+        else:
+            rep["{{結餘_餘額}}"] = "0"
+            rep["{{超支_金額}}"] = str(-balance)
+            
+        if t1:
+            self._fill_budget_income(t1, "{{決算經費列}}", budget_income)
+            
+            row_idx = self._find_row_with_placeholder(t1, "{{決算支出列}}")
+            if row_idx != -1:
+                target_row = t1.rows[row_idx]
+                target_tr = target_row._tr
+                
+                prev_cat = None
+                prev_vid = None
+                
+                for item in all_flattened_items:
+                    new_tr = copy.deepcopy(target_tr)
+                    target_tr.addprevious(new_tr)
+                    
+                    from docx.table import _Row
+                    new_row = _Row(new_tr, t1)
+                    cells = new_row.cells
+                    if len(cells) >= 6:
+                        cat = str(item.get("_category", ""))
+                        vid = str(item.get("voucher_id", ""))
+                        
+                        # Category (Column 0) - Always merged if identical
+                        if cat != prev_cat:
+                            self._set_cell_text_formatted(cells[0], cat)
+                            self._set_cell_vmerge(cells[0], "restart")
+                        else:
+                            self._set_cell_text_formatted(cells[0], "")
+                            self._set_cell_vmerge(cells[0], "continue")
+                            
+                        self._set_cell_text_formatted(cells[1], str(item.get("qty", "")))
+                        self._set_cell_text_formatted(cells[2], str(item.get("price", "")))
+                        self._set_cell_text_formatted(cells[3], str(item.get("total", "")))
+                        self._set_cell_text_formatted(cells[4], str(item.get("name", ""))) 
+                        
+                        # Voucher ID (Column 5) - Merged if identical and not empty
+                        if vid:
+                            if vid == prev_vid:
+                                self._set_cell_text_formatted(cells[5], "")
+                                self._set_cell_vmerge(cells[5], "continue")
+                            else:
+                                self._set_cell_text_formatted(cells[5], vid)
+                                self._set_cell_vmerge(cells[5], "restart")
+                        else:
+                            self._set_cell_text_formatted(cells[5], "")
+                        
+                        prev_cat = cat
+                        prev_vid = vid if vid else None
+                        
+                target_tr.getparent().remove(target_tr)
+                
+            self._replace_text_in_table(t1, rep)
+
+        # 替換所有段落變數 (標題、日期等全域變數)
+        for p in doc.paragraphs:
+            self._replace_text_in_paragraph(p, base_replacements)
                     
         # 4. 儲存實體檔案
         out_root = self.project_repo._project_root(project_id) / "Word匯出"

@@ -1,8 +1,8 @@
 <template>
   <div class="home-container">
     <div class="header">
-      <h1>Activities</h1>
-      <button @click="$router.push('/create')" class="create-btn">+ New Activity</button>
+      <h1>活動列表</h1>
+      <button @click="$router.push('/create')" class="create-btn">+ 新增活動</button>
     </div>
 
     <div v-if="loading" class="loading">Loading activities...</div>
@@ -11,11 +11,11 @@
       <table class="projects-table">
         <thead>
           <tr>
-            <th>Activity Name</th>
-            <th>Activity ID</th>
-            <th>Status</th>
-            <th>Updated</th>
-            <th>Actions</th>
+            <th>活動名稱</th>
+            <th>活動編號</th>
+            <th>狀態</th>
+            <th>最後更新</th>
+            <th>操作</th>
           </tr>
         </thead>
         <tbody>
@@ -27,12 +27,13 @@
             </td>
             <td>{{ new Date(project.updated_at * 1000).toLocaleDateString() }}</td>
             <td class="actions-cell" @click.stop>
-              <button class="icon-btn edit" @click="editProject(project)" title="Edit">✎</button>
+              <button class="text-btn" @click="goToProject(project.project_id)">管理發票</button>
+              <button class="text-btn edit" @click="editProject(project)">預算與報表</button>
               <button class="icon-btn delete" @click="deleteProject(project)" title="Delete">🗑</button>
             </td>
           </tr>
           <tr v-if="projects.length === 0">
-            <td colspan="5" class="empty-state">No activities found. Create one to get started.</td>
+            <td colspan="5" class="empty-state">尚無活動紀錄。請建立新的活動。</td>
           </tr>
         </tbody>
       </table>
@@ -182,8 +183,21 @@ onMounted(fetchProjects)
   background-color: #444;
 }
 
-.icon-btn.edit { color: #60a5fa; }
 .icon-btn.delete { color: #ef4444; }
+
+.text-btn {
+  background: #333;
+  color: #ddd;
+  border: 1px solid #555;
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.85rem;
+}
+.text-btn:hover { background: #444; }
+.text-btn.edit { border-color: #60a5fa; color: #60a5fa; background: transparent; }
+.text-btn.edit:hover { background: rgba(96, 165, 250, 0.1); }
 
 .empty-state {
   text-align: center;
