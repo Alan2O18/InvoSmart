@@ -42,6 +42,24 @@ from backend import dependencies
 # Core Fixtures
 # ============================================================================
 
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from backend.database.models import Base
+
+@pytest_asyncio.fixture
+async def async_session_factory():
+    """提供測試用的記憶體內非同步 Session Factory"""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    factory = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    yield factory
+    
+    await engine.dispose()
+
+
 @pytest.fixture(scope="function")
 def temp_workspace():
     """Creates a temporary workspace and cleans it up after the test."""
@@ -111,8 +129,8 @@ def mock_audit_handler():
     return mock
 
 
-@pytest.fixture
-def test_engine(temp_workspace, mock_ocr_handler, mock_llm_handler, mock_receipt_splitter):
+@pytest_asyncio.fixture
+async def test_engine(temp_workspace, mock_ocr_handler, mock_llm_handler, mock_receipt_splitter, async_session_factory):
     """
     創建測試用 Engine 實例。
     
@@ -130,7 +148,7 @@ def test_engine(temp_workspace, mock_ocr_handler, mock_llm_handler, mock_receipt
         "workspace_root": str(temp_workspace),
         "global_db_path": str(temp_workspace / "projects.db")
     }
-    project_repo = ProjectRepository(config=pm_config)
+    project_repo = ProjectRepository(config=pm_config, session_factory=async_session_factory)
     
     # 創建 Engine，注入所有依賴
     engine = Engine(
@@ -141,7 +159,8 @@ def test_engine(temp_workspace, mock_ocr_handler, mock_llm_handler, mock_receipt
         },
         project_repo=project_repo,
         receipt_splitter=mock_receipt_splitter,
-        start_workers=False  # 關鍵：不啟動 Workers
+        start_workers=False,  # 關鍵：不啟動 Workers
+        session_factory=async_session_factory
     )
     
     # 設置為全局實例（供 FastAPI Depends 使用）
@@ -154,8 +173,8 @@ def test_engine(temp_workspace, mock_ocr_handler, mock_llm_handler, mock_receipt
 
 
 # 保持向後兼容的別名
-@pytest.fixture
-def real_engine_with_temp_workspace(test_engine):
+@pytest_asyncio.fixture
+async def real_engine_with_temp_workspace(test_engine):
     """Alias for test_engine (backward compatibility)."""
     return test_engine
 

@@ -30,16 +30,16 @@ class ExportHandler:
         self._word_exporter = WordExporter(project_repo)
     
     # Excel Export Methods
-    def run_excel(self, project_id: str):
+    async def run_excel(self, project_id: str):
         """Export project data to Excel file."""
-        return self._excel_exporter.run_excel(project_id)
+        return await self._excel_exporter.run_excel(project_id)
     
-    def archive_to_excel(self, project_id: str, excel_name: Optional[str] = None) -> str:
+    async def archive_to_excel(self, project_id: str, excel_name: Optional[str] = None) -> str:
         """Export project jobs data to Excel file."""
-        return self._excel_exporter.archive_to_excel(project_id, excel_name)
+        return await self._excel_exporter.archive_to_excel(project_id, excel_name)
     
     # Word Export Methods
-    def run_word(self, project_id: str, template_path: str) -> str:
+    async def run_word(self, project_id: str, template_path: str) -> str:
         """Export project jobs data to Word template file."""
         if not self.engine:
             raise ValueError("Engine instance is required for word export.")
@@ -47,7 +47,7 @@ class ExportHandler:
         return self._word_exporter.process_export(project_id, template_path, job_repo)
     
     # Archive Methods
-    def seal_project(
+    async def seal_project(
         self,
         project_id: str,
         dest_folder: Optional[str] = None,
@@ -55,6 +55,6 @@ class ExportHandler:
         debug: bool = False,
     ) -> Dict[str, Any]:
         """Seal (archive) a project to 7z or zip format."""
-        return self._archive_handler.seal_project(
+        return await self._archive_handler.seal_project(
             project_id, dest_folder, include_raw, debug
         )

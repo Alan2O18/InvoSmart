@@ -17,7 +17,7 @@ class ArchiveHandler:
     def __init__(self, project_repo):
         self.project_repo = project_repo
     
-    def seal_project(
+    async def seal_project(
         self,
         project_id: str,
         dest_folder: Optional[str] = None,
@@ -78,7 +78,7 @@ class ArchiveHandler:
             if temp_target:
                 shutil.rmtree(temp_target, ignore_errors=True)
             if proc.returncode == 0:
-                self.project_repo.update_project_status(project_id, "SEALED")
+                await self.project_repo.update_project_status(project_id, "SEALED")
                 return {
                     "success": True,
                     "method": "7z",
@@ -113,7 +113,7 @@ class ArchiveHandler:
                         arc = str(Path(project_id) / Path(r).relative_to(root) / f)
                         z.write(str(full), arc)
             os.replace(tmpzip, str(dest_zip))
-            self.project_repo.update_project_status(project_id, "SEALED")
+            await self.project_repo.update_project_status(project_id, "SEALED")
             return {
                 "success": True,
                 "method": "zip",

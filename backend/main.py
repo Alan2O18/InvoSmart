@@ -37,9 +37,19 @@ print("="*60)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize Engine before accepting requests
+    # Startup: Initialize DB and Engine before accepting requests
     from backend.dependencies import get_engine, reset_engine
-    get_engine()
+    from backend.database.core import init_db
+    
+    # 1. Initialize global database tables asynchronously
+    await init_db()
+    
+    # 2. Setup Engine (workers start conditionally if start_workers=True)
+    engine = get_engine()
+    
+    # 3. Recover pending tasks that might have crashed previously
+    await engine.recover_pending_tasks()
+    
     yield
     # Shutdown: Stop worker threads gracefully
     reset_engine()

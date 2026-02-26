@@ -10,6 +10,7 @@
 import logging
 import cv2
 import time
+import asyncio
 import numpy as np
 from pathlib import Path
 
@@ -48,9 +49,8 @@ def global_receipt_worker_loop(engine):
             if not job:
                 logger.warning(f"[Worker] Job 不存在: {job_id}")
                 continue
-            
             # Claim job (set to running)
-            engine.claim_job(project_id, job_id)
+            asyncio.run(engine.claim_job(project_id, job_id))
             
             # 讀取圖片
             image_path = job["image_path"]
@@ -58,7 +58,7 @@ def global_receipt_worker_loop(engine):
                 image = _load_image(image_path)
             except Exception as e:
                 logger.error(f"[Worker] 圖片讀取失敗: {e}")
-                engine.fail_job(project_id, job_id, f"圖片讀取失敗: {e}")
+                asyncio.run(engine.fail_job(project_id, job_id, f"圖片讀取失敗: {e}"))
                 continue
             
             # VLM 處理
@@ -66,22 +66,24 @@ def global_receipt_worker_loop(engine):
                 result = engine.receipt_processor.process(image)
                 
                 if result.get("success"):
-                    engine.complete_job(
-                        project_id, job_id,
-                        vlm_result=result.get("result", {}),
-                        validation=result.get("validation"),
-                        stats=result.get("metadata", {}).get("stats"),
-                        qr_verified=result.get("metadata", {}).get("qr_detected", False)
+                    asyncio.run(
+                        engine.complete_job(
+                            project_id, job_id,
+                            vlm_result=result.get("result", {}),
+                            validation=result.get("validation"),
+                            stats=result.get("metadata", {}).get("stats"),
+                            qr_verified=result.get("metadata", {}).get("qr_detected", False)
+                        )
                     )
                     logger.info(f"[Worker] ✓ 處理完成: {job_id}")
                 else:
                     error_msg = result.get("error", "Unknown error")
-                    engine.fail_job(project_id, job_id, error_msg)
+                    asyncio.run(engine.fail_job(project_id, job_id, error_msg))
                     logger.error(f"[Worker] ✗ 處理失敗: {job_id} - {error_msg}")
                     
             except Exception as e:
                 logger.error(f"[Worker] 處理異常: {e}", exc_info=True)
-                engine.fail_job(project_id, job_id, str(e))
+                asyncio.run(engine.fail_job(project_id, job_id, str(e)))
             
         except Exception as e:
             logger.error(f"[Worker] Worker 迴圈異常: {e}", exc_info=True)

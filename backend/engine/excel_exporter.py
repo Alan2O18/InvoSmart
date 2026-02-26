@@ -21,16 +21,16 @@ class ExcelExporter:
     def __init__(self, project_repo):
         self.project_repo = project_repo
     
-    def run_excel(self, project_id: str):
+    async def run_excel(self, project_id: str):
         """Export project data to Excel file."""
         try:
-            path = self.archive_to_excel(project_id)
+            path = await self.archive_to_excel(project_id)
             return {"status": "excel_exported", "path": path}
         except Exception as e:
             logger.error(f"Error exporting excel for {project_id}: {e}")
             raise e
 
-    def archive_to_excel(self, project_id: str, excel_name: Optional[str] = None) -> str:
+    async def archive_to_excel(self, project_id: str, excel_name: Optional[str] = None) -> str:
         """
         Export project jobs data to Excel file with main table and details table.
         
@@ -46,8 +46,9 @@ class ExcelExporter:
             raise FileNotFoundError("project root not found")
 
         # 從全域集中資料庫讀取 (透過 JobRepository)
-        job_repo = JobRepository(project_id, db_path=self.project_repo.global_db_path)
-        jobs_list = job_repo.list_jobs()
+        from backend.database.core import AsyncSessionLocal
+        job_repo = JobRepository(project_id, session_factory=AsyncSessionLocal)
+        jobs_list = await job_repo.list_jobs()
         
         if not jobs_list:
             raise FileNotFoundError("No jobs found for this project")
@@ -221,7 +222,7 @@ class ExcelExporter:
 
         # 更新全域狀態
         try:
-            self.project_repo.update_project_status(project_id, "ARCHIVED")
+            await self.project_repo.update_project_status(project_id, "ARCHIVED")
         except Exception:
             pass
 

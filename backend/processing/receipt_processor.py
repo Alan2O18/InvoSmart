@@ -38,13 +38,10 @@ class ReceiptProcessor:
         self.qr_handler = QRHandler(config)
         self.validator = PythonValidator(config)
 
+        # Init repos
         from backend.repositories.suggestion_repository import SuggestionRepository
-        from pathlib import Path
-        if db_path is None:
-            # fallback: read from config (project_manager_settings.global_db_path)
-            gdb = config.get("project_manager_settings", {}).get("global_db_path")
-            db_path = Path(gdb) if gdb else None
-        self.suggestion_repo = SuggestionRepository(db_path=db_path) if db_path else None
+        from backend.database.core import AsyncSessionLocal
+        self.suggestion_repo = SuggestionRepository(session_factory=AsyncSessionLocal)
         
         logger.info("ReceiptProcessor 初始化完成 (VLM-First 架構)")
     

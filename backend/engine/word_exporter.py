@@ -200,16 +200,16 @@ class WordExporter:
     def _add_page_break(self, doc):
         doc.add_page_break()
 
-    def process_export(self, project_id: str, template_path: str, job_repo) -> str:
+    async def process_export(self, project_id: str, template_path: str, job_repo) -> str:
         # 1. 取得專案元資料
-        project = self.project_repo.get_project(project_id)
+        project = await self.project_repo.get_project(project_id)
         if not project:
             raise ValueError(f"Project not found: {project_id}")
             
         meta = project.get("metadata", {})
         
         # 2. 獲取所有 Job，扁平化 Items 並分類
-        jobs = job_repo.list_jobs()
+        jobs = await job_repo.list_jobs()
         
         grouped_items = {}
         import json

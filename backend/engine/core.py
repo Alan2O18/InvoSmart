@@ -44,9 +44,11 @@ class Engine:
         project_repo: ProjectRepository = None,
         receipt_splitter=None,
         start_workers: bool = True,
+        session_factory=None,
     ):
         # 加載配置
         self.config = config if config is not None else self._load_config()
+        self.session_factory = session_factory
         
         # 依賴注入或默認創建
         self.project_repo = project_repo or self._create_project_repo()
@@ -71,7 +73,6 @@ class Engine:
         # 條件啟動 Workers
         if start_workers:
             self._start_global_workers()
-            self._recover_pending_tasks()
             logger.info("[Engine] 初始化完成 (Workers 已啟動)")
         else:
             logger.info("[Engine] 初始化完成 (測試模式，Workers 未啟動)")
@@ -103,7 +104,12 @@ class Engine:
     
     def _create_project_repo(self) -> ProjectRepository:
         """創建 ProjectRepository"""
-        return ProjectRepository(config=self.config.get("project_manager_settings", {}))
+        factory = self.session_factory
+        if factory is None:
+            from backend.database.core import AsyncSessionLocal
+            factory = AsyncSessionLocal
+            
+        return ProjectRepository(config=self.config.get("project_manager_settings", {}), session_factory=factory)
     
     def _create_receipt_processor(self):
         """創建 ReceiptProcessor"""
@@ -122,12 +128,12 @@ class Engine:
         self._worker_thread.start()
         logger.info("[Engine] VLM-First Worker 已啟動")
 
-    def _recover_pending_tasks(self):
+    async def recover_pending_tasks(self):
         """Server 啟動時恢復未完成的任務"""
         logger.info("[Engine] 正在掃描未完成任務...")
         
         try:
-            projects = self.project_repo.list_projects()
+            projects = await self.project_repo.list_projects()
             total_recovered = 0
             
             for project in projects:
@@ -137,7 +143,7 @@ class Engine:
                     
                 try:
                     job_repo = self.get_job_repo(project_id)
-                    jobs = job_repo.list_jobs()
+                    jobs = await job_repo.list_jobs()
                     
                     for job in jobs:
                         if job["status"] in ("pending", "running"):
@@ -157,13 +163,17 @@ class Engine:
     @property
     def global_db_path(self):
         """單一真理：唯一的全域 SQLite 資料庫路徑（遵照 config.json 裡的設定）。"""
-        return self.project_repo.global_db_path
+        return self.config.get("project_manager_settings", {}).get("global_db_path", "global.db")
 
     def get_job_repo(self, project_id: str) -> JobRepository:
         """取得特定專案的 JobRepository (singleton per project, 全域集中 DB)。"""
         with self._repo_lock:
             if project_id not in self._job_repos:
-                self._job_repos[project_id] = JobRepository(project_id, db_path=self.global_db_path)
+                factory = self.session_factory
+                if factory is None:
+                    from backend.database.core import AsyncSessionLocal
+                    factory = AsyncSessionLocal
+                self._job_repos[project_id] = JobRepository(project_id, session_factory=factory)
             return self._job_repos[project_id]
 
     # Backward compat alias (for workers.py etc.)
@@ -175,59 +185,59 @@ class Engine:
     # Job Operations (直接操作 JobRepository)
     # ========================================
 
-    def enqueue_job(self, project_id: str, image_path: str) -> str:
+    async def enqueue_job(self, project_id: str, image_path: str) -> str:
         """建立新 Job 並加入佇列。"""
         job_repo = self.get_job_repo(project_id)
         job_id = f"job-{int(time.time())}-{uuid.uuid4().hex[:6]}"
-        job_repo.insert_job(job_id, image_path, "ready")
-        job_repo.emit_event(job_id, "enqueued", {"image_path": image_path})
+        await job_repo.insert_job(job_id, image_path, "ready")
+        await job_repo.emit_event(job_id, "enqueued", {"image_path": image_path})
         return job_id
 
-    def claim_job(self, project_id: str, job_id: str) -> bool:
+    async def claim_job(self, project_id: str, job_id: str) -> bool:
         """將 Job 標記為 running。"""
         job_repo = self.get_job_repo(project_id)
-        result = job_repo.update_job(job_id, status="running")
+        result = await job_repo.update_job(job_id, status="running")
         if result:
-            job_repo.emit_event(job_id, "claimed", {})
+            await job_repo.emit_event(job_id, "claimed", {})
         return result
 
-    def complete_job(self, project_id: str, job_id: str, vlm_result: dict,
+    async def complete_job(self, project_id: str, job_id: str, vlm_result: dict,
                      validation: dict = None, stats: dict = None,
                      qr_verified: bool = False) -> bool:
         """完成 VLM 處理。"""
         job_repo = self.get_job_repo(project_id)
-        return job_repo.complete_vlm(job_id, vlm_result, validation, stats, qr_verified)
+        return await job_repo.complete_vlm(job_id, vlm_result, validation, stats, qr_verified)
 
-    def fail_job(self, project_id: str, job_id: str, reason: str = ""):
+    async def fail_job(self, project_id: str, job_id: str, reason: str = ""):
         """標記 Job 失敗。"""
         job_repo = self.get_job_repo(project_id)
-        job_repo.update_job(job_id, status="failed")
-        job_repo.emit_event(job_id, "failed", {"reason": reason})
+        await job_repo.update_job(job_id, status="failed")
+        await job_repo.emit_event(job_id, "failed", {"reason": reason})
 
-    def delete_job(self, project_id: str, job_id: str) -> bool:
+    async def delete_job(self, project_id: str, job_id: str) -> bool:
         """刪除 Job。"""
         job_repo = self.get_job_repo(project_id)
-        return job_repo.delete_job(job_id)
+        return await job_repo.delete_job(job_id)
 
     # ========================================
     # Processing Queue
     # ========================================
 
-    def run_processing(self, project_id: str):
+    async def run_processing(self, project_id: str):
         """VLM-First 處理入口 - 將所有待處理任務加入佇列。"""
         logger.info(f"[Processing] 開始處理專案: {project_id}")
         try:
             job_repo = self.get_job_repo(project_id)
-            jobs = job_repo.list_jobs()
+            jobs = await job_repo.list_jobs()
             queued = 0
             
             for job in jobs:
                 if job["status"] in ("ready", "failed"):
-                    job_repo.update_job(job["job_id"], status="pending")
+                    await job_repo.update_job(job["job_id"], status="pending")
                     self.task_queue.put((project_id, job["job_id"]))
                     queued += 1
             
-            self.project_repo.update_project_status(project_id, "PROCESSING")
+            await self.project_repo.update_project_status(project_id, "PROCESSING")
             logger.info(f"[Processing] 已將 {queued} 個任務加入佇列")
             
             return {"status": "processing_queued", "queued_count": queued, "queue_size": self.task_queue.qsize()}
@@ -235,15 +245,15 @@ class Engine:
             logger.error(f"[Processing] 啟動失敗 {project_id}: {e}", exc_info=True)
             raise e
 
-    def run_single_processing(self, project_id: str, job_id: str):
+    async def run_single_processing(self, project_id: str, job_id: str):
         """將單一 Job 加入處理佇列。"""
         try:
             job_repo = self.get_job_repo(project_id)
-            job = job_repo.get_job(job_id)
+            job = await job_repo.get_job(job_id)
             if not job:
                 raise ValueError(f"Job not found: {job_id}")
             
-            job_repo.update_job(job_id, status="pending")
+            await job_repo.update_job(job_id, status="pending")
             self.task_queue.put((project_id, job_id))
             logger.info(f"[Single Processing] Job {job_id} 已加入佇列")
             
@@ -256,27 +266,27 @@ class Engine:
     # Delegated Methods
     # ========================================
 
-    def create_project(self, project_id: str, files: list, name: str = None, metadata: dict = None):
-        return self.project_repo.setup_project(project_id, input_image=files, name=name, metadata=metadata)
+    async def create_project(self, project_id: str, files: list, name: str = None, metadata: dict = None):
+        return await self.project_repo.setup_project(project_id, input_image=files, name=name, metadata=metadata)
 
-    def run_splitting(self, project_id: str, target_files: Optional[list[str]] = None):
+    async def run_splitting(self, project_id: str, target_files: Optional[list[str]] = None):
         logger.info(f"[分割] 開始處理專案: {project_id}, 目標檔案={target_files}")
-        result = self.file_ops.run_splitting(project_id, target_files)
+        result = await self.file_ops.run_splitting(project_id, target_files)
         logger.info(f"[分割] 完成: {project_id}")
         return result
 
-    def run_split_single(self, project_id: str, filename: str):
+    async def run_split_single(self, project_id: str, filename: str):
         """Split a single raw file."""
         logger.info(f"[分割] 單檔處理: {project_id}/{filename}")
-        result = self.file_ops.run_splitting(project_id, target_files=[filename])
+        result = await self.file_ops.run_splitting(project_id, target_files=[filename])
         logger.info(f"[分割] 單檔完成: {filename}")
         return result
 
-    def get_raw_files(self, project_id: str):
+    async def get_raw_files(self, project_id: str):
         return self.file_ops.get_raw_files(project_id)
 
-    def add_project_files(self, project_id: str, files: list[str], type: str = "raw"):
-        return self.file_ops.add_project_files(project_id, files, type)
+    async def add_project_files(self, project_id: str, files: list[str], type: str = "raw"):
+        return await self.file_ops.add_project_files(project_id, files, type)
 
     def rotate_image(self, project_id: str, filename: str, angle: int = 90):
         return self.file_ops.rotate_image(project_id, filename, angle)
@@ -293,14 +303,16 @@ class Engine:
             logger.error(f"Error deleting raw file: {e}")
             raise e
 
-    def run_excel(self, project_id: str):
-        return self.export_handler.run_excel(project_id)
+    async def run_excel(self, project_id: str):
+        return await self.export_handler.run_excel(project_id)
 
-    def archive_project(self, project_id: str):
-        return self.export_handler.seal_project(project_id)
+    async def archive_project(self, project_id: str):
+        return await self.export_handler.seal_project(project_id)
 
-    def regenerate_project(self, project_id: str, excel_path: str):
-        return self.export_handler.regenerate_from_archive(project_id, excel_path, self.config)
+    async def regenerate_project(self, project_id: str, excel_path: str):
+        from backend.engine.regeneration_handler import RegenerationHandler
+        handler = RegenerationHandler(self.project_repo, self.export_handler._excel_exporter)
+        return await handler.regenerate_from_archive(project_id, excel_path, self.config)
 
     def get_queue_status(self) -> dict:
         """獲取當前佇列狀態"""

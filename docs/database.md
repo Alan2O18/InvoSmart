@@ -1,117 +1,100 @@
 # 資料庫設計 (Database Schema)
 
-> **版本**: VLM-First V2
-> **引擎**: SQLite3 (啟用 WAL 模式)
+> **版本**: VLM-First V2 (SQLAlchemy ORM)
+> **引擎**: SQLite3 (啟用 WAL 模式, AsyncIO)
 
-本專案採用 **分散式 SQLite 架構**，將「全域管理」與「專案資料」分離，以確保效能並降低鎖定風險。
+本專案採用 **集中式 SQLite (Unified Global SQLite) 加上 SQLAlchemy 2.0 Async ORM** 架構，解決了初期的分散式資料庫維護不易與鎖定等待的問題。
 
 ---
 
 ## 1. 資料庫架構總覽
 
-系統共使用三種 SQLite 資料庫檔案：
+系統現在僅依賴單一核心資料庫檔案：
 
 | 資料庫類型 | 檔案路徑 | 用途 |
 |---|---|---|
-| **Global Projects DB** | `global_projects.db` | 管理全系統的專案列表、分組資訊、全域詞彙庫。 |
-| **Suggestion DB** | `backend/data/global.db` | 專責處理自動完成 (Autocomplete) 的建議詞，獨立讀寫以優化前端反應速度。 |
-| **Job DB** | `{project_root}/jobs.db` | 每個專案獨立一個 DB，儲存該專案下的所有任務 (Jobs) 與 VLM 識別結果。 |
+| **Global DB** | `backend/data/global.db` (支援 `config.json` 動態配置路徑) | 集中管理所有的專案、任務、發票細項、組別與前端自動完成詞彙庫。 |
 
 > [!TIP]
-> **WAL 模式 (Write-Ahead Logging)**
-> 所有資料庫連線皆預設啟用 `PRAGMA journal_mode=WAL`，以支援高並發讀取並減少寫入鎖定。
+> **並行與效能 (Concurrency & Performance)**
+> - 連線強制啟用 `PRAGMA foreign_keys=ON`。
+> - 預設啟用 `PRAGMA journal_mode=WAL`，支援高並發讀取並減少寫入鎖定。
+> - `AsyncEngine` 連線池設定為 `NullPool`，將鎖定管理與併發處理的職責交還給底層 SQLite WAL 防禦層，解決了過往 "Database is Locked" 的錯誤。
 
 ---
 
-## 2. 全域專案資料庫 (Global Projects DB)
+## 2. ORM 模型設計 (Models)
 
-### `projects` (專案列表)
-儲存所有專案的基礎資訊與狀態。
+系統總共規劃 6 張核心資料表，由 `backend/database/models.py` 統一管理，並經由 Alembic 自動遷移。
 
-| 欄位 | 類型 | 說明 |
-|---|---|---|
-| `project_id` | TEXT (PK) | 專案唯一識別碼 (通常為 UUID 或 Timestamp 字串) |
-| `name` | TEXT | 專案顯示名稱 |
-| `root_path` | TEXT | 專案檔案在磁碟上的絕對路徑 |
-| `status` | TEXT | `NEW`, `PROCESSING`, `PROCESSED`, `ARCHIVED` |
-| `metadata` | TEXT (JSON) | 儲存額外資訊 (如活動日期、經辦人等) |
-| `created_at` | REAL | 建立時間戳 (UTC timestamp) |
-| `updated_at` | REAL | 更新時間戳 |
-
-### `groups` (分組管理)
-管理使用者的分組資訊。
+### 1. `projects` (專案)
+管理專案實體的檔案夾關聯與基礎資訊。
 
 | 欄位 | 類型 | 說明 |
 |---|---|---|
-| `group_name` | TEXT (PK) | 組別名稱 |
-| `leader_name` | TEXT | 組長姓名 |
+| `project_id` | String (PK) | 專案唯一識別碼 |
+| `name` | String | 專案名稱 |
+| `root_path` | String | 專案對應的系統目錄絕對路徑 |
+| `status` | String | 處理進度狀態 |
+| `meta_data` | JSON | 其他元資料 |
 
-### `vocabulary` (全域詞彙庫)
-用於統計高頻詞彙，輔助校正。
+### 2. `jobs` (任務)
+每張圖片與發票的處理任務。外鍵關聯至專案。
 
 | 欄位 | 類型 | 說明 |
 |---|---|---|
-| `id` | INTEGER (PK) | 自動編號 |
-| `category` | TEXT | 類別 (`supplier`, `item`) |
-| `term` | TEXT | 詞彙內容 |
-| `frequency` | INTEGER | 出現次數 |
-| `last_seen_at` | REAL | 最後出現時間 |
+| `job_id` | String (PK) | 任務唯一識別碼 |
+| `project_id` | String (FK) | 關聯專案的 ID |
+| `image_path` | String | 圖片相對路徑 |
+| `status` | String | `ready`, `pending`, `running`, `done`, `failed` |
+| `vlm_result_json` | Text | VLM 回傳的原始 Header JSON |
+| `manual_json_text` | Text | 使用者覆寫校正的結果 |
 
-> **注意**: 此表主要用於後端分析，前端自動完成主要查詢 **Suggestion DB**。
+### 3. `invoice_items` (發票細項)
+將原本封裝在 JSON 內的商品細項正規化為一對多關聯表 (One-to-Many)，此為唯一的真理來源 (Source of Truth)。
+
+| 欄位 | 類型 | 說明 |
+|---|---|---|
+| `id` | Integer (PK) | 流水號 |
+| `job_id` | String (FK) | 歸屬之任務 ID |
+| `category` | String | 商品類別 |
+| `description` | String | 商品名稱 / 描述 |
+| `quantity` | Float | 數量 (支援小數) |
+| `price` | Float | 單價 |
+
+### 4. `events` (事件日誌)
+非同步任務的生命週期追蹤 (稽核用)。
+
+| 欄位 | 類型 | 說明 |
+|---|---|---|
+| `id` | Integer (PK) | 流水號 |
+| `job_id` | String (FK) | 目標任務 |
+| `event_type` | String | `enqueued`, `claimed`, `vlm_completed`, `failed` |
+
+### 5. `groups` (分組)
+管理使用者群體。
+
+| 欄位 | 類型 | 說明 |
+|---|---|---|
+| `group_name` | String (PK) | 組別名稱 |
+| `leader_name` | String | 組長稱呼 |
+
+### 6. `suggestions` (建議詞彙)
+提供前端編輯器 Autocomplete 自動完成。合併了舊版的 `vocabulary` 統計機制。
+
+| 欄位 | 類型 | 說明 |
+|---|---|---|
+| `id` | Integer (PK) | 流水號 |
+| `category` | String, Index | 詞彙屬性 (`supplier`, `item_name` 等) |
+| `value` | String | 詞彙內文 |
+| `count` | Integer | 被使用的頻率次數 |
 
 ---
 
-## 3. 建議詞資料庫 (Suggestion DB)
+## 3. 資料移轉機制 (Alembic)
 
-專為前端 Autocomplete 優化的獨立資料庫。
+> [!WARNING]
+> 分散式 `{project}/jobs.db` 的檔案架構已全面捨棄。
 
-### `suggestions`
-| 欄位 | 類型 | 說明 |
-|---|---|---|
-| `id` | INTEGER (PK) | 自動編號 |
-| `category` | TEXT | `supplier`, `item_name`, `buyer`, `seller_id`... |
-| `value` | TEXT | 建議詞內容 |
-| `count` | INTEGER | 使用次數 (排序依據) |
-
----
-
-## 4. 專案任務資料庫 (Job DB)
-
-位於每個專案資料夾內 (`jobs.db`)，儲存識別結果。
-
-### `jobs` (任務主表)
-核心 VLM 識別結果儲存處。
-
-| 欄位 | 類型 | 說明 |
-|---|---|---|
-| `job_id` | TEXT (PK) | 任務 ID |
-| `image_path` | TEXT | 圖片原始路徑 |
-| `status` | TEXT | `ready`, `pending`, `running`, `done`, `failed` |
-| **`vlm_result_json`** | TEXT (JSON) | VLM 識別出的原始結構化資料 (Header, Items) |
-| `vlm_stats` | TEXT (JSON) | 效能統計 (Token數, 耗時) |
-| `validation_json` | TEXT (JSON) | Python 邏輯驗算的結果 (Confidence, Issues) |
-| `qr_verified` | INTEGER | 是否成功讀取並驗證 QR Code (0/1) |
-| `manual_json_text` | TEXT (JSON) | 人工修正後的最終結果 (若有則優先顯示) |
-| `created_at` | REAL | 建立時間 |
-
-### `events` (事件日誌)
-記錄任務的生命週期事件。
-
-| 欄位 | 類型 | 說明 |
-|---|---|---|
-| `id` | INTEGER (PK) | 自動編號 |
-| `job_id` | TEXT | 關聯的 Job |
-| `event_type` | TEXT | `enqueued`, `claimed`, `vlm_completed`, `failed` |
-| `payload` | TEXT (JSON) | 事件詳細資訊 |
-| `ts` | REAL | 發生時間 |
-
----
-
-## 5. 資料一致性策略
-
-1. **雙軌詞彙機制**: 
-   - VLM 識別出的新詞彙會寫入 **Vocabulary** (統計用)。
-   - 使用者手動確認或新增的詞彙會寫入 **Suggestion DB** (前端建議用)。
-   
-2. **狀態同步**:
-   - `Engine` 在讀取專案時，會自動掃描 `jobs.db` 的狀態，並更新 `Global DB` 中的 `projects.status`，確保列表顯示的進度是最新的。
+本系統依賴 **Alembic** 進行基於 SQLAlchemy ORM 的版本控制。
+為了適應自訂組態檔中對資料庫路徑的要求，`alembic/env.py` 已實作動態解析，在執行 `alembic upgrade head` 時會優先由 `config.json` 抽取路徑並注入 Alembic 設定檔。

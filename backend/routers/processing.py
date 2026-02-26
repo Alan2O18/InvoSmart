@@ -21,46 +21,46 @@ router = APIRouter()
 
 
 @router.post("/{project_id}/run_split")
-def run_split(project_id: str, engine: Engine = Depends(get_engine)):
+async def run_split(project_id: str, engine: Engine = Depends(get_engine)):
     """Run split for all raw files in project."""
     try:
-        return engine.run_splitting(project_id)
+        return await engine.run_splitting(project_id)
     except Exception as e:
         logger.error(f"Error running split for {project_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{project_id}/split/{filename}")
-def run_split_single(project_id: str, filename: str, engine: Engine = Depends(get_engine)):
+async def run_split_single(project_id: str, filename: str, engine: Engine = Depends(get_engine)):
     """Run split for a single file."""
     try:
-        return engine.run_split_single(project_id, filename)
+        return await engine.run_split_single(project_id, filename)
     except Exception as e:
         logger.error(f"Error running split single for {project_id}/{filename}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{project_id}/run_processing")
-def run_processing(project_id: str, engine: Engine = Depends(get_engine)):
+async def run_processing(project_id: str, engine: Engine = Depends(get_engine)):
     """Run VLM processing for all jobs in project (VLM-First)."""
     try:
-        return engine.run_processing(project_id)
+        return await engine.run_processing(project_id)
     except Exception as e:
         logger.error(f"Error running processing: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{project_id}/run_export")
-def run_export(project_id: str, engine: Engine = Depends(get_engine)):
+async def run_export(project_id: str, engine: Engine = Depends(get_engine)):
     """Export project to Excel."""
     try:
-        return engine.run_excel(project_id)
+        return await engine.run_excel(project_id)
     except Exception as e:
         logger.error(f"Error exporting excel: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{project_id}/run_word_export")
-def run_word_export(project_id: str, engine: Engine = Depends(get_engine)):
+async def run_word_export(project_id: str, engine: Engine = Depends(get_engine)):
     """Export project to Word template."""
     try:
         base_dir = pathlib.Path(__file__).parent.parent.parent
@@ -69,7 +69,7 @@ def run_word_export(project_id: str, engine: Engine = Depends(get_engine)):
         if not template_path.exists():
             raise HTTPException(status_code=500, detail="Word template not found")
             
-        out_path = engine.export_handler.run_word(project_id, str(template_path))
+        out_path = await engine.export_handler.run_word(project_id, str(template_path))
         
         if not os.path.exists(out_path):
             raise HTTPException(status_code=500, detail="Generated Word file not found")
@@ -86,10 +86,10 @@ def run_word_export(project_id: str, engine: Engine = Depends(get_engine)):
 
 
 @router.post("/{project_id}/run_archive")
-def run_archive(project_id: str, engine: Engine = Depends(get_engine)):
+async def run_archive(project_id: str, engine: Engine = Depends(get_engine)):
     """Archive project."""
     try:
-        return engine.archive_project(project_id)
+        return await engine.archive_project(project_id)
     except Exception as e:
         logger.error(f"Error archiving project: {e}")
         raise HTTPException(status_code=500, detail=str(e))

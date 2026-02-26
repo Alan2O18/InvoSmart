@@ -16,7 +16,7 @@ class RegenerationHandler:
         self.project_repo = project_repo
         self.excel_exporter = excel_exporter
     
-    def regenerate_from_archive(
+    async def regenerate_from_archive(
         self, project_id: str, excel_path: str, config: Dict[str, Any]
     ) -> Optional[str]:
         """
@@ -54,10 +54,9 @@ class RegenerationHandler:
             return None
         
         # --- Process each row (使用全域集中 JobRepository) ---
-        from pathlib import Path
-        db_path = Path(config["project_manager_settings"]["global_db_path"]).expanduser().resolve()
+        from backend.database.core import AsyncSessionLocal
         from backend.repositories.job_repository import JobRepository
-        job_repo = JobRepository(project_id, db_path=db_path)
+        job_repo = JobRepository(project_id, session_factory=AsyncSessionLocal)
         
         for index, row in df.iterrows():
             manual_correction = row.get("人工修正")
@@ -67,7 +66,7 @@ class RegenerationHandler:
                 continue
 
             # Find the job from the global DB
-            all_jobs = job_repo.list_jobs()
+            all_jobs = await job_repo.list_jobs()
             matched_job = None
             for j in all_jobs:
                 if j.get("image_path", "").endswith(str(filename)):
@@ -103,7 +102,7 @@ class RegenerationHandler:
             final_json_str = json.dumps(final_json_obj, ensure_ascii=False)
 
             # Update via JobRepository
-            job_repo.update_job(job_id, vlm_result_json=final_json_str, status="human_correct")
+            await job_repo.update_job(job_id, vlm_result_json=final_json_str, status="human_correct")
         
         logger.info("Finished processing all rows from Excel file.")
         
@@ -111,7 +110,7 @@ class RegenerationHandler:
         new_excel_name = f"{project_id}_regenerated_{int(time.time())}.xlsx"
         logger.info(f"Re-archiving results to '{new_excel_name}'...")
         try:
-            new_archive_path = self.excel_exporter.archive_to_excel(project_id, excel_name=new_excel_name)
+            new_archive_path = await self.excel_exporter.archive_to_excel(project_id, excel_name=new_excel_name)
             logger.info(f"Successfully created regenerated archive: {new_archive_path}")
             return new_archive_path
         except Exception as e:

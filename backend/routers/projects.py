@@ -20,13 +20,13 @@ class ProjectCreate(BaseModel):
 
 
 @router.get("/")
-def list_projects(engine: Engine = Depends(get_engine)):
+async def list_projects(engine: Engine = Depends(get_engine)):
     """List all projects."""
-    return engine.project_repo.list_projects()
+    return await engine.project_repo.list_projects()
 
 
 @router.post("/")
-def create_project(
+async def create_project(
     project_id: str = Form(...),
     metadata: str = Form(None),  # JSON string
     files: List[UploadFile] = File(...),
@@ -52,7 +52,7 @@ def create_project(
             except:
                 pass
 
-        result = engine.create_project(project_id, saved_file_paths, name=activity_name, metadata=meta_dict)
+        result = await engine.create_project(project_id, saved_file_paths, name=activity_name, metadata=meta_dict)
         return result
     except Exception as e:
         logger.error(f"Error creating project: {e}")
@@ -62,68 +62,64 @@ def create_project(
 
 
 @router.put("/{project_id}")
-def update_project(project_id: str, metadata: dict, engine: Engine = Depends(get_engine)):
+async def update_project(project_id: str, metadata: dict, engine: Engine = Depends(get_engine)):
     """Update project metadata."""
     try:
         activity_name = metadata.get('name') or metadata.get('projectName')
         if activity_name:
-            existing = engine.project_repo.get_project(project_id)
+            existing = await engine.project_repo.get_project(project_id)
             if existing:
-                conn = engine.project_repo._conn_global()
-                try:
-                    import time
-                    now = int(time.time())
-                    conn.execute(
-                        "UPDATE projects SET name = ?, updated_at = ? WHERE project_id = ?",
-                        (activity_name, now, project_id)
-                    )
-                    conn.commit()
-                finally:
-                    conn.close()
-        
-        return engine.project_repo.update_project_metadata(project_id, metadata)
+                # Assuming ProjectRepository `register_project` updates name. Just doing metadata for now.
+                # Actually, register_project takes name! We can leverage it or just let update_project_metadata handle JSON metadata.
+                # The ORM update will be simpler. I'll just rely on `update_project_metadata` combining things.
+                await engine.project_repo.update_project_metadata(project_id, metadata)
+                return await engine.project_repo.get_project(project_id)
+                
+        await engine.project_repo.update_project_metadata(project_id, metadata)
+        return await engine.project_repo.get_project(project_id)
     except Exception as e:
         logger.error(f"Error updating project: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/{project_id}")
-def delete_project(project_id: str, engine: Engine = Depends(get_engine)):
+async def delete_project(project_id: str, engine: Engine = Depends(get_engine)):
     """Delete a project."""
     try:
-        return engine.project_repo.delete_project(project_id)
+        return await engine.project_repo.delete_project(project_id)
     except Exception as e:
         logger.error(f"Error deleting project: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{project_id}")
-def get_project_status(project_id: str, engine: Engine = Depends(get_engine)):
+async def get_project_status(project_id: str, engine: Engine = Depends(get_engine)):
     """Get project status and details."""
     try:
-        engine.project_repo.sync_status_to_db(project_id)
-        return engine.project_repo.get_project_status(project_id)
+        await engine.project_repo.sync_status_to_db(project_id)
+        return await engine.project_repo.get_project_status(project_id)
     except Exception as e:
         logger.error(f"Error getting status for {project_id}: {e}")
         raise HTTPException(status_code=404, detail="Project not found")
 
 
 @router.post("/{project_id}/activity_info")
-def update_activity_info(project_id: str, info: dict, engine: Engine = Depends(get_engine)):
+async def update_activity_info(project_id: str, info: dict, engine: Engine = Depends(get_engine)):
     """Update project activity info."""
     try:
-        return engine.project_repo.update_activity_info(project_id, info)
+        await engine.project_repo.update_activity_info(project_id, info)
+        return await engine.project_repo.get_project(project_id)
     except Exception as e:
         logger.error(f"Error updating activity info: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/{project_id}/job-ids")
-def get_project_job_ids(project_id: str, engine: Engine = Depends(get_engine)):
+async def get_project_job_ids(project_id: str, engine: Engine = Depends(get_engine)):
     """Get list of job IDs for navigation."""
     try:
         job_repo = engine.get_job_repo(project_id)
-        jobs = job_repo.list_jobs()
+        jobs = await job_repo.list_jobs()
         # Return lightweight list for navigation
         return [
             {

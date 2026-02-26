@@ -15,18 +15,18 @@ class GroupCreate(BaseModel):
 
 
 @router.get("/groups/list")
-def list_groups(engine: Engine = Depends(get_engine)):
+async def list_groups(engine: Engine = Depends(get_engine)):
     try:
-        return engine.project_repo.list_groups()
+        return await engine.project_repo.list_groups()
     except Exception as e:
         logger.error(f"Error listing groups: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/groups")
-def upsert_group(group: GroupCreate, engine: Engine = Depends(get_engine)):
+async def upsert_group(group: GroupCreate, engine: Engine = Depends(get_engine)):
     try:
-        engine.project_repo.upsert_group(group.group_name, group.leader_name)
+        await engine.project_repo.upsert_group(group.group_name, group.leader_name)
         return {"status": "success", "group": group.model_dump()}
     except Exception as e:
         logger.error(f"Error upserting group: {e}")
@@ -34,9 +34,9 @@ def upsert_group(group: GroupCreate, engine: Engine = Depends(get_engine)):
 
 
 @router.delete("/groups/{group_name}")
-def delete_group(group_name: str, engine: Engine = Depends(get_engine)):
+async def delete_group(group_name: str, engine: Engine = Depends(get_engine)):
     try:
-        engine.project_repo.delete_group(group_name)
+        await engine.project_repo.delete_group(group_name)
         return {"status": "deleted", "group_name": group_name}
     except Exception as e:
         logger.error(f"Error deleting group: {e}")

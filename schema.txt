@@ -1,0 +1,74 @@
+CREATE TABLE sqlite_sequence(name,seq)
+
+CREATE TABLE alembic_version (
+	version_num VARCHAR(32) NOT NULL, 
+	CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+)
+
+CREATE TABLE invoice_items (
+	id INTEGER NOT NULL, 
+	job_id VARCHAR NOT NULL, 
+	category VARCHAR, 
+	description VARCHAR, 
+	quantity FLOAT, 
+	price FLOAT, 
+	total FLOAT, 
+	remark VARCHAR, 
+	PRIMARY KEY (id), 
+	FOREIGN KEY(job_id) REFERENCES jobs (job_id) ON DELETE CASCADE
+)
+
+CREATE TABLE "events" (
+	id INTEGER NOT NULL, 
+	job_id VARCHAR, 
+	event_type VARCHAR, 
+	ts FLOAT DEFAULT (strftime('%s','now')), 
+	payload TEXT, 
+	PRIMARY KEY (id), 
+	CONSTRAINT fk_events_job_id_jobs FOREIGN KEY(job_id) REFERENCES jobs (job_id) ON DELETE CASCADE
+)
+
+CREATE TABLE "groups" (
+	group_name VARCHAR NOT NULL, 
+	leader_name VARCHAR, 
+	PRIMARY KEY (group_name)
+)
+
+CREATE TABLE "jobs" (
+	project_id VARCHAR NOT NULL, 
+	job_id VARCHAR NOT NULL, 
+	image_path VARCHAR NOT NULL, 
+	status VARCHAR NOT NULL, 
+	vlm_result_json TEXT, 
+	vlm_stats TEXT, 
+	validation_json TEXT, 
+	qr_verified INTEGER DEFAULT 0, 
+	manual_json_text TEXT, 
+	manual_updated_at FLOAT, 
+	created_at FLOAT DEFAULT (strftime('%s','now')), 
+	updated_at FLOAT DEFAULT (strftime('%s','now')), 
+	PRIMARY KEY (project_id, job_id), 
+	CONSTRAINT fk_jobs_project_id_projects FOREIGN KEY(project_id) REFERENCES projects (project_id) ON DELETE CASCADE
+)
+
+CREATE TABLE "projects" (
+	project_id VARCHAR NOT NULL, 
+	name VARCHAR, 
+	root_path VARCHAR, 
+	status VARCHAR, 
+	created_at FLOAT, 
+	updated_at FLOAT, 
+	notes TEXT, 
+	metadata JSON, 
+	PRIMARY KEY (project_id)
+)
+
+CREATE TABLE "suggestions" (
+	id INTEGER NOT NULL, 
+	category VARCHAR NOT NULL, 
+	value VARCHAR NOT NULL, 
+	count INTEGER DEFAULT 1, 
+	last_used_at FLOAT, 
+	PRIMARY KEY (id), 
+	UNIQUE (category, value)
+)

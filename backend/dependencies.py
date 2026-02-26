@@ -57,3 +57,18 @@ def reset_engine() -> None:
             _engine_instance._shutdown_event.set()
         logger.info("[Dependencies] Engine 實例已重置")
     _engine_instance = None
+
+from typing import AsyncGenerator, Generator
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
+from backend.database.core import AsyncSessionLocal, SyncSessionLocal
+
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """獲取非同步 DB Session (用於 FastAPI Router)"""
+    async with AsyncSessionLocal() as session:
+        yield session
+
+def get_sync_db() -> Generator[Session, None, None]:
+    """獲取同步 DB Session (用於背景 Thread 或特殊同步情境)"""
+    with SyncSessionLocal() as session:
+        yield session
