@@ -358,7 +358,6 @@ class JobRepository:
             await self._sync_items_to_db(session, job_id, json_data)
             
             event = Event(
-                project_id=self.project_id,
                 job_id=job_id,
                 event_type="manual_json_saved",
                 payload=json.dumps({"timestamp": now}, ensure_ascii=False)

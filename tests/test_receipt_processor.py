@@ -24,11 +24,13 @@ class TestReceiptProcessor:
         """
         with patch('backend.processing.receipt_processor.VisionHandler') as MockVision, \
              patch('backend.processing.receipt_processor.QRHandler') as MockQR, \
-             patch('backend.processing.receipt_processor.PythonValidator') as MockValidator:
+             patch('backend.processing.receipt_processor.PythonValidator') as MockValidator, \
+             patch('backend.processing.receipt_processor.SuggestionRepository') as MockRepo:
 
             vision = MockVision.return_value
             qr = MockQR.return_value
             validator = MockValidator.return_value
+            repo = MockRepo.return_value
 
             # Default: validation passes
             validator.validate.return_value = MagicMock(
@@ -41,6 +43,7 @@ class TestReceiptProcessor:
                 'vision': vision,
                 'qr': qr,
                 'validator': validator,
+                'repo': repo
             }
 
             yield processor, mocks
@@ -102,6 +105,12 @@ class TestReceiptProcessor:
         assert result["result"]["header"]["supplier"] == "小吃店"
         assert result["metadata"]["qr_detected"] is False
         assert "verification" not in result["result"]  # No QR = no verification block
+
+    def test_update_config(self, mock_processor):
+        processor, mocks = mock_processor
+        processor.update_config({"new": "config"})
+        assert processor.config == {"new": "config"}
+        mocks['vision'].update_config.assert_called_once_with({"new": "config"})
 
     # =========================================================================
     # Error Handling Tests

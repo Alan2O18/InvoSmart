@@ -112,3 +112,51 @@ class TestRapidOCRHandler:
         empty_img = np.array([])
         results, stats = self.handler.do_ocr(empty_img)
         assert results == []
+
+    @patch('backend.processing.rapidocr_handler.RAPIDOCR_AVAILABLE', False)
+    def test_rapidocr_not_available(self):
+        """Test when rapidocr_onnxruntime is not installed"""
+        handler = RapidOCRHandler({})
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        results, stats = handler.do_ocr(img)
+        assert results == []
+        assert stats["engine"] == "rapidocr"
+        assert stats["text_blocks_count"] == 0
+
+    @patch('backend.processing.rapidocr_handler.RapidOCR')
+    def test_rapidocr_init_exception(self, MockRapidOCR):
+        """Test gracefully handling RapidOCR constructor exceptions."""
+        MockRapidOCR.side_effect = Exception("Init error")
+        handler = RapidOCRHandler({})
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        results, stats = handler.do_ocr(img)
+        assert results == []
+        assert handler.engine is None
+
+    def test_do_ocr_exception(self, mock_rapid_ocr):
+        """Test do_ocr exception branch during inference."""
+        # Make the mocked instance raise an exception when called
+        mock_rapid_ocr.side_effect = Exception("Inference error")
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        results, stats = self.handler.do_ocr(img)
+        assert results == []
+        assert "error" in stats
+        assert stats["error"] == "Inference error"
+
+    def test_do_ocr_list_elapse(self, mock_rapid_ocr):
+        """Test calculating ocr_time if elapse is a list."""
+        mock_rapid_ocr.return_value = (
+            [
+                [[[0,0], [10,0], [10,10], [0,10]], "text1", 0.99]
+            ], 
+            [0.1, 0.2, 0.3]
+        )
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        results, stats = self.handler.do_ocr(img)
+        assert len(results) == 1
+        assert stats["ocr_engine_time_s"] == 0.6
+
+    def test_to_plain_text_empty(self):
+        """Test to_plain_text on empty result."""
+        assert self.handler.to_plain_text([]) == ""
+

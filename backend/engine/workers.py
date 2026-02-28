@@ -26,6 +26,9 @@ def global_receipt_worker_loop(engine):
     """
     logger.info("[Worker] VLM-First Worker 已啟動，等待任務...")
     
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
     while not engine._shutdown_event.is_set():
         try:
             # 阻塞式獲取任務 (timeout 1 秒)
@@ -50,7 +53,7 @@ def global_receipt_worker_loop(engine):
                 logger.warning(f"[Worker] Job 不存在: {job_id}")
                 continue
             # Claim job (set to running)
-            asyncio.run(engine.claim_job(project_id, job_id))
+            loop.run_until_complete(engine.claim_job(project_id, job_id))
             
             # 讀取圖片
             image_path = job["image_path"]
@@ -58,7 +61,7 @@ def global_receipt_worker_loop(engine):
                 image = _load_image(image_path)
             except Exception as e:
                 logger.error(f"[Worker] 圖片讀取失敗: {e}")
-                asyncio.run(engine.fail_job(project_id, job_id, f"圖片讀取失敗: {e}"))
+                loop.run_until_complete(engine.fail_job(project_id, job_id, f"圖片讀取失敗: {e}"))
                 continue
             
             # VLM 處理
@@ -66,7 +69,7 @@ def global_receipt_worker_loop(engine):
                 result = engine.receipt_processor.process(image)
                 
                 if result.get("success"):
-                    asyncio.run(
+                    loop.run_until_complete(
                         engine.complete_job(
                             project_id, job_id,
                             vlm_result=result.get("result", {}),
@@ -78,12 +81,12 @@ def global_receipt_worker_loop(engine):
                     logger.info(f"[Worker] ✓ 處理完成: {job_id}")
                 else:
                     error_msg = result.get("error", "Unknown error")
-                    asyncio.run(engine.fail_job(project_id, job_id, error_msg))
+                    loop.run_until_complete(engine.fail_job(project_id, job_id, error_msg))
                     logger.error(f"[Worker] ✗ 處理失敗: {job_id} - {error_msg}")
                     
             except Exception as e:
                 logger.error(f"[Worker] 處理異常: {e}", exc_info=True)
-                asyncio.run(engine.fail_job(project_id, job_id, str(e)))
+                loop.run_until_complete(engine.fail_job(project_id, job_id, str(e)))
             
         except Exception as e:
             logger.error(f"[Worker] Worker 迴圈異常: {e}", exc_info=True)

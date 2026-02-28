@@ -1,6 +1,5 @@
 # Jobs Router - Job 管理端點 (VLM-First)
 import logging
-import sqlite3
 from fastapi import APIRouter, HTTPException, Depends
 from backend.dependencies import get_engine
 from backend.engine.core import Engine

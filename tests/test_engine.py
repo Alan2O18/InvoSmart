@@ -69,6 +69,89 @@ class TestEngineProjectManagement:
         
         assert tm1 is tm2
 
+    async def test_engine_init_and_workers(self, real_engine_with_temp_workspace):
+        """Test Engine initialization with workers, config loading and queue status."""
+        from backend.engine.core import Engine
+        engine = real_engine_with_temp_workspace
+        
+        # Test config loading
+        with patch("os.path.exists", return_value=True):
+            with patch("builtins.open", return_value=MagicMock(__enter__=lambda _: MagicMock(read=lambda: '{"test": 1}'))):
+                with patch("json.load", return_value={"test": 1}):
+                    conf = engine._load_config()
+                    assert conf == {"test": 1}
+
+        # Test worker thread startup
+        with patch('threading.Thread') as MockThread:
+            mock_thread_instance = MockThread.return_value
+            mock_thread_instance.is_alive.return_value = True
+            
+            # Create a true isolated engine with mocked receipt processor
+            engine2 = Engine(
+                config={"test": 1},
+                receipt_processor=MagicMock(),
+                project_repo=engine.project_repo,
+                start_workers=True,
+                session_factory=engine.session_factory
+            )
+            
+            assert engine2._worker_thread is not None
+            MockThread.assert_called_once()
+            mock_thread_instance.start.assert_called_once()
+            
+            status = engine2.get_queue_status()
+            assert status["worker_alive"] is True
+            assert status["mode"] == "vlm-first"
+
+    async def test_update_config(self, real_engine_with_temp_workspace):
+        """Test runtime configuration updating."""
+        engine = real_engine_with_temp_workspace
+        engine.receipt_processor = MagicMock()
+        
+        engine.update_config({"new": "val"})
+        assert engine.config == {"new": "val"}
+        engine.receipt_processor.update_config.assert_called_once_with({"new": "val"})
+
+    async def test_get_job_repo_without_session_factory(self, real_engine_with_temp_workspace):
+        """Test get_job_repo gracefully falls back when session_factory is None."""
+        engine = real_engine_with_temp_workspace
+        engine.session_factory = None
+        
+        # This will trigger lines 174-175 where it imports AsyncSessionLocal
+        repo = engine.get_job_repo("test_null_factory")
+        assert repo is not None
+        assert repo.project_id == "test_null_factory"
+
+    async def test_recover_pending_tasks(self, real_engine_with_temp_workspace):
+        """Test recovery of pending tasks on startup."""
+        engine = real_engine_with_temp_workspace
+        
+        # Setup specific state
+        await engine.project_repo.register_project("rec_proj", "Rec", str(engine.project_repo.workspace_root / "rec_proj"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("rec_proj"))
+        tm = engine.get_job_repo("rec_proj")
+        
+        await tm.insert_job("job_pending", "img1.jpg")
+        await tm.update_job("job_pending", status="pending")
+        
+        await tm.insert_job("job_ready", "img2.jpg")
+        
+        # Recover
+        await engine.recover_pending_tasks()
+        
+        # Verify queue contains the pending job
+        assert engine.task_queue.qsize() == 1
+        item = engine.task_queue.get_nowait()
+        assert item == ("rec_proj", "job_pending")
+
+    async def test_recover_pending_tasks_exception(self, real_engine_with_temp_workspace):
+        """Test recovery of pending tasks handling exceptions."""
+        engine = real_engine_with_temp_workspace
+        await engine.project_repo.register_project("rec_proj_err", "RecE", str(engine.project_repo.workspace_root / "rec_proj_err"))
+        
+        with patch.object(engine, 'get_job_repo', side_effect=Exception("DB Error")):
+            await engine.recover_pending_tasks()
+
 
 # ============================================================================
 # File Operations Tests
@@ -225,6 +308,24 @@ class TestEngineFileOps:
         res = engine.delete_raw_file("del_raw_nf", "nonexistent.jpg")
         assert res["status"] == "not_found"
 
+    async def test_delete_raw_file_exception(self, real_engine_with_temp_workspace):
+        """Test exception catching in delete raw file."""
+        engine = real_engine_with_temp_workspace
+        with patch("os.remove", side_effect=PermissionError("Locked")):
+            # It needs to hit `path.exists()` first.
+            with patch("pathlib.Path.exists", return_value=True):
+                with pytest.raises(PermissionError):
+                    engine.delete_raw_file("some_proj", "file.jpg")
+
+    async def test_run_split_single(self, real_engine_with_temp_workspace):
+        """Test run_split_single delegation."""
+        from unittest.mock import AsyncMock
+        engine = real_engine_with_temp_workspace
+        engine.file_ops.run_splitting = AsyncMock(return_value={"status": "done"})
+        res = await engine.run_split_single("split_proj", "file1.jpg")
+        engine.file_ops.run_splitting.assert_called_once_with("split_proj", target_files=["file1.jpg"])
+        assert res["status"] == "done"
+
 
 # ============================================================================
 # Processing Tests (VLM-First)
@@ -303,6 +404,13 @@ class TestEngineProcessing:
         with pytest.raises(ValueError):
             await engine.run_single_processing("nf_proj", "nonexistent")
 
+    async def test_run_processing_exception(self, real_engine_with_temp_workspace):
+        """Test exception thrown from inside processing initiator."""
+        engine = real_engine_with_temp_workspace
+        with patch.object(engine, "get_job_repo", side_effect=Exception("Queue Err")):
+            with pytest.raises(Exception, match="Queue Err"):
+                await engine.run_processing("proj_1")
+
 
 # ============================================================================
 # Job Management Tests
@@ -327,6 +435,32 @@ class TestEngineJobManagement:
         await engine.delete_job("del_job", "to_delete")
         
         assert await tm.get_job("to_delete") is None
+
+    async def test_job_state_transitions(self, real_engine_with_temp_workspace):
+        """Test claim, complete, and fail transitions."""
+        engine = real_engine_with_temp_workspace
+        
+        await engine.project_repo.register_project("state_proj", "State", str(engine.project_repo.workspace_root / "state_proj"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("state_proj"))
+        tm = engine.get_job_repo("state_proj")
+        
+        # Claim Job
+        await tm.insert_job("job_claim", "img.jpg")
+        await engine.claim_job("state_proj", "job_claim")
+        j1 = await tm.get_job("job_claim")
+        assert j1["status"] == "running"
+        
+        # Complete Job
+        await tm.insert_job("job_comp", "img.jpg")
+        await engine.complete_job("state_proj", "job_comp", {"header": {}}, {}, {}, True)
+        j2 = await tm.get_job("job_comp")
+        assert j2["status"] == "done"
+        
+        # Fail Job
+        await tm.insert_job("job_fail", "img.jpg")
+        await engine.fail_job("state_proj", "job_fail", "Random Exception")
+        j3 = await tm.get_job("job_fail")
+        assert j3["status"] == "failed"
 
 
 # ============================================================================

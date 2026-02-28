@@ -14,11 +14,11 @@ class ManualTextRequest(BaseModel):
 
 
 @router.put("/{project_id}/jobs/{job_id}/manual")
-def save_manual_text(project_id: str, job_id: str, request: ManualTextRequest, engine: Engine = Depends(get_engine)):
+async def save_manual_text(project_id: str, job_id: str, request: ManualTextRequest, engine: Engine = Depends(get_engine)):
     """Save user's manual correction text."""
     try:
         job_repo = engine.get_job_repo(project_id)
-        success = job_repo.save_manual_json(job_id, {"manual_text": request.manual_text})
+        success = await job_repo.save_manual_json(job_id, {"manual_text": request.manual_text})
         if not success:
             raise HTTPException(status_code=404, detail="Job not found")
         return {"status": "saved", "job_id": job_id}

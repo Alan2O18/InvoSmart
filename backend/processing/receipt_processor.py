@@ -73,7 +73,15 @@ class ReceiptProcessor:
         # ===== Step 0: 建立 RAG 上下文 (從歷史建議詞庫) =====
         rag_context = ""
         try:
-            rag_context = self.suggestion_repo.build_rag_context()
+            import asyncio
+            try:
+                loop = asyncio.get_running_loop()
+                # If there's a running loop, we shouldn't use asyncio.run
+                rag_context = loop.run_until_complete(self.suggestion_repo.build_rag_context())
+            except RuntimeError:
+                # No running loop, use asyncio.run
+                rag_context = asyncio.run(self.suggestion_repo.build_rag_context())
+                
             if rag_context:
                 logger.info(f"[Step 0] RAG 上下文已建立 ({len(rag_context)} chars)")
             else:

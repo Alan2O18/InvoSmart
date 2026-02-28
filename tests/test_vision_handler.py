@@ -153,3 +153,170 @@ class TestVisionHandler:
         
         assert result == {}
         assert "error" in stats
+
+    # ============================================================================
+    # Additional Branch Coverage Tests
+    # ============================================================================
+
+    def test_update_config(self):
+        """Test updating configuration triggers client re-init correctly."""
+        from backend.processing.vision_handler import VisionHandler
+        with patch.dict(os.environ, {}, clear=True):
+            handler = VisionHandler({"vision_settings": {"api_key": "old-key"}})
+            assert handler.api_key == "old-key"
+            
+            with patch.object(handler, '_init_client') as mock_init:
+                handler.update_config({"vision_settings": {"api_key": "new-key", "base_url": "http://new"}})
+                assert handler.api_key == "new-key"
+                assert handler.base_url == "http://new"
+                mock_init.assert_called_once()
+                
+            # Update config without API key removes client
+            handler.update_config({"vision_settings": {}})
+            assert handler.api_key is None
+            assert handler._client is None
+
+    def test_init_client_exception(self):
+        """Test exception inside client initialization."""
+        from backend.processing.vision_handler import VisionHandler
+        with patch.dict(os.environ, {}, clear=True):
+            with patch("backend.processing.vision_handler.OpenAI", side_effect=Exception("Init Failed")):
+                handler = VisionHandler({"vision_settings": {"api_key": "key"}})
+                assert handler._client is None
+
+    def test_prepare_image_b64_exception(self):
+        from backend.processing.vision_handler import VisionHandler
+        handler = VisionHandler({})
+        
+        with patch("cv2.imencode", return_value=(False, None)):
+            with pytest.raises(ValueError, match="圖片編碼失敗"):
+                handler._prepare_image_b64(np.zeros((10, 10, 3), dtype=np.uint8))
+
+    def test_process_handwritten_success(self):
+        from backend.processing.vision_handler import VisionHandler
+        with patch.dict(os.environ, {}, clear=True):
+            handler = VisionHandler({"vision_settings": {"api_key": "test"}})
+            handler._client = MagicMock()
+            
+            with patch.object(handler, '_call_with_retry', return_value='{"status": "ok"}'):
+                res_text, stats = handler.process_handwritten(np.zeros((10,10,3), dtype=np.uint8), "Context")
+                assert "ok" in res_text
+                assert stats["stage"] == "primary"
+
+    def test_process_handwritten_no_client(self):
+        from backend.processing.vision_handler import VisionHandler
+        handler = VisionHandler({})
+        assert getattr(handler, '_client', None) is None
+        res, stats = handler.process_handwritten(np.zeros((10,10,3), dtype=np.uint8))
+        assert res == ""
+        assert "error" in stats
+
+    def test_process_handwritten_exception(self):
+        from backend.processing.vision_handler import VisionHandler
+        handler = VisionHandler({"vision_settings": {"api_key": "test"}})
+        handler._client = MagicMock()
+        with patch.object(handler, '_prepare_image_b64', side_effect=Exception("Prep Error")):
+            res, stats = handler.process_handwritten(np.zeros((10,10,3), dtype=np.uint8))
+            assert res == ""
+            assert stats["error"] == "Prep Error"
+
+    def test_image_to_markdown(self):
+        from backend.processing.vision_handler import VisionHandler
+        handler = VisionHandler({})
+        with patch.object(handler, 'process_image', return_value=({}, {})) as mock_proc:
+            handler.image_to_markdown(np.zeros((10,10,3), dtype=np.uint8))
+            mock_proc.assert_called_once()
+
+    def test_process_image_no_client(self):
+        from backend.processing.vision_handler import VisionHandler
+        handler = VisionHandler({})
+        res, stats = handler.process_image(np.zeros((10,10,3), dtype=np.uint8))
+        assert res == {}
+        assert "error" in stats
+
+    def test_process_image_json_decode_error(self):
+        from backend.processing.vision_handler import VisionHandler
+        handler = VisionHandler({"vision_settings": {"api_key": "test"}})
+        handler._client = MagicMock()
+        
+        with patch.object(handler, '_call_with_retry', return_value='{"incomplete":'):
+            res, stats = handler.process_image(np.zeros((10,10,3), dtype=np.uint8))
+            assert "raw_text" in res
+            assert "incomplete" in res["raw_text"]
+
+    def test_repair_json_heuristics(self):
+        from backend.processing.vision_handler import VisionHandler
+        handler = VisionHandler({})
+        
+        # Test 1: trailing comma at the absolute end
+        assert handler._repair_json('[1, 2,') == '[1, 2]'
+        
+        # Test 2: Incomplete array missing bracket
+        assert handler._repair_json('{"values": [1, 2') == '{"values": [1, 2]}'
+        
+        # Test 3: Instring completion
+        assert handler._repair_json('{"key": "value') == '{"key": "value"}'
+        
+        # Test 4: Escape character inside string
+        assert handler._repair_json('{"key": "val\\"ue') == '{"key": "val\\"ue"}'
+        
+        # Test 5: Broken complex JSON
+        assert handler._repair_json('[{"a": {"b": 1}') == '[{"a": {"b": 1}}]'
+
+    def test_describe_image_success(self):
+        from backend.processing.vision_handler import VisionHandler
+        handler = VisionHandler({"vision_settings": {"api_key": "test"}})
+        handler._client = MagicMock()
+        
+        with patch.object(handler, '_call_with_retry', return_value="A description"):
+            res, stats = handler.describe_image(np.zeros((10,10,3), dtype=np.uint8))
+            assert res == "A description"
+
+    def test_describe_image_no_client(self):
+        from backend.processing.vision_handler import VisionHandler
+        handler = VisionHandler({})
+        res, stats = handler.describe_image(np.zeros((10,10,3), dtype=np.uint8))
+        assert res == ""
+        assert "error" in stats
+
+    def test_describe_image_exception(self):
+        from backend.processing.vision_handler import VisionHandler
+        handler = VisionHandler({"vision_settings": {"api_key": "test"}})
+        handler._client = MagicMock()
+        with patch.object(handler, '_prepare_image_b64', side_effect=Exception("Prep Error")):
+            res, stats = handler.describe_image(np.zeros((10,10,3), dtype=np.uint8))
+            assert res == ""
+            assert stats["error"] == "Prep Error"
+
+    @patch("backend.processing.vision_handler.OpenAI")
+    def test_call_with_retry_no_text(self, mock_openai_cls):
+        from backend.processing.vision_handler import VisionHandler
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        
+        # message.content is empty/None
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = ""
+        mock_client.chat.completions.create.return_value = mock_response
+        
+        handler = VisionHandler({"vision_settings": {"api_key": "test", "max_retries": 1}})
+        with pytest.raises(ValueError, match="回應中找不到文字內容"):
+            handler._call_with_retry("prompt", "data:image/jpeg;base64,123")
+
+    @patch("backend.processing.vision_handler.OpenAI")
+    def test_call_with_retry_with_reasoning(self, mock_openai_cls):
+        from backend.processing.vision_handler import VisionHandler
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "result"
+        # Mock reasoning_content attribute
+        mock_response.choices[0].message.reasoning_content = "thinking"
+        mock_client.chat.completions.create.return_value = mock_response
+        
+        handler = VisionHandler({"vision_settings": {"api_key": "test"}})
+        res = handler._call_with_retry("prompt", "data:image/jpeg;base64,123")
+        assert res == "result"

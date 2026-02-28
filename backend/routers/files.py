@@ -13,7 +13,7 @@ router = APIRouter()
 
 
 @router.post("/{project_id}/add_files")
-def add_files(
+async def add_files(
     project_id: str,
     type: str = Form(...),
     files: List[UploadFile] = File(...),
@@ -32,7 +32,7 @@ def add_files(
             saved_file_paths.append(file_path)
         
         logger.info(f"Calling engine.add_project_files with {saved_file_paths}")
-        return engine.add_project_files(project_id, saved_file_paths, type=type)
+        return await engine.add_project_files(project_id, saved_file_paths, type=type)
     except Exception as e:
         logger.error(f"Error in add_files: {e}")
         import traceback

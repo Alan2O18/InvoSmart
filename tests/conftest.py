@@ -207,6 +207,16 @@ def client(test_engine):
     return TestClient(app)
 
 
+@pytest.fixture
+def mock_app_client(mock_engine_for_api):
+    """
+    FastAPI TestClient utilizing the pure mock engine instance.
+    Essential for rapidly testing Router boundaries without database hits.
+    """
+    from fastapi.testclient import TestClient
+    return TestClient(app)
+
+
 @pytest.fixture(scope="function")
 def fresh_ollama_mock():
     """

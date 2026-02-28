@@ -2,7 +2,6 @@
 import logging
 import time
 import json
-import sqlite3
 import pandas as pd
 from typing import Optional, Dict, Any
 

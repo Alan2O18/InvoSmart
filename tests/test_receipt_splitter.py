@@ -195,3 +195,51 @@ class TestSplitterInit:
         })
         assert s.min_contour_area_percentage == 0.05
         assert s.iou_threshold == 0.5
+
+# ============================================================================
+# Debugging / GUI 顯示測試
+# ============================================================================
+
+from unittest.mock import patch
+
+@pytest.fixture
+def mock_cv2_gui():
+    with patch("backend.processing.receipt_splitter.cv2.imshow") as m_imshow, \
+         patch("backend.processing.receipt_splitter.cv2.waitKey") as m_waitkey, \
+         patch("backend.processing.receipt_splitter.cv2.destroyAllWindows") as m_destroy, \
+         patch("builtins.print") as m_print:
+        yield {"imshow": m_imshow, "waitKey": m_waitkey, "destroyAllWindows": m_destroy, "print": m_print}
+
+class TestReceiptSplitterDebugHelpers:
+    def test_split_debug_mode(self, splitter, mock_cv2_gui):
+        """測試 debug 開啟且 headless=False 的完整分割 GUI"""
+        img = np.ones((800, 600, 3), dtype=np.uint8) * 180
+        cv2.rectangle(img, (50, 50), (550, 750), (255, 255, 255), -1)
+        
+        results = splitter.split(img, debug=True, headless=False)
+        
+        assert len(results) >= 1
+        assert mock_cv2_gui["imshow"].called
+        assert mock_cv2_gui["waitKey"].called
+        assert mock_cv2_gui["destroyAllWindows"].called
+        assert mock_cv2_gui["print"].called
+
+    def test_split_debug_headless_mode(self, splitter, mock_cv2_gui):
+        """測試 debug 開啟但在無頭模式 (headless=True)，確保不會使用 blocking wait"""
+        img = np.ones((800, 600, 3), dtype=np.uint8) * 180
+        cv2.rectangle(img, (50, 50), (550, 750), (255, 255, 255), -1)
+        
+        results = splitter.split(img, debug=True, headless=True)
+        
+        assert len(results) >= 1
+        assert mock_cv2_gui["imshow"].called
+        # waitKey(0) and print() should be omitted in headless debug
+        assert not mock_cv2_gui["print"].called
+
+    def test_show_preview_resize(self, splitter, mock_cv2_gui):
+        """測試 _show_preview 大圖時的縮放分支"""
+        img = np.zeros((1000, 1000, 3), dtype=np.uint8)  # > 800
+        splitter._show_preview(img, 0, 1)
+        
+        mock_cv2_gui["imshow"].assert_called()
+        mock_cv2_gui["waitKey"].assert_called_with(1)

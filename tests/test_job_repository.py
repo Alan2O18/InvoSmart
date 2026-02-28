@@ -220,3 +220,59 @@ class TestJobRepository:
         
         await repo.update_job("j1", status="done")
         assert await repo.has_pending_work() is False
+
+    async def test_save_manual_json_and_get_details(self, repo, async_session_factory):
+        """Test syncing items to InvoiceItem table and stitching them back."""
+        from backend.database.models import Project, InvoiceItem
+        from sqlalchemy import select
+        
+        job_id = "job_manual_json"
+        async with async_session_factory() as session:
+            session.add(Project(project_id="test_proj"))
+            await session.commit()
+            
+        await repo.insert_job(job_id, "img", "ready")
+        
+        # Initial VLM Result (with 1 item)
+        initial_json = {
+            "header": {"buyer": "A"},
+            "items": [{"name": "Item 1", "price": 100, "qty": 1}]
+        }
+        await repo.update_job(job_id, vlm_result_json=json.dumps(initial_json))
+        
+        # User manually edits and saves JSON (now 2 items)
+        manual_json = {
+            "header": {"buyer": "A Edited"},
+            "items": [
+                {"name": "Item 1", "price": 100, "qty": 1},
+                {"name": "Item 2", "price": 200, "qty": 2}
+            ]
+        }
+        
+        await repo.save_manual_json(job_id, manual_json)
+        
+        # 1. Verify DB Job record is updated
+        job = await repo.get_job(job_id)
+        assert job["manual_json_text"] is not None
+        saved_manual = json.loads(job["manual_json_text"])
+        assert saved_manual["header"]["buyer"] == "A Edited"
+        
+        # 2. Verify InvoiceItems were actually extracted and saved to DB
+        async with async_session_factory() as session:
+            result = await session.execute(select(InvoiceItem).where(InvoiceItem.job_id == job_id))
+            items = result.scalars().all()
+            assert len(items) == 2
+            assert items[0].description == "Item 1"
+            assert items[1].description == "Item 2"
+            
+        # 3. Verify get_job_details stitches items dynamically
+        details = await repo.get_job_details(job_id)
+        assert details["manual_json_text"] is not None
+        parsed_manual = json.loads(details["manual_json_text"])
+        assert "items" in parsed_manual
+        assert len(parsed_manual["items"]) == 2
+        
+        # 4. Verify get_display_result (from manual json)
+        display = await repo.get_display_result(job_id)
+        assert display["header"]["buyer"] == "A Edited"
+        assert len(display["items"]) == 2
