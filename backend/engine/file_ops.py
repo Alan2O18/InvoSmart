@@ -159,3 +159,57 @@ class FileOps:
         except Exception as e:
             logger.error(f"Error rotating image {filename}: {e}")
             raise e
+
+    async def add_pdf_files(self, project_id: str, files: list[str]):
+        """
+        處理上傳的 PDF 檔案。
+        將 PDF 存入「原始輸入」，並將第一頁渲染成 JPG 存入「分割發票」。
+        為它建立 Job 時，綁定 source_pdf_path 為 PDF 原始路徑。
+        """
+        try:
+            import fitz
+            root = self.project_repo._project_root(project_id)
+            raw_dir = root / "原始輸入"
+            split_dir = root / "分割發票"
+            
+            raw_dir.mkdir(parents=True, exist_ok=True)
+            split_dir.mkdir(parents=True, exist_ok=True)
+            
+            for file_path in files:
+                # 1. 將上傳的 PDF 存檔
+                filename = Path(file_path).name
+                dest_pdf_path = raw_dir / filename
+                shutil.copy(file_path, dest_pdf_path)
+                
+                # 2. 擷取第一頁供 VLM (Gemini) 識別用
+                try:
+                    doc = fitz.open(str(dest_pdf_path))
+                    page = doc[0]
+                    # 解析度參數 (matrix), 1.0 => 72 DPI, 2.0 => 144 DPI (避免字太糊)
+                    zoom_matrix = fitz.Matrix(2.0, 2.0)
+                    pix = page.get_pixmap(matrix=zoom_matrix)
+                    
+                    ts = int(time.time())
+                    # 避免副檔名重複，將 .pdf 換成 _page0_xxx.jpg
+                    stem = Path(filename).stem
+                    jpg_filename = f"{stem}_page0_{ts}.jpg"
+                    dest_jpg_path = split_dir / jpg_filename
+                    
+                    pix.save(str(dest_jpg_path))
+                    doc.close()
+                    
+                    # 3. 將這個 PDF 與第一頁關聯到同一個 Job 中
+                    await self.engine.enqueue_pdf_upload(
+                        project_id, 
+                        str(dest_pdf_path.resolve()), 
+                        str(dest_jpg_path.resolve())
+                    )
+                    logger.debug(f"[FileOps] 成功掛載 PDF {filename} 與預覽圖 {jpg_filename}")
+                except Exception as ex:
+                    logger.error(f"[FileOps] 轉換 PDF 第一頁失敗: {ex}")
+                    # 如果失敗就不建立 Job
+            
+            return {"status": "added"}
+        except Exception as e:
+            logger.error(f"Error adding pdf files to {project_id}: {e}")
+            raise e

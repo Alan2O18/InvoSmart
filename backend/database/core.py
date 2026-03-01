@@ -58,8 +58,8 @@ def set_sqlite_pragma(dbapi_connection, connection_record):
         logger.warning(f"[DB] Failed to set PRAGMA: {e}")
 
 
-def init_db(db_path: Path = None):
-    """Initialize engines and session factories. Safe to call multiple times or override db_path for tests."""
+async def init_db(db_path: Path = None):
+    """Initialize engines and session factories and create tables asynchronously. Safe to call multiple times."""
     global async_engine, AsyncSessionLocal, sync_engine, SyncSessionLocal
 
     if db_path is None:
@@ -111,3 +111,9 @@ def init_db(db_path: Path = None):
         autoflush=False,
         expire_on_commit=False
     )
+    
+    # --- Create Tables ---
+    # This replaces the need for Alembic in simple SQLite deployments
+    async with async_engine.begin() as conn:
+        logger.info("[DB] Creating core tables if they don't exist...")
+        await conn.run_sync(Base.metadata.create_all)

@@ -43,13 +43,20 @@
 
 | 欄位 | 類型 | 說明 |
 |---|---|---|
-| `job_id` | String (PK) | 任務唯一識別碼 |
-| `project_id` | String (FK) | 關聯專案的 ID |
-| `image_path` | String | 圖片相對路徑 |
-| `status` | String | `ready`, `pending`, `running`, `done`, `failed` |
-| `vlm_result_json` | Text | VLM 回傳的原始 Header JSON |
-| `manual_json_text` | Text | 使用者覆寫校正的結果 |
-
+- `jobs`: 單一檔案的處理任務。
+  - `job_id`: 主鍵 (UUID)
+  - `project_id`: 關聯的專案 ID (統一遷移至 global.db 後新增)
+  - `image_path`: 原始上傳圖片路徑 (針對單張圖)
+  - `source_pdf_path`: 原始上傳 PDF 路徑 (針對多頁或單頁 PDF)
+  - `compressed_pdf_path`: 壓縮與處理後的 PDF 路徑
+  - `status`: 任務處理狀態 (`ready`, `pending`, `running`, `done`, `failed`)
+  - `pdf_status`: PDF 特有處理狀態 (`uploaded`, `ocr_done`, `needs_review`, `compressing`, `completed`)
+  - `vlm_result_json`: 儲存來自 AI 引擎的原始 JSON 辨識結果
+  - `pdf_commands_json`: 前端蓋章/排版指令 JSON，供後端引擎處理
+  - `validation_json`: 後端 PythonValidator 的檢查結果與信心度
+  - `qr_verified`: 是否經過 QR Code 輔助驗證 (`1` 或 `0`)
+  - `manual_json_text`: 使用者手動校正後的最終 JSON
+  - 欄位索引: `project_id`, `status`, `pdf_status` 具備索引以加速查詢。
 ### 3. `invoice_items` (發票細項)
 將原本封裝在 JSON 內的商品細項正規化為一對多關聯表 (One-to-Many)，此為唯一的真理來源 (Source of Truth)。
 

@@ -47,6 +47,10 @@
         <label>上傳已分割的圖 (Split):</label>
         <input type="file" multiple @change="(e) => handleFileUpload(e, 'split')" />
       </div>
+      <div class="action-group" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #444;">
+        <label style="color: #60a5fa; font-weight: bold;">上傳 PDF 檔案:</label>
+        <input type="file" multiple accept="application/pdf" @change="(e) => handlePdfUpload(e)" />
+      </div>
     </div>
 
     <div class="jobs-section">
@@ -104,18 +108,29 @@
                   <img :src="getImageUrl(job.image_path)" alt="preview" @error="handleImgError" />
                 </div>
               </td>
-              <td class="filename" :title="job.image_path">{{ getFilename(job.image_path) }}</td>
+              <td class="filename" :title="job.image_path">
+                {{ getFilename(job.image_path) }}
+                <div v-if="job.source_pdf_path" class="pdf-indicator">📄 PDF 檔案</div>
+              </td>
               <td>
-                <span class="badge" :class="getStatusBadgeClass(job)">
-                  {{ getStatusText(job) }}
-                </span>
-                <button v-if="canShowProcessButton(job)" @click="runSingleProcessing(job)" class="mini-btn">
+                <div>
+                  <span class="badge" :class="getStatusBadgeClass(job)">
+                    {{ getStatusText(job) }}
+                  </span>
+                </div>
+                <div v-if="job.pdf_status" style="margin-top: 0.5rem;">
+                  <span class="badge" :class="getPdfStatusBadgeClass(job)">
+                    PDF: {{ job.pdf_status }}
+                  </span>
+                </div>
+                <button v-if="canShowProcessButton(job)" @click="runSingleProcessing(job)" class="mini-btn mt-2">
                   {{ isDone(job) ? '重新處理' : '處理' }}
                 </button>
               </td>
               <td>
                 <div class="actions-cell">
-                  <button @click="editJob(job)" class="mini-btn edit">Edit</button>
+                  <button @click="editJob(job)" class="mini-btn edit">核對資料</button>
+                  <button v-if="job.source_pdf_path" @click="editPdfJob(job)" class="mini-btn pdf-btn">PDF 蓋章排版</button>
                   <button @click="rotateImage(job, 90)" class="icon-btn" title="Rotate Right">↻</button>
                   <button @click="rotateImage(job, -90)" class="icon-btn" title="Rotate Left">↺</button>
                   <button @click="deleteJob(job)" class="mini-btn danger">Delete</button>
@@ -233,6 +248,14 @@ const getStatusBadgeClass = (job) => {
   return 'pending';
 }
 
+const getPdfStatusBadgeClass = (job) => {
+  if (job.pdf_status === 'failed') return 'danger';
+  if (job.pdf_status === 'completed') return 'success';
+  if (job.pdf_status === 'uploaded') return 'info';
+  if (job.pdf_status === 'pending_compression' || job.pdf_status === 'compressing') return 'pending';
+  return 'pending';
+}
+
 const canShowProcessButton = (job) => {
   if (job.status === 'pending' || job.status === 'running') return false;
   return true;
@@ -325,6 +348,28 @@ const handleFileUpload = async (event, type) => {
   }
 }
 
+const handlePdfUpload = async (event) => {
+  const files = event.target.files;
+  if (!files.length) return;
+
+  const formData = new FormData();
+  for (let i = 0; i < files.length; i++) {
+    formData.append('files', files[i]);
+  }
+
+  loading.value = true;
+  try {
+    await api.uploadPdf(projectId, formData);
+    alert('PDF Files added successfully');
+    await fetchProjectData();
+  } catch (e) {
+    alert('Error adding PDF files: ' + e);
+  } finally {
+    loading.value = false;
+    event.target.value = '';
+  }
+}
+
 const rotateImage = async (job, angle) => {
   const filename = getFilename(job.image_path);
   try {
@@ -351,6 +396,10 @@ const runSingleProcessing = async (job) => {
 
 const editJob = (job) => {
   router.push(`/project/${projectId}/edit-job?jobId=${job.job_id}`)
+}
+
+const editPdfJob = (job) => {
+  router.push(`/project/${projectId}/pdf-editor?jobId=${job.job_id}`)
 }
 
 </script>
@@ -560,6 +609,21 @@ th {
 
 .mini-btn.edit {
     background: #8b5cf6;
+}
+
+.mini-btn.pdf-btn {
+    background: #0ea5e9;
+}
+
+.mt-2 {
+    margin-top: 0.5rem;
+}
+
+.pdf-indicator {
+    font-size: 0.75rem;
+    color: #60a5fa;
+    margin-top: 0.25rem;
+    font-weight: 500;
 }
 
 .icon-btn {

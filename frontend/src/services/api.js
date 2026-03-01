@@ -56,6 +56,21 @@ export default {
   },
 
   // =====================
+  // PDF Processing
+  // =====================
+  uploadPdf(projectId, formData) {
+    return api.post(`/api/pdf/${projectId}/upload_pdf`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  executePdfCommands(projectId, jobId, commands) {
+    return api.post(`/api/pdf/${projectId}/${jobId}/commands`, commands)
+  },
+  downloadPdf(projectId, jobId) {
+    return api.get(`/api/pdf/${projectId}/${jobId}/download`, { responseType: 'blob' })
+  },
+
+  // =====================
   // Pipeline Actions (VLM-First)
   // =====================
   runSplit(projectId) {

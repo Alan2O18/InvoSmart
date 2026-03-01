@@ -8,7 +8,7 @@ This workflow guides you through starting both the unified FastAPI backend (VLM-
 Because running both requires two separate long-running processes, you will need to open two separate terminal windows.
 
 ## Prerequisites
-1. **Backend**: Ensure the `OCR_GA` Python environment is configured and your `GOOGLE_API_KEY` is set in `.env`.
+1. **Backend**: Ensure the `OCR_GA` Python environment is configured and your `GOOGLE_API_KEY` is set in `.env`. (Note: use `uv pip install` for any new Python packages).
 2. **Frontend**: Ensure Node.js is installed and `npm install` has been run in the `frontend/` directory.
 
 ---

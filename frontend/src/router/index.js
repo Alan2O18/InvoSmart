@@ -33,6 +33,16 @@ const router = createRouter({
       path: '/settings',
       name: 'settings',
       component: () => import('../views/SettingsView.vue')
+    },
+    {
+      path: '/project/:id/pdf-editor',
+      name: 'pdf-editor',
+      component: () => import('../views/PdfEditorView.vue')
+    },
+    {
+      path: '/kanban',
+      name: 'kanban',
+      component: () => import('../views/KanbanView.vue')
     }
   ]
 })

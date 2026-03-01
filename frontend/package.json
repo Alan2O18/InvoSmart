@@ -13,7 +13,9 @@
     "@codemirror/lint": "^6.9.4",
     "@codemirror/view": "^6.39.14",
     "axios": "^1.13.2",
+    "fabric": "^7.2.0",
     "lodash-es": "^4.17.23",
+    "pdfjs-dist": "^5.4.624",
     "vue": "^3.5.24",
     "vue-codemirror": "^6.1.1",
     "vue-router": "^4.6.3"

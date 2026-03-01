@@ -96,8 +96,12 @@ class TestEngineProjectManagement:
             )
             
             assert engine2._worker_thread is not None
-            MockThread.assert_called_once()
-            mock_thread_instance.start.assert_called_once()
+            assert MockThread.call_count == 2
+            assert mock_thread_instance.start.call_count == 2
+            
+            calls = MockThread.call_args_list
+            assert calls[0].kwargs['target'].__name__ == 'global_receipt_worker_loop'
+            assert calls[1].kwargs['target'].__name__ == 'pdf_worker_loop'
             
             status = engine2.get_queue_status()
             assert status["worker_alive"] is True

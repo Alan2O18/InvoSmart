@@ -24,6 +24,7 @@ from backend.repositories.job_repository import JobRepository
 from backend.processing.receipt_splitter import ReceiptSplitter
 
 from .workers import global_receipt_worker_loop
+from .pdf_worker import pdf_worker_loop
 from .file_ops import FileOps
 from .export import ExportHandler
 
@@ -63,12 +64,16 @@ class Engine:
         self._job_repos: Dict[str, JobRepository] = {}
         self._repo_lock = threading.Lock()
         
-        # 全局任務佇列
+        # 全局任務佇列 (影像 VLM 專用)
         self.task_queue: queue.Queue = queue.Queue()
+        
+        # 獨立 PDF 任務佇列
+        self.pdf_task_queue: queue.Queue = queue.Queue()
         
         # Worker 控制
         self._shutdown_event = threading.Event()
         self._worker_thread: Optional[threading.Thread] = None
+        self._pdf_worker_thread: Optional[threading.Thread] = None
         
         # 條件啟動 Workers
         if start_workers:
@@ -119,6 +124,7 @@ class Engine:
 
     def _start_global_workers(self):
         """啟動全局 Worker 線程"""
+        # 1. 影像 VLM Worker
         self._worker_thread = threading.Thread(
             target=global_receipt_worker_loop,
             args=(self,),
@@ -127,6 +133,16 @@ class Engine:
         )
         self._worker_thread.start()
         logger.info("[Engine] VLM-First Worker 已啟動")
+        
+        # 2. 獨立 PDF Worker
+        self._pdf_worker_thread = threading.Thread(
+            target=pdf_worker_loop,
+            args=(self,),
+            name="PDFProcessingWorker",
+            daemon=True
+        )
+        self._pdf_worker_thread.start()
+        logger.info("[Engine] PDF Processing Worker 已啟動")
 
     async def recover_pending_tasks(self):
         """Server 啟動時恢復未完成的任務"""
@@ -186,12 +202,57 @@ class Engine:
     # ========================================
 
     async def enqueue_job(self, project_id: str, image_path: str) -> str:
-        """建立新 Job 並加入佇列。"""
+        """建立新 Job 並加入佇列。 (針對圖片)"""
         job_repo = self.get_job_repo(project_id)
         job_id = f"job-{int(time.time())}-{uuid.uuid4().hex[:6]}"
         await job_repo.insert_job(job_id, image_path, "ready")
         await job_repo.emit_event(job_id, "enqueued", {"image_path": image_path})
         return job_id
+
+    async def enqueue_pdf_upload(self, project_id: str, source_pdf_path: str, image_path: str) -> str:
+        """
+        將上傳的 PDF 建立為 Job。
+        image_path 會指向已抽取的首頁 JPG (供 VLM 分析)。
+        source_pdf_path 保存 PDF 原始路徑。
+        """
+        import os as _os
+        job_repo = self.get_job_repo(project_id)
+        job_id = f"job-{int(time.time())}-{uuid.uuid4().hex[:6]}"
+        
+        # 1. 建立 job (此時會帶入 image_path 讓 VLM 覺得這是一張圖片)
+        await job_repo.insert_job(job_id, image_path, "ready")
+        
+        # 2. 補充 PDF 特殊欄位 (Bug 1 fix: 同時設定 compressed_pdf_path 讓 Worker 有輸出路徑)
+        source_dir = _os.path.dirname(source_pdf_path)
+        output_dir = _os.path.join(_os.path.dirname(source_dir), "輸出結果")  # 與 原始輸入 平行
+        _os.makedirs(output_dir, exist_ok=True)
+        stem = _os.path.splitext(_os.path.basename(source_pdf_path))[0]
+        compressed_pdf_path = _os.path.join(output_dir, f"{stem}_compressed.pdf")
+        
+        await job_repo.update_job(
+            job_id,
+            source_pdf_path=source_pdf_path,
+            compressed_pdf_path=compressed_pdf_path,
+            pdf_status="uploaded"
+        )
+        
+        # 3. 發送事件
+        await job_repo.emit_event(job_id, "enqueued_pdf", {"source_pdf_path": source_pdf_path, "image_path": image_path})
+        return job_id
+
+    async def enqueue_pdf_job(self, project_id: str, job_id: str, commands: dict) -> bool:
+        """
+        將已現存的 Job 加入 PDF 處理佇列。
+        前端送出蓋章排版指令時呼叫此方法。
+        """
+        job_repo = self.get_job_repo(project_id)
+        # 更新狀態為準備壓縮
+        await job_repo.update_job(job_id, pdf_status="pending_compression")
+        
+        # 將任務推入獨立佇列
+        self.pdf_task_queue.put((project_id, job_id, commands))
+        logger.info(f"[Engine] PDF 任務 {job_id} 已加入隊列")
+        return True
 
     async def claim_job(self, project_id: str, job_id: str) -> bool:
         """將 Job 標記為 running。"""
@@ -287,6 +348,9 @@ class Engine:
 
     async def add_project_files(self, project_id: str, files: list[str], type: str = "raw"):
         return await self.file_ops.add_project_files(project_id, files, type)
+
+    async def add_pdf_files(self, project_id: str, files: list[str]):
+        return await self.file_ops.add_pdf_files(project_id, files)
 
     def rotate_image(self, project_id: str, filename: str, angle: int = 90):
         return self.file_ops.rotate_image(project_id, filename, angle)

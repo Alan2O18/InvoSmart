@@ -59,7 +59,11 @@ class JobRepository:
                 "project_id": job.project_id,
                 "job_id": job.job_id,
                 "image_path": job.image_path,
+                "source_pdf_path": job.source_pdf_path,
+                "compressed_pdf_path": job.compressed_pdf_path,
                 "status": job.status,
+                "pdf_status": job.pdf_status,
+                "pdf_commands_json": job.pdf_commands_json,
                 "vlm_result_json": job.vlm_result_json,
                 "vlm_stats": job.vlm_stats,
                 "validation_json": job.validation_json,
@@ -221,7 +225,9 @@ class JobRepository:
                     "project_id": j.project_id,
                     "job_id": j.job_id,
                     "image_path": j.image_path,
+                    "source_pdf_path": j.source_pdf_path,  # Bug 2 fix: required for PDF filtering in frontend
                     "status": j.status,
+                    "pdf_status": j.pdf_status,
                     "created_at": j.created_at,
                     "updated_at": j.updated_at,
                     # We usually don't need full JSONs in list endpoint (for optimization)
@@ -331,7 +337,10 @@ class JobRepository:
         return {
             "job_id": job["job_id"],
             "image_path": job["image_path"],
+            "source_pdf_path": job.get("source_pdf_path"),
+            "compressed_pdf_path": job.get("compressed_pdf_path"),
             "status": job["status"],
+            "pdf_status": job.get("pdf_status"),
             "vlm_result": vlm_result,
             "validation": validation,
             "vlm_stats": vlm_stats,

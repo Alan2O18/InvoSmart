@@ -27,7 +27,11 @@ class Job(Base):
     # Note: adding project_id explicitly to unify job per-project SQLite into the global SQLite.
     project_id = Column(String, ForeignKey("projects.project_id", ondelete="CASCADE"), nullable=False, index=True)
     image_path = Column(String, nullable=False)
+    source_pdf_path = Column(String, nullable=True)
+    compressed_pdf_path = Column(String, nullable=True)
     status = Column(String, nullable=False, index=True)
+    pdf_status = Column(String, nullable=True, index=True)
+    pdf_commands_json = Column(Text, nullable=True)
     
     # JSON strings or objects depending on access pattern, mostly strings in previous DB architecture
     vlm_result_json = Column(Text, nullable=True)

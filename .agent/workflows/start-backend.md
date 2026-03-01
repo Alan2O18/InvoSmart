@@ -6,7 +6,8 @@ description: How to start the backend FastAPI server (VLM-First V2)
 
 ## Prerequisites
 1. Ensure the `OCR_GA` environment is set up and activated.
-2. Ensure your `GOOGLE_API_KEY` is set in `.env` or `config.json` (VLM-First architecture). No local Ollama is required.
+2. **Package Installation**: If you need to install new pip packages, **MUST** use `uv pip install <package>` instead of pure `pip` for speed and environment consistency.
+3. Ensure your `GOOGLE_API_KEY` is set in `.env` or `config.json` (VLM-First architecture). No local Ollama is required.
 
 ## Start the Server
 
