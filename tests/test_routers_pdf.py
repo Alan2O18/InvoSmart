@@ -68,7 +68,7 @@ async def test_upload_pdf(mock_engine, tmp_path):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         with open(pdf_path, "rb") as f:
             response = await client.post(
-                "/api/pdf/proj1/upload_pdf",
+                "/api/pdf/proj1/pdf",
                 files={"files": ("test_upload.pdf", f, "application/pdf")}
             )
         

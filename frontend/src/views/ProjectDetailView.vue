@@ -31,8 +31,13 @@
         </div>
       </div>
       <div class="arrow">→</div>
+      <div class="step" :class="{ active: canGenerateVoucher }">
+        <h3>4. 匯出憑證</h3>
+        <button @click="generateVoucherPdf" :disabled="!canGenerateVoucher || loading" class="pdf-btn">產生黏貼紙</button>
+      </div>
+      <div class="arrow">→</div>
       <div class="step" :class="{ active: canArchive }">
-        <h3>4. 封存</h3>
+        <h3>5. 封存</h3>
         <button @click="runArchive" :disabled="!canArchive || loading">封存活動</button>
       </div>
     </div>
@@ -102,7 +107,7 @@
             </tr>
           </thead>
           <tbody>
-            <tr v-for="job in jobs" :key="job.job_id">
+            <tr v-for="job in receiptJobs" :key="job.job_id">
               <td>
                 <div class="img-preview">
                   <img :src="getImageUrl(job.image_path)" alt="preview" @error="handleImgError" />
@@ -110,17 +115,11 @@
               </td>
               <td class="filename" :title="job.image_path">
                 {{ getFilename(job.image_path) }}
-                <div v-if="job.source_pdf_path" class="pdf-indicator">📄 PDF 檔案</div>
               </td>
               <td>
                 <div>
                   <span class="badge" :class="getStatusBadgeClass(job)">
                     {{ getStatusText(job) }}
-                  </span>
-                </div>
-                <div v-if="job.pdf_status" style="margin-top: 0.5rem;">
-                  <span class="badge" :class="getPdfStatusBadgeClass(job)">
-                    PDF: {{ job.pdf_status }}
                   </span>
                 </div>
                 <button v-if="canShowProcessButton(job)" @click="runSingleProcessing(job)" class="mini-btn mt-2">
@@ -130,15 +129,60 @@
               <td>
                 <div class="actions-cell">
                   <button @click="editJob(job)" class="mini-btn edit">核對資料</button>
-                  <button v-if="job.source_pdf_path" @click="editPdfJob(job)" class="mini-btn pdf-btn">PDF 蓋章排版</button>
                   <button @click="rotateImage(job, 90)" class="icon-btn" title="Rotate Right">↻</button>
                   <button @click="rotateImage(job, -90)" class="icon-btn" title="Rotate Left">↺</button>
                   <button @click="deleteJob(job)" class="mini-btn danger">Delete</button>
                 </div>
               </td>
             </tr>
-            <tr v-if="jobs.length === 0">
-              <td colspan="4" class="no-data">No jobs found.</td>
+            <tr v-if="receiptJobs.length === 0">
+              <td colspan="4" class="no-data">尚無發票憑證。</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- PDF 檔案區塊 -->
+    <div class="jobs-section">
+      <h3>獨立 PDF 文件 (PDF Files)</h3>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>預覽</th>
+              <th>檔名</th>
+              <th>狀態</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="job in pdfJobs" :key="job.job_id">
+              <td>
+                <div class="img-preview">
+                  <img :src="getImageUrl(job.image_path)" alt="preview" @error="handleImgError" />
+                </div>
+              </td>
+              <td class="filename" :title="job.source_pdf_path">
+                {{ getFilename(job.source_pdf_path) }}
+                <div class="pdf-indicator">📄 PDF 檔案</div>
+              </td>
+              <td>
+                <div>
+                  <span class="badge" :class="getPdfStatusBadgeClass(job)">
+                    PDF: {{ job.pdf_status || 'uploaded' }}
+                  </span>
+                </div>
+              </td>
+              <td>
+                <div class="actions-cell">
+                  <button @click="editPdfJob(job)" class="mini-btn pdf-btn">PDF 蓋章排版</button>
+                  <button @click="deleteJob(job)" class="mini-btn danger">Delete</button>
+                </div>
+              </td>
+            </tr>
+            <tr v-if="pdfJobs.length === 0">
+              <td colspan="4" class="no-data">尚無 PDF 文件。</td>
             </tr>
           </tbody>
         </table>
@@ -159,6 +203,8 @@ const projectId = route.params.id
 const project = ref(null)
 const progress = ref(null)
 const jobs = ref([])
+const receiptJobs = computed(() => jobs.value.filter(j => !j.source_pdf_path))
+const pdfJobs = computed(() => jobs.value.filter(j => j.source_pdf_path))
 const rawFiles = ref([])
 const loading = ref(false)
 let pollInterval = null
@@ -201,6 +247,7 @@ const canSplit = computed(() => progress.value?.ingested)
 const canProcess = computed(() => progress.value?.split)
 const canExport = computed(() => progress.value?.processed)
 const canArchive = computed(() => project.value?.status === 'ARCHIVED' || project.value?.status === 'SEALED' || progress.value?.processed)
+const canGenerateVoucher = computed(() => receiptJobs.value.some(j => j.status === 'done'))
 
 const imageVersions = ref({})
 
@@ -257,6 +304,7 @@ const getPdfStatusBadgeClass = (job) => {
 }
 
 const canShowProcessButton = (job) => {
+  if (job.source_pdf_path) return false;
   if (job.status === 'pending' || job.status === 'running') return false;
   return true;
 }
@@ -322,6 +370,25 @@ const runArchive = async () => {
       await fetchProjectData(); 
   } 
   catch (e) { alert(e); } 
+  finally { loading.value = false; }
+}
+
+const generateVoucherPdf = async () => {
+  loading.value = true
+  try {
+      const res = await api.generateVoucherPdf(projectId);
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${projectId}_voucher.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      alert('憑證黏貼紙已產生並下載！');
+  } 
+  catch (e) { alert('產生憑證失敗: ' + (e.response?.data?.detail || e.message)); } 
   finally { loading.value = false; }
 }
 

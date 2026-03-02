@@ -2,6 +2,11 @@
 import cv2
 import numpy as np
 import os
+import logging
+
+logger = logging.getLogger(__name__)
+import numpy as np
+import os
 
 
 def cv_imread_chinese(filepath: str) -> np.ndarray:
@@ -24,5 +29,38 @@ def cv_imwrite_chinese(filepath: str, image: np.ndarray) -> bool:
             return True
         return False
     except Exception as e:
-        print(f"寫入圖片失敗: {filepath}. 錯誤: {e}")
+        logger.error(f"寫入圖片失敗: {filepath}. 錯誤: {e}")
         return False
+
+import tempfile
+import shutil
+from typing import List, AsyncGenerator
+from contextlib import asynccontextmanager
+from fastapi import UploadFile
+
+@asynccontextmanager
+async def handle_upload_files(files: List[UploadFile]) -> AsyncGenerator[List[str], None]:
+    """
+    非同步 Context Manager，處理上傳檔案並自動清理暫存資料夾。
+    
+    Args:
+        files: FastAPI UploadFile 列表
+        
+    Yields:
+        List[str]: 已儲存到暫存目錄的檔案絕對路徑列表
+    """
+    temp_dir = tempfile.mkdtemp()
+    saved_file_paths = []
+    
+    try:
+        for file in files:
+            file_path = os.path.join(temp_dir, file.filename)
+            with open(file_path, "wb") as buffer:
+                shutil.copyfileobj(file.file, buffer)
+            saved_file_paths.append(file_path)
+            
+        yield saved_file_paths
+        
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+

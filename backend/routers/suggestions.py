@@ -23,29 +23,36 @@ class BulkSuggestionRequest(BaseModel):
 
 from backend.database.core import AsyncSessionLocal
 
+def get_suggestion_repo() -> SuggestionRepository:
+    """Dependency to provide a SuggestionRepository instance."""
+    return SuggestionRepository(session_factory=AsyncSessionLocal)
+
 @router.get("/suggestions")
 async def get_suggestions(
     category: str = Query(..., description="分類: supplier, item_name, buyer, seller_id, buyer_id, stamp_shop_name"),
     q: str = Query("", description="搜尋關鍵字"),
     limit: int = Query(20, description="回傳數量上限"),
-    engine: Engine = Depends(get_engine)
+    repo: SuggestionRepository = Depends(get_suggestion_repo)
 ) -> List[str]:
     """查詢建議詞"""
-    repo = SuggestionRepository(session_factory=AsyncSessionLocal)
     return await repo.search(category, q, limit)
 
 
 @router.post("/suggestions")
-async def add_suggestion(request: SuggestionRequest, engine: Engine = Depends(get_engine)):
+async def add_suggestion(
+    request: SuggestionRequest, 
+    repo: SuggestionRepository = Depends(get_suggestion_repo)
+):
     """新增或更新建議詞"""
-    repo = SuggestionRepository(session_factory=AsyncSessionLocal)
     success = await repo.add_or_update(request.category, request.value)
     return {"status": "ok" if success else "failed"}
 
 
 @router.post("/suggestions/bulk")
-async def bulk_add_suggestions(request: BulkSuggestionRequest, engine: Engine = Depends(get_engine)):
+async def bulk_add_suggestions(
+    request: BulkSuggestionRequest, 
+    repo: SuggestionRepository = Depends(get_suggestion_repo)
+):
     """批次新增建議詞"""
-    repo = SuggestionRepository(session_factory=AsyncSessionLocal)
     added = await repo.bulk_add(request.category, request.values)
     return {"status": "ok", "added": added}

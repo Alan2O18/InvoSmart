@@ -99,6 +99,11 @@ export default {
       responseType: 'blob'
     })
   },
+  generateVoucherPdf(projectId) {
+    return api.post(`/api/projects/${projectId}/generate-voucher-pdf`, null, {
+      responseType: 'blob'
+    })
+  },
   runArchive(projectId) {
     return api.post(`/api/projects/${projectId}/run_archive`)
   },

@@ -18,6 +18,4 @@ def test_save_manual_text_not_found(mock_app_client, mock_engine_for_api):
     response = mock_app_client.put("/api/projects/proj1/jobs/j1/manual", json={"manual_text": "Corrected."})
     assert response.status_code == 404
 
-def test_regenerate_from_manual(mock_app_client, mock_engine_for_api):
-    response = mock_app_client.post("/api/projects/proj1/jobs/j1/regenerate_from_manual")
-    assert response.status_code == 501
+

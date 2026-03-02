@@ -57,13 +57,20 @@ async def run_single_processing(project_id: str, job_id: str, engine: Engine = D
 
 
 from pydantic import BaseModel
+from backend.routers.suggestions import get_suggestion_repo, SuggestionRepository
 
 class ManualJsonRequest(BaseModel):
     json_data: dict
 
 
 @router.put("/{project_id}/jobs/{job_id}/json")
-async def save_manual_json(project_id: str, job_id: str, request: ManualJsonRequest, engine: Engine = Depends(get_engine)):
+async def save_manual_json(
+    project_id: str, 
+    job_id: str, 
+    request: ManualJsonRequest, 
+    engine: Engine = Depends(get_engine),
+    suggestion_repo: SuggestionRepository = Depends(get_suggestion_repo)
+):
     """Save user's manual JSON edit and extract knowledge into suggestion DB."""
     try:
         tm = engine.get_job_repo(project_id)
@@ -73,9 +80,6 @@ async def save_manual_json(project_id: str, job_id: str, request: ManualJsonRequ
 
         # === 回饋機制：從人工確認的 JSON 萃取知識 ===
         try:
-            from backend.repositories.suggestion_repository import SuggestionRepository
-            from backend.database.core import AsyncSessionLocal
-            suggestion_repo = SuggestionRepository(session_factory=AsyncSessionLocal)
             added = await suggestion_repo.extract_from_manual_json(request.json_data)
             logger.info(f"[FeedbackLoop] 儲存成功，已萃取 {added} 筆建議詞")
         except Exception as fb_err:

@@ -4,8 +4,11 @@ from contextlib import asynccontextmanager
 import sys
 import os
 
+# Calculate absolute project root once
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 # Add the parent directory to sys.path to allow imports from the root
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(PROJECT_ROOT)
 
 # Initialize logging BEFORE other imports
 from backend.utils.logger import setup_logging
@@ -20,11 +23,14 @@ from fastapi.staticfiles import StaticFiles
 import json
 
 # Load config to get workspace root
-config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
-with open(config_path, "r", encoding="utf-8") as f:
-    config = json.load(f)
-workspace_root = config["project_manager_settings"]["workspace_root"]
-global_db_path = config["project_manager_settings"]["global_db_path"]
+from backend.utils.config import load_config
+config = load_config()
+
+# Set defaults if keys are missing in config
+pm_settings = config.get("project_manager_settings", {})
+workspace_root = pm_settings.get("workspace_root", "workspace")
+global_db_path = pm_settings.get("global_db_path", "backend/data/global.db")
+
 
 # Ensure workspace root exists to prevent StaticFiles mount crash
 os.makedirs(workspace_root, exist_ok=True)

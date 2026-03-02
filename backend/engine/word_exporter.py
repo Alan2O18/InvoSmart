@@ -220,7 +220,7 @@ class WordExporter:
             if isinstance(vlm_raw, str) and vlm_raw.strip():
                 try:
                     vlm = json.loads(vlm_raw)
-                except:
+                except Exception:
                     pass
             elif isinstance(vlm_raw, dict):
                 vlm = vlm_raw

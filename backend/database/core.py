@@ -30,18 +30,15 @@ SyncSessionLocal = None
 
 def get_global_db_path() -> Path:
     """Read config.json and return the absolute path to global.db, or fallback."""
-    config_path = Path("config.json")
+    from backend.utils.config import load_config
+    
     db_path_str = "backend/data/global.db"
-
-    if config_path.exists():
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                config = json.load(f)
-            # Fetch the path using the exact same logic as Engine does
-            pm_settings = config.get("project_manager_settings", {})
-            db_path_str = pm_settings.get("global_db_path", db_path_str)
-        except Exception as e:
-            logger.warning(f"[DB] Failed to read config.json, using default db path: {e}")
+    try:
+        config = load_config()
+        pm_settings = config.get("project_manager_settings", {})
+        db_path_str = pm_settings.get("global_db_path", db_path_str)
+    except Exception as e:
+        logger.warning(f"[DB] Failed to get global_db_path from config, using default: {e}")
 
     # Ensure path is expanded and absolute
     return Path(db_path_str).expanduser().resolve()

@@ -35,7 +35,7 @@ def global_receipt_worker_loop(engine):
             try:
                 task = engine.task_queue.get(timeout=1.0)
                 project_id, job_id = task[0], task[1]
-            except:
+            except Exception:
                 continue
             
             logger.info(f"[Worker] 開始處理: {project_id}/{job_id}")
@@ -58,7 +58,8 @@ def global_receipt_worker_loop(engine):
             # 讀取圖片
             image_path = job["image_path"]
             try:
-                image = _load_image(image_path)
+                from backend.utils.utils import cv_imread_chinese
+                image = cv_imread_chinese(image_path)
             except Exception as e:
                 logger.error(f"[Worker] 圖片讀取失敗: {e}")
                 loop.run_until_complete(engine.fail_job(project_id, job_id, f"圖片讀取失敗: {e}"))
@@ -95,18 +96,3 @@ def global_receipt_worker_loop(engine):
     logger.info("[Worker] Worker 已停止")
 
 
-def _load_image(image_path: str):
-    """載入圖片，支援中文路徑"""
-    path = Path(image_path)
-    if not path.exists():
-        raise FileNotFoundError(f"圖片不存在: {image_path}")
-    
-    # OpenCV 中文路徑支援
-    with open(path, 'rb') as f:
-        data = np.frombuffer(f.read(), dtype=np.uint8)
-    
-    image = cv2.imdecode(data, cv2.IMREAD_COLOR)
-    if image is None:
-        raise ValueError(f"無法解碼圖片: {image_path}")
-    
-    return image

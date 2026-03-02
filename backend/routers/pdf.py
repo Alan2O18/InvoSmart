@@ -4,7 +4,7 @@ import shutil
 import tempfile
 import logging
 from typing import List, Dict
-from fastapi import APIRouter, HTTPException, UploadFile, File, Body, Depends
+from fastapi import APIRouter, HTTPException, UploadFile, File, Body, Depends, BackgroundTasks
 from fastapi.responses import FileResponse
 from backend.dependencies import get_engine
 from backend.engine.core import Engine
@@ -12,36 +12,34 @@ from backend.engine.core import Engine
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-@router.post("/{project_id}/upload_pdf")
+from backend.utils.utils import handle_upload_files
+
+@router.post("/{project_id}/pdf")
 async def upload_pdf(
     project_id: str,
     files: List[UploadFile] = File(...),
     engine: Engine = Depends(get_engine)
 ):
-    """上傳 PDF 檔案，將會抽取第一頁轉成圖片進行 VLM 辨識"""
-    logger.info(f"Received PDF upload request for {project_id}, files={len(files)}")
-    temp_dir = tempfile.mkdtemp()
-    saved_file_paths = []
+    """
+    上傳 PDF 檔案並非同步執行轉換與辨識
+    
+    1. 接收 PDF 檔案
+    2. 轉換為圖片
+    3. 加入 Project
+    4. 背景執行 VLM 辨識
+    """
     try:
-        for file in files:
-            if not file.filename.lower().endswith('.pdf'):
-                raise HTTPException(status_code=400, detail=f"File {file.filename} is not a PDF")
+        async with handle_upload_files(files) as saved_file_paths:
+            pdf_paths = [fp for fp in saved_file_paths if fp.lower().endswith('.pdf')]
+            
+            if not pdf_paths:
+                raise ValueError("未找到有效的 PDF 檔案")
                 
-            file_path = os.path.join(temp_dir, file.filename)
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            saved_file_paths.append(file_path)
-        
-        logger.info(f"Calling engine.add_pdf_files with {saved_file_paths}")
-        # this will enqueue the jobs too
-        return await engine.add_pdf_files(project_id, saved_file_paths)
+            return await engine.file_ops.add_pdf_files(project_id, pdf_paths)
+            
     except Exception as e:
-        logger.error(f"Error in upload_pdf: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"PDF Upload failed: {str(e)}")
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        logger.error(f"Error processing PDF upload: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{project_id}/{job_id}/commands")
 async def execute_pdf_commands(

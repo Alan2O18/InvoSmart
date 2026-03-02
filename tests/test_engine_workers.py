@@ -3,7 +3,7 @@ import numpy as np
 import threading
 import time
 from unittest.mock import MagicMock, AsyncMock, patch
-from backend.engine.workers import global_receipt_worker_loop, _load_image
+from backend.engine.workers import global_receipt_worker_loop
 
 @pytest.fixture
 def mock_engine():
@@ -42,7 +42,7 @@ def test_worker_loop_timeout_exit(mock_engine, monkeypatch):
     
     mock_engine.claim_job.assert_not_called()
 
-@patch('backend.engine.workers._load_image')
+@patch('backend.utils.utils.cv_imread_chinese')
 def test_worker_loop_process_success(mock_load_image, mock_engine):
     # Setup happy path
     dummy_img = np.zeros((10, 10, 3), dtype=np.uint8)
@@ -73,7 +73,7 @@ def test_worker_loop_process_success(mock_load_image, mock_engine):
         qr_verified=True
     )
 
-@patch('backend.engine.workers._load_image')
+@patch('backend.utils.utils.cv_imread_chinese')
 def test_worker_loop_process_failure_from_receipt_processor(mock_load_image, mock_engine):
     mock_load_image.return_value = np.zeros((10, 10, 3), dtype=np.uint8)
     
@@ -93,7 +93,7 @@ def test_worker_loop_process_failure_from_receipt_processor(mock_load_image, moc
     mock_engine.claim_job.assert_called_once_with("proj1", "j1")
     mock_engine.fail_job.assert_called_once_with("proj1", "j1", "Blurry image")
 
-@patch('backend.engine.workers._load_image')
+@patch('backend.utils.utils.cv_imread_chinese')
 def test_worker_loop_process_image_load_error(mock_load_image, mock_engine):
     # Test handling of FileNotFoundError during _load_image
     mock_load_image.side_effect = FileNotFoundError("Missing file")
@@ -109,17 +109,4 @@ def test_worker_loop_process_image_load_error(mock_load_image, mock_engine):
     mock_engine.fail_job.assert_called_once_with("proj1", "j1", "圖片讀取失敗: Missing file")
     mock_engine.receipt_processor.process.assert_not_called()
 
-def test_load_image_missing_file():
-    with pytest.raises(FileNotFoundError):
-        _load_image("nonexistent_fake_path_12345.jpg")
 
-@patch('backend.engine.workers.np.frombuffer')
-@patch('backend.engine.workers.cv2.imdecode')
-def test_load_image_decode_error(mock_imdecode, mock_frombuffer, tmp_path):
-    fake_img = tmp_path / "corrupted.jpg"
-    fake_img.write_text("gibberish")
-    
-    mock_imdecode.return_value = None
-    
-    with pytest.raises(ValueError, match="無法解碼圖片"):
-        _load_image(str(fake_img))

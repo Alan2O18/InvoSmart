@@ -9,7 +9,7 @@ from backend.engine.core import Engine
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-CONFIG_PATH = "config.json"
+from backend.utils.config import load_config, save_config
 
 @router.get("/")
 def get_config(engine: Engine = Depends(get_engine)):
@@ -41,10 +41,7 @@ def update_config(
     """
     try:
         # 1. Load existing config from file to ensure we don't lose other settings
-        current_config = {}
-        if os.path.exists(CONFIG_PATH):
-            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                current_config = json.load(f)
+        current_config = load_config()
         
         # 2. Merge updates
         # 我們假設前端傳來的是部分更新，主要針對 vision_settings
@@ -64,8 +61,9 @@ def update_config(
         # 也可以支援其他 section 的更新...
         
         # 3. Save to file
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(current_config, f, indent=4, ensure_ascii=False)
+        success = save_config(current_config)
+        if not success:
+             logger.warning("Failed to save config to disk, but runtime config will be updated.")
             
         # 4. Update Engine (Runtime)
         engine.update_config(current_config)

@@ -1,0 +1,605 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.12, pytest-9.0.2, pluggy-1.6.0 -- C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\python.exe
+cachedir: .pytest_cache
+rootdir: C:\Users\tange\Desktop\all_project\py for NKNU GA\AI_AGENT_LAB
+configfile: pytest.ini
+plugins: anyio-4.12.1, asyncio-1.3.0, cov-7.0.0, timeout-2.4.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+timeout: 10.0s
+timeout method: thread
+timeout func_only: False
+collecting ... collected 286 items
+
+tests/test_classifier.py::TestKeywordClassifier::test_classify_electronic_invoice_with_keywords PASSED [  0%]
+tests/test_classifier.py::TestKeywordClassifier::test_classify_electronic_invoice_with_qr_code PASSED [  0%]
+tests/test_classifier.py::TestKeywordClassifier::test_classify_electronic_invoice_with_pattern PASSED [  1%]
+tests/test_classifier.py::TestKeywordClassifier::test_classify_electronic_invoice_carrier PASSED [  1%]
+tests/test_classifier.py::TestKeywordClassifier::test_classify_handwritten_receipt PASSED [  1%]
+tests/test_classifier.py::TestKeywordClassifier::test_classify_handwritten_with_chinese_numbers PASSED [  2%]
+tests/test_classifier.py::TestKeywordClassifier::test_classify_taxi_receipt PASSED [  2%]
+tests/test_classifier.py::TestKeywordClassifier::test_classify_traditional_invoice PASSED [  2%]
+tests/test_classifier.py::TestKeywordClassifier::test_classify_empty_text PASSED [  3%]
+tests/test_classifier.py::TestKeywordClassifier::test_classify_ambiguous_text PASSED [  3%]
+tests/test_classifier.py::TestKeywordClassifier::test_mixed_features_priority PASSED [  3%]
+tests/test_classifier.py::TestKeywordClassifier::test_mixed_features_priority_text_only PASSED [  4%]
+tests/test_engine.py::TestEngineProjectManagement::test_create_project_new PASSED [  4%]
+tests/test_engine.py::TestEngineProjectManagement::test_create_project_already_exists PASSED [  4%]
+tests/test_engine.py::TestEngineProjectManagement::test_get_job_repo_creates_singleton PASSED [  5%]
+tests/test_engine.py::TestEngineProjectManagement::test_engine_init_and_workers PASSED [  5%]
+tests/test_engine.py::TestEngineProjectManagement::test_update_config PASSED [  5%]
+tests/test_engine.py::TestEngineProjectManagement::test_get_job_repo_without_session_factory PASSED [  6%]
+tests/test_engine.py::TestEngineProjectManagement::test_recover_pending_tasks PASSED [  6%]
+tests/test_engine.py::TestEngineProjectManagement::test_recover_pending_tasks_exception PASSED [  6%]
+tests/test_engine.py::TestEngineFileOps::test_run_splitting PASSED       [  7%]
+tests/test_engine.py::TestEngineFileOps::test_get_raw_files_empty PASSED [  7%]
+tests/test_engine.py::TestEngineFileOps::test_get_raw_files_with_files PASSED [  8%]
+tests/test_engine.py::TestEngineFileOps::test_add_project_files_raw PASSED [  8%]
+tests/test_engine.py::TestEngineFileOps::test_add_project_files_split PASSED [  8%]
+tests/test_engine.py::TestEngineFileOps::test_rotate_image PASSED        [  9%]
+tests/test_engine.py::TestEngineFileOps::test_delete_raw_file PASSED     [  9%]
+tests/test_engine.py::TestEngineFileOps::test_delete_raw_file_not_found PASSED [  9%]
+tests/test_engine.py::TestEngineFileOps::test_delete_raw_file_exception PASSED [ 10%]
+tests/test_engine.py::TestEngineFileOps::test_run_split_single PASSED    [ 10%]
+tests/test_engine.py::TestEngineProcessing::test_run_processing_queues_jobs PASSED [ 10%]
+tests/test_engine.py::TestEngineProcessing::test_run_processing_skips_done_jobs PASSED [ 11%]
+tests/test_engine.py::TestEngineProcessing::test_run_single_processing PASSED [ 11%]
+tests/test_engine.py::TestEngineProcessing::test_run_single_processing_not_found PASSED [ 11%]
+tests/test_engine.py::TestEngineProcessing::test_run_processing_exception PASSED [ 12%]
+tests/test_engine.py::TestEngineJobManagement::test_delete_job PASSED    [ 12%]
+tests/test_engine.py::TestEngineJobManagement::test_job_state_transitions PASSED [ 12%]
+tests/test_engine.py::TestEngineExport::test_run_excel PASSED            [ 13%]
+tests/test_engine.py::TestEngineExport::test_archive_project PASSED      [ 13%]
+tests/test_engine.py::TestEngineExport::test_regenerate_project PASSED   [ 13%]
+tests/test_engine.py::TestEngineGroups::test_upsert_group PASSED         [ 14%]
+tests/test_engine.py::TestEngineGroups::test_list_groups PASSED          [ 14%]
+tests/test_engine.py::TestEngineGroups::test_delete_group PASSED         [ 15%]
+tests/test_engine.py::TestEngineGroups::test_update_activity_info PASSED [ 15%]
+tests/test_engine_archive_handler.py::test_seal_project_7z_success PASSED [ 15%]
+tests/test_engine_archive_handler.py::test_seal_project_7z_exclude_raw PASSED [ 16%]
+tests/test_engine_archive_handler.py::test_seal_project_zip_fallback PASSED [ 16%]
+tests/test_engine_archive_handler.py::test_seal_project_not_found PASSED [ 16%]
+tests/test_engine_archive_handler.py::test_seal_project_zip_exception PASSED [ 17%]
+tests/test_engine_file_ops.py::test_run_splitting_creates_files PASSED   [ 17%]
+tests/test_engine_file_ops.py::test_run_splitting_missing_folder PASSED  [ 17%]
+tests/test_engine_file_ops.py::test_get_raw_files PASSED                 [ 18%]
+tests/test_engine_file_ops.py::test_get_raw_files_missing_folder PASSED  [ 18%]
+tests/test_engine_file_ops.py::test_add_project_files_raw PASSED         [ 18%]
+tests/test_engine_file_ops.py::test_add_project_files_split_enqueues PASSED [ 19%]
+tests/test_engine_file_ops.py::test_rotate_image PASSED                  [ 19%]
+tests/test_engine_regeneration_handler.py::test_regenerate_missing_column PASSED [ 19%]
+tests/test_engine_regeneration_handler.py::test_regenerate_read_error PASSED [ 20%]
+tests/test_engine_regeneration_handler.py::test_regenerate_success PASSED [ 20%]
+tests/test_engine_regeneration_handler.py::test_regenerate_job_mismatch PASSED [ 20%]
+tests/test_engine_word_exporter.py::test_replace_text_in_paragraph PASSED [ 21%]
+tests/test_engine_word_exporter.py::test_replace_text_hardcoded_coordinator PASSED [ 21%]
+tests/test_engine_word_exporter.py::test_highlight_unfilled_placeholders PASSED [ 22%]
+tests/test_engine_word_exporter.py::test_replace_text_in_table PASSED    [ 22%]
+tests/test_engine_word_exporter.py::test_find_row_with_placeholder PASSED [ 22%]
+tests/test_engine_word_exporter.py::test_find_row_with_placeholder_not_found PASSED [ 23%]
+tests/test_engine_word_exporter.py::test_set_cell_text_formatted PASSED  [ 23%]
+tests/test_engine_word_exporter.py::test_format_roc_date PASSED          [ 23%]
+tests/test_engine_word_exporter.py::test_process_export PASSED           [ 24%]
+tests/test_engine_word_exporter.py::test_process_export_no_project PASSED [ 24%]
+tests/test_engine_workers.py::test_worker_loop_timeout_exit PASSED       [ 24%]
+tests/test_engine_workers.py::test_worker_loop_process_success PASSED    [ 25%]
+tests/test_engine_workers.py::test_worker_loop_process_failure_from_receipt_processor PASSED [ 25%]
+tests/test_engine_workers.py::test_worker_loop_process_image_load_error PASSED [ 25%]
+tests/test_job_repository.py::TestJobRepository::test_init_creates_tables PASSED [ 26%]
+tests/test_job_repository.py::TestJobRepository::test_insert_and_get_job PASSED [ 26%]
+tests/test_job_repository.py::TestJobRepository::test_insert_job_default_status PASSED [ 26%]
+tests/test_job_repository.py::TestJobRepository::test_get_non_existent_job PASSED [ 27%]
+tests/test_job_repository.py::TestJobRepository::test_update_job PASSED  [ 27%]
+tests/test_job_repository.py::TestJobRepository::test_update_non_existent_job PASSED [ 27%]
+tests/test_job_repository.py::TestJobRepository::test_delete_job PASSED  [ 28%]
+tests/test_job_repository.py::TestJobRepository::test_list_jobs PASSED   [ 28%]
+tests/test_job_repository.py::TestJobRepository::test_count_jobs PASSED  [ 29%]
+tests/test_job_repository.py::TestJobRepository::test_complete_vlm PASSED [ 29%]
+tests/test_job_repository.py::TestJobRepository::test_emit_event PASSED  [ 29%]
+tests/test_job_repository.py::TestJobRepository::test_mark_stale_as_failed PASSED [ 30%]
+tests/test_job_repository.py::TestJobRepository::test_has_pending_work PASSED [ 30%]
+tests/test_job_repository.py::TestJobRepository::test_save_manual_json_and_get_details PASSED [ 30%]
+tests/test_main.py::test_read_root PASSED                                [ 31%]
+tests/test_main.py::test_lifespan_events PASSED                          [ 31%]
+tests/test_main.py::test_cors_and_static_mounts PASSED                   [ 31%]
+tests/test_pdf_engine.py::test_compress_pdf PASSED                       [ 32%]
+tests/test_pdf_engine.py::test_reorder_pages PASSED                      [ 32%]
+tests/test_pdf_engine.py::test_stamp_image PASSED                        [ 32%]
+tests/test_pdf_engine.py::test_inject_text_layer PASSED                  [ 33%]
+tests/test_pdf_engine.py::test_execute_commands_full_pipeline PASSED     [ 33%]
+tests/test_perspective_transform.py::TestOrderPoints::test_standard_rect PASSED [ 33%]
+tests/test_perspective_transform.py::TestOrderPoints::test_shuffled_points PASSED [ 34%]
+tests/test_perspective_transform.py::TestOrderPoints::test_rotated_rect PASSED [ 34%]
+tests/test_perspective_transform.py::TestOrderPoints::test_output_is_float32 PASSED [ 34%]
+tests/test_perspective_transform.py::TestCropByRect::test_basic_crop PASSED [ 35%]
+tests/test_perspective_transform.py::TestCropByRect::test_crop_portrait_output PASSED [ 35%]
+tests/test_perspective_transform.py::TestCropByRect::test_crop_landscape_auto_rotate PASSED [ 36%]
+tests/test_perspective_transform.py::TestCropByRect::test_crop_rotated_rect PASSED [ 36%]
+tests/test_perspective_transform.py::TestCropByRect::test_crop_invalid_zero_size PASSED [ 36%]
+tests/test_perspective_transform.py::TestCropByRect::test_crop_content_preserved PASSED [ 37%]
+tests/test_perspective_transform.py::TestFixOrientation::test_horizontal_text_no_rotation PASSED [ 37%]
+tests/test_perspective_transform.py::TestFixOrientation::test_vertical_text_rotates PASSED [ 37%]
+tests/test_perspective_transform.py::TestFixOrientation::test_empty_image PASSED [ 38%]
+tests/test_perspective_transform.py::TestFixOrientation::test_grayscale_input PASSED [ 38%]
+tests/test_perspective_transform.py::TestFixOrientation::test_uniform_image_no_crash PASSED [ 38%]
+tests/test_processing.py::TestCorrectTextMethod::test_correct_text_success PASSED [ 39%]
+tests/test_processing.py::TestCorrectTextMethod::test_correct_text_failure_returns_original PASSED [ 39%]
+tests/test_processing.py::TestExtractDataMethod::test_extract_data_success PASSED [ 39%]
+tests/test_processing.py::TestExtractDataMethod::test_extract_data_failure PASSED [ 40%]
+tests/test_processing.py::TestLLMHandler::test_structure_with_llm PASSED [ 40%]
+tests/test_processing.py::TestLLMHandler::test_regenerate_from_corrected_text PASSED [ 40%]
+tests/test_processing.py::TestReceiptSplitter::test_order_points PASSED  [ 41%]
+tests/test_processing.py::TestReceiptSplitter::test_validate_aspect_ratio PASSED [ 41%]
+tests/test_processing.py::TestReceiptSplitter::test_splitter_empty_image PASSED [ 41%]
+tests/test_project_repository.py::test_project_crud PASSED               [ 42%]
+tests/test_project_repository.py::test_group_crud PASSED                 [ 42%]
+tests/test_project_repository.py::test_update_activity_info PASSED       [ 43%]
+tests/test_project_repository.py::test_setup_project PASSED              [ 43%]
+tests/test_project_repository.py::test_sync_status_to_db PASSED          [ 43%]
+tests/test_project_repository.py::test_sync_status_to_db_all_done PASSED [ 44%]
+tests/test_python_validator.py::TestPythonValidator::test_validate_correct_data PASSED [ 44%]
+tests/test_python_validator.py::TestPythonValidator::test_validate_wrong_item_total PASSED [ 44%]
+tests/test_python_validator.py::TestPythonValidator::test_validate_wrong_summary_total PASSED [ 45%]
+tests/test_python_validator.py::TestPythonValidator::test_validate_empty_data PASSED [ 45%]
+tests/test_python_validator.py::TestPythonValidator::test_validate_missing_items PASSED [ 45%]
+tests/test_python_validator.py::TestPythonValidator::test_to_number_integer PASSED [ 46%]
+tests/test_python_validator.py::TestPythonValidator::test_to_number_float PASSED [ 46%]
+tests/test_python_validator.py::TestPythonValidator::test_to_number_invalid PASSED [ 46%]
+tests/test_python_validator.py::TestPythonValidator::test_to_number_with_commas PASSED [ 47%]
+tests/test_python_validator.py::TestPythonValidator::test_parse_chinese_number_simple PASSED [ 47%]
+tests/test_python_validator.py::TestPythonValidator::test_parse_chinese_number_complex PASSED [ 47%]
+tests/test_python_validator.py::TestPythonValidator::test_parse_chinese_number_with_suffix PASSED [ 48%]
+tests/test_python_validator.py::TestPythonValidator::test_parse_chinese_number_invalid PASSED [ 48%]
+tests/test_python_validator.py::TestPythonValidator::test_is_valid_date_correct PASSED [ 48%]
+tests/test_python_validator.py::TestPythonValidator::test_is_valid_date_invalid PASSED [ 49%]
+tests/test_python_validator.py::TestPythonValidator::test_validate_required_fields_complete PASSED [ 49%]
+tests/test_python_validator.py::TestPythonValidator::test_validate_required_fields_missing_supplier PASSED [ 50%]
+tests/test_python_validator.py::TestPythonValidator::test_confidence_with_ocr_confidence PASSED [ 50%]
+tests/test_python_validator.py::TestPythonValidator::test_confidence_decreases_with_issues PASSED [ 50%]
+tests/test_python_validator.py::TestPythonValidator::test_validate_items_correct PASSED [ 51%]
+tests/test_python_validator.py::TestPythonValidator::test_validate_items_missing_fields PASSED [ 51%]
+tests/test_qr_handler.py::TestQRHandler::test_parse_taiwan_einvoice_qr_valid PASSED [ 51%]
+tests/test_qr_handler.py::TestQRHandler::test_parse_taiwan_einvoice_qr_invalid_length PASSED [ 52%]
+tests/test_qr_handler.py::TestQRHandler::test_parse_taiwan_einvoice_qr_invalid_date PASSED [ 52%]
+tests/test_qr_handler.py::TestQRHandler::test_parse_amount_hex_handling PASSED [ 52%]
+tests/test_qr_handler.py::TestQRHandler::test_detect_and_decode_success PASSED [ 53%]
+tests/test_qr_handler.py::TestQRHandler::test_detect_and_decode_no_qr PASSED [ 53%]
+tests/test_qr_handler.py::TestQRHandler::test_detect_and_decode_corrupted_qr PASSED [ 53%]
+tests/test_qr_handler.py::TestQRHandler::test_init_qreader_available_false PASSED [ 54%]
+tests/test_qr_handler.py::TestQRHandler::test_init_qreader_exception PASSED [ 54%]
+tests/test_qr_handler.py::TestQRHandler::test_detect_and_decode_gray_image PASSED [ 54%]
+tests/test_qr_handler.py::TestQRHandler::test_detect_and_decode_empty_text_in_list PASSED [ 55%]
+tests/test_qr_handler.py::TestQRHandler::test_detect_and_decode_exception PASSED [ 55%]
+tests/test_qr_handler.py::TestQRHandler::test_parse_taiwan_einvoice_qr_invalid_invoice_number PASSED [ 55%]
+tests/test_qr_handler.py::TestQRHandler::test_parse_taiwan_einvoice_qr_value_errors PASSED [ 56%]
+tests/test_qr_handler.py::TestQRHandler::test_parse_taiwan_einvoice_qr_exception PASSED [ 56%]
+tests/test_qr_handler.py::TestQRHandler::test_is_electronic_invoice PASSED [ 56%]
+tests/test_qr_handler.py::TestQRHandler::test_get_qr_locations PASSED    [ 57%]
+tests/test_qr_handler.py::TestQRHandler::test_get_qr_locations_invalid_item PASSED [ 57%]
+tests/test_qr_handler.py::TestQRHandler::test_get_qr_locations_empty PASSED [ 58%]
+tests/test_qr_handler.py::TestQRHandler::test_get_qr_locations_catch_error PASSED [ 58%]
+tests/test_qr_handler.py::TestQRHandler::test_get_qr_locations_exception PASSED [ 58%]
+tests/test_rapidocr_handler.py::TestRapidOCRHandler::test_do_ocr_returns_structured_result PASSED [ 59%]
+tests/test_rapidocr_handler.py::TestRapidOCRHandler::test_do_ocr_empty_result PASSED [ 59%]
+tests/test_rapidocr_handler.py::TestRapidOCRHandler::test_to_plain_text_line_ordering PASSED [ 59%]
+tests/test_rapidocr_handler.py::TestRapidOCRHandler::test_get_high_confidence_text PASSED [ 60%]
+tests/test_rapidocr_handler.py::TestRapidOCRHandler::test_extract_numbers PASSED [ 60%]
+tests/test_rapidocr_handler.py::TestRapidOCRHandler::test_empty_image_handling PASSED [ 60%]
+tests/test_rapidocr_handler.py::TestRapidOCRHandler::test_rapidocr_not_available PASSED [ 61%]
+tests/test_rapidocr_handler.py::TestRapidOCRHandler::test_rapidocr_init_exception PASSED [ 61%]
+tests/test_rapidocr_handler.py::TestRapidOCRHandler::test_do_ocr_exception PASSED [ 61%]
+tests/test_rapidocr_handler.py::TestRapidOCRHandler::test_do_ocr_list_elapse PASSED [ 62%]
+tests/test_rapidocr_handler.py::TestRapidOCRHandler::test_to_plain_text_empty PASSED [ 62%]
+tests/test_receipt_processor.py::TestReceiptProcessor::test_process_success_with_qr PASSED [ 62%]
+tests/test_receipt_processor.py::TestReceiptProcessor::test_process_success_without_qr PASSED [ 63%]
+tests/test_receipt_processor.py::TestReceiptProcessor::test_update_config PASSED [ 63%]
+tests/test_receipt_processor.py::TestReceiptProcessor::test_process_vlm_failure PASSED [ 63%]
+tests/test_receipt_processor.py::TestReceiptProcessor::test_process_validation_issues PASSED [ 64%]
+tests/test_receipt_processor.py::TestReceiptProcessor::test_merge_qr_data_overwrites_header PASSED [ 64%]
+tests/test_receipt_processor.py::TestReceiptProcessor::test_merge_qr_data_creates_header_if_missing PASSED [ 65%]
+tests/test_receipt_processor.py::TestReceiptProcessor::test_create_error_result PASSED [ 65%]
+tests/test_receipt_processor.py::TestReceiptProcessor::test_process_includes_timing_metadata PASSED [ 65%]
+tests/test_receipt_splitter.py::TestResizeForDetection::test_small_image_no_resize PASSED [ 66%]
+tests/test_receipt_splitter.py::TestResizeForDetection::test_large_image_resized PASSED [ 66%]
+tests/test_receipt_splitter.py::TestResizeForDetection::test_exact_boundary PASSED [ 66%]
+tests/test_receipt_splitter.py::TestMaskIoUDedupe::test_single_candidate PASSED [ 67%]
+tests/test_receipt_splitter.py::TestMaskIoUDedupe::test_no_overlap PASSED [ 67%]
+tests/test_receipt_splitter.py::TestMaskIoUDedupe::test_high_overlap_removes_smaller PASSED [ 67%]
+tests/test_receipt_splitter.py::TestMaskIoUDedupe::test_empty_candidates PASSED [ 68%]
+tests/test_receipt_splitter.py::TestSplitEndToEnd::test_split_none_image PASSED [ 68%]
+tests/test_receipt_splitter.py::TestSplitEndToEnd::test_split_single_rect PASSED [ 68%]
+tests/test_receipt_splitter.py::TestSplitEndToEnd::test_split_two_rects PASSED [ 69%]
+tests/test_receipt_splitter.py::TestSplitEndToEnd::test_split_preserves_content PASSED [ 69%]
+tests/test_receipt_splitter.py::TestSplitEndToEnd::test_adaptive_kernel_calculation PASSED [ 69%]
+tests/test_receipt_splitter.py::TestSplitterInit::test_default_config PASSED [ 70%]
+tests/test_receipt_splitter.py::TestSplitterInit::test_custom_config PASSED [ 70%]
+tests/test_receipt_splitter.py::TestReceiptSplitterDebugHelpers::test_split_debug_mode PASSED [ 70%]
+tests/test_receipt_splitter.py::TestReceiptSplitterDebugHelpers::test_split_debug_headless_mode PASSED [ 71%]
+tests/test_receipt_splitter.py::TestReceiptSplitterDebugHelpers::test_show_preview_resize PASSED [ 71%]
+tests/test_routers_config.py::test_get_config PASSED                     [ 72%]
+tests/test_routers_config.py::test_get_config_short_key PASSED           [ 72%]
+tests/test_routers_config.py::test_update_config PASSED                  [ 72%]
+tests/test_routers_correction.py::test_save_manual_text PASSED           [ 73%]
+tests/test_routers_correction.py::test_save_manual_text_not_found PASSED [ 73%]
+tests/test_routers_files.py::test_add_files PASSED                       [ 73%]
+tests/test_routers_files.py::test_rotate_image PASSED                    [ 74%]
+tests/test_routers_files.py::test_get_raw_files PASSED                   [ 74%]
+tests/test_routers_files.py::test_delete_raw_file PASSED                 [ 74%]
+tests/test_routers_groups.py::test_list_groups PASSED                    [ 75%]
+tests/test_routers_groups.py::test_upsert_group PASSED                   [ 75%]
+tests/test_routers_groups.py::test_delete_group PASSED                   [ 75%]
+tests/test_routers_jobs.py::test_get_project_jobs PASSED                 [ 76%]
+tests/test_routers_jobs.py::test_get_job_details PASSED                  [ 76%]
+tests/test_routers_jobs.py::test_get_job_details_not_found PASSED        [ 76%]
+tests/test_routers_jobs.py::test_delete_job PASSED                       [ 77%]
+tests/test_routers_jobs.py::test_run_single_processing PASSED            [ 77%]
+tests/test_routers_jobs.py::test_save_manual_json_success PASSED         [ 77%]
+tests/test_routers_jobs.py::test_save_manual_json_not_found PASSED       [ 78%]
+tests/test_routers_pdf.py::test_upload_pdf FAILED                        [ 78%]
+tests/test_routers_pdf.py::test_execute_pdf_commands PASSED              [ 79%]
+tests/test_routers_processing.py::test_run_processing PASSED             [ 79%]
+tests/test_routers_processing.py::test_run_splitting PASSED              [ 79%]
+tests/test_routers_processing.py::test_run_split_single PASSED           [ 80%]
+tests/test_routers_processing.py::test_run_excel PASSED                  [ 80%]
+tests/test_routers_processing.py::test_archive_project PASSED            [ 80%]
+tests/test_routers_processing.py::test_regenerate_excel PASSED           [ 81%]
+tests/test_routers_projects.py::test_list_projects PASSED                [ 81%]
+tests/test_routers_projects.py::test_create_project PASSED               [ 81%]
+tests/test_routers_projects.py::test_update_project PASSED               [ 82%]
+tests/test_routers_projects.py::test_delete_project PASSED               [ 82%]
+tests/test_routers_projects.py::test_get_project_status PASSED           [ 82%]
+tests/test_routers_projects.py::test_update_activity_info PASSED         [ 83%]
+tests/test_routers_suggestions.py::test_get_suggestions PASSED           [ 83%]
+tests/test_routers_suggestions.py::test_add_suggestion_success PASSED    [ 83%]
+tests/test_routers_suggestions.py::test_add_suggestion_failure PASSED    [ 84%]
+tests/test_routers_suggestions.py::test_bulk_add_suggestions PASSED      [ 84%]
+tests/test_routers_websocket.py::test_get_jobs_success PASSED            [ 84%]
+tests/test_routers_websocket.py::test_get_jobs_exception PASSED          [ 85%]
+tests/test_routers_websocket.py::test_websocket_endpoint_sends_data_and_disconnects PASSED [ 85%]
+tests/test_routers_websocket.py::test_websocket_endpoint_handles_general_exception PASSED [ 86%]
+tests/test_suggestion_repository.py::test_add_or_update_new PASSED       [ 86%]
+tests/test_suggestion_repository.py::test_add_or_update_existing PASSED  [ 86%]
+tests/test_suggestion_repository.py::test_add_or_update_empty PASSED     [ 87%]
+tests/test_suggestion_repository.py::test_bulk_add PASSED                [ 87%]
+tests/test_suggestion_repository.py::test_search_with_query_and_sorting PASSED [ 87%]
+tests/test_suggestion_repository.py::test_extract_from_manual_json PASSED [ 88%]
+tests/test_suggestion_repository.py::test_build_rag_context_empty PASSED [ 88%]
+tests/test_suggestion_repository.py::test_build_rag_context_populated PASSED [ 88%]
+tests/test_utils.py::TestParser::test_extract_structured_data_empty PASSED [ 89%]
+tests/test_utils.py::TestParser::test_extract_structured_data_with_structured_data_field PASSED [ 89%]
+tests/test_utils.py::TestParser::test_extract_structured_data_flat_structure PASSED [ 89%]
+tests/test_utils.py::TestParser::test_extract_structured_data_normalizes_items PASSED [ 90%]
+tests/test_utils.py::TestParser::test_extract_structured_data_invalid_json_returns_empty PASSED [ 90%]
+tests/test_utils.py::TestUtils::test_cv_imwrite_read_chinese_path PASSED [ 90%]
+tests/test_utils.py::TestUtils::test_cv_imread_chinese_nonexistent_file PASSED [ 91%]
+tests/test_utils.py::TestUtils::test_cv_imwrite_chinese_invalid_image PASSED [ 91%]
+tests/test_utils.py::TestUtils::test_cv_imwrite_chinese_creates_directory PASSED [ 91%]
+tests/test_vision_handler.py::TestVisionHandler::test_import PASSED      [ 92%]
+tests/test_vision_handler.py::TestVisionHandler::test_init_without_api_key PASSED [ 92%]
+tests/test_vision_handler.py::TestVisionHandler::test_init_with_config PASSED [ 93%]
+tests/test_vision_handler.py::TestVisionHandler::test_clean_json_response PASSED [ 93%]
+tests/test_vision_handler.py::TestVisionHandler::test_prepare_image_b64 PASSED [ 93%]
+tests/test_vision_handler.py::TestVisionHandler::test_process_image_success PASSED [ 94%]
+tests/test_vision_handler.py::TestVisionHandler::test_process_image_retry PASSED [ 94%]
+tests/test_vision_handler.py::TestVisionHandler::test_process_image_all_retries_fail PASSED [ 94%]
+tests/test_vision_handler.py::TestVisionHandler::test_update_config PASSED [ 95%]
+tests/test_vision_handler.py::TestVisionHandler::test_init_client_exception PASSED [ 95%]
+tests/test_vision_handler.py::TestVisionHandler::test_prepare_image_b64_exception PASSED [ 95%]
+tests/test_vision_handler.py::TestVisionHandler::test_process_handwritten_success PASSED [ 96%]
+tests/test_vision_handler.py::TestVisionHandler::test_process_handwritten_no_client PASSED [ 96%]
+tests/test_vision_handler.py::TestVisionHandler::test_process_handwritten_exception PASSED [ 96%]
+tests/test_vision_handler.py::TestVisionHandler::test_image_to_markdown PASSED [ 97%]
+tests/test_vision_handler.py::TestVisionHandler::test_process_image_no_client PASSED [ 97%]
+tests/test_vision_handler.py::TestVisionHandler::test_process_image_json_decode_error PASSED [ 97%]
+tests/test_vision_handler.py::TestVisionHandler::test_repair_json_heuristics PASSED [ 98%]
+tests/test_vision_handler.py::TestVisionHandler::test_describe_image_success PASSED [ 98%]
+tests/test_vision_handler.py::TestVisionHandler::test_describe_image_no_client PASSED [ 98%]
+tests/test_vision_handler.py::TestVisionHandler::test_describe_image_exception PASSED [ 99%]
+tests/test_vision_handler.py::TestVisionHandler::test_call_with_retry_no_text PASSED [ 99%]
+tests/test_vision_handler.py::TestVisionHandler::test_call_with_retry_with_reasoning PASSED [100%]
+
+================================== FAILURES ===================================
+_______________________________ test_upload_pdf _______________________________
+
+mock_engine = <backend.engine.core.Engine object at 0x00000155B500FDD0>
+tmp_path = WindowsPath('C:/Users/tange/AppData/Local/Temp/pytest-of-tange/pytest-126/test_upload_pdf0')
+
+    @pytest.mark.asyncio
+    async def test_upload_pdf(mock_engine, tmp_path):
+        pdf_path = tmp_path / "test_upload.pdf"
+        create_test_pdf(str(pdf_path))
+    
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            with open(pdf_path, "rb") as f:
+                response = await client.post(
+                    "/api/pdf/proj1/pdf",
+                    files={"files": ("test_upload.pdf", f, "application/pdf")}
+                )
+    
+>       assert response.status_code == 200
+E       assert 500 == 200
+E        +  where 500 = <Response [500 Internal Server Error]>.status_code
+
+tests\test_routers_pdf.py:75: AssertionError
+---------------------------- Captured stderr setup ----------------------------
+2026-03-01 22:40:23 | backend.engine.core | INFO | 使用統一收據處理器 (ReceiptProcessor)
+2026-03-01 22:40:23 | backend.processing.vision_handler | INFO | [VisionHandler] OpenAI client 初始化成功 (base_url=https://generativelanguage.googleapis.com/v1beta/openai/)
+2026-03-01 22:40:23 | backend.processing.vision_handler | INFO | [VisionHandler] 初始化完成：model=gemini-2.5-flash-lite, base_url=https://generativelanguage.googleapis.com/v1beta/openai/, reasoning=low
+2026-03-01 22:40:23 | backend.processing.qr_handler | INFO | 正在初始化 QReader (YOLOv8)...
+2026-03-01 22:40:23 | backend.processing.qr_handler | INFO | QReader 初始化完成
+2026-03-01 22:40:23 | backend.processing.python_validator | INFO | PythonValidator 初始化完成
+2026-03-01 22:40:23 | backend.processing.receipt_processor | INFO | ReceiptProcessor 初始化完成 (VLM-First 架構)
+2026-03-01 22:40:23 | backend.engine.core | INFO | [Engine] 初始化完成 (測試模式，Workers 未啟動)
+2026-03-01 22:40:23 | backend.repositories.project_repository | INFO | created new project proj1 at C:\Users\tange\AppData\Local\Temp\pytest-of-tange\pytest-126\test_upload_pdf0\workspace\proj1 (global.db)
+----------------------------- Captured log setup ------------------------------
+INFO     backend.engine.core:core.py:125 使用統一收據處理器 (ReceiptProcessor)
+INFO     backend.processing.vision_handler:vision_handler.py:183 [VisionHandler] OpenAI client 初始化成功 (base_url=https://generativelanguage.googleapis.com/v1beta/openai/)
+INFO     backend.processing.vision_handler:vision_handler.py:125 [VisionHandler] 初始化完成：model=gemini-2.5-flash-lite, base_url=https://generativelanguage.googleapis.com/v1beta/openai/, reasoning=low
+INFO     backend.processing.qr_handler:qr_handler.py:50 正在初始化 QReader (YOLOv8)...
+INFO     backend.processing.qr_handler:qr_handler.py:52 QReader 初始化完成
+INFO     backend.processing.python_validator:python_validator.py:38 PythonValidator 初始化完成
+INFO     backend.processing.receipt_processor:receipt_processor.py:46 ReceiptProcessor 初始化完成 (VLM-First 架構)
+INFO     backend.engine.core:core.py:89 [Engine] 初始化完成 (測試模式，Workers 未啟動)
+INFO     backend.repositories.project_repository:project_repository.py:232 created new project proj1 at C:\Users\tange\AppData\Local\Temp\pytest-of-tange\pytest-126\test_upload_pdf0\workspace\proj1 (global.db)
+---------------------------- Captured stderr call -----------------------------
+2026-03-01 22:40:23 | backend.routers.pdf | ERROR | Error processing PDF upload: (sqlite3.ProgrammingError) Error binding parameter 3: type 'BackgroundTasks' is not supported
+[SQL: INSERT INTO jobs (job_id, project_id, image_path, source_pdf_path, compressed_pdf_path, status, pdf_status, pdf_commands_json, vlm_result_json, vlm_stats, validation_json, qr_verified, manual_json_text, manual_updated_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('job-1772376023-78fc10', 'proj1', <fastapi.background.BackgroundTasks object at 0x00000155B11F0B90>, None, None, 'ready', None, None, None, None, None, 0, None, None, 1772376023.6478238, 1772376023.6478238)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+Traceback (most recent call last):
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 182, in execute
+    self._adapt_connection._handle_exception(error)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 342, in _handle_exception
+    raise error
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 164, in execute
+    self.await_(_cursor.execute(operation, parameters))
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\cursor.py", line 40, in execute
+    await self._execute(self._cursor.execute, sql, parameters)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\cursor.py", line 32, in _execute
+    return await self._conn._execute(fn, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\core.py", line 160, in _execute
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\core.py", line 63, in _connection_worker_thread
+    result = function()
+             ^^^^^^^^^^
+sqlite3.ProgrammingError: Error binding parameter 3: type 'BackgroundTasks' is not supported
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\tange\Desktop\all_project\py for NKNU GA\AI_AGENT_LAB\backend\routers\pdf.py", line 44, in upload_pdf
+    return await engine.enqueue_pdf_upload(project_id, pdf_path, background_tasks)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\Desktop\all_project\py for NKNU GA\AI_AGENT_LAB\backend\engine\core.py", line 220, in enqueue_pdf_upload
+    await job_repo.insert_job(job_id, image_path, "ready")
+  File "C:\Users\tange\Desktop\all_project\py for NKNU GA\AI_AGENT_LAB\backend\repositories\job_repository.py", line 48, in insert_job
+    await session.commit()
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 1000, in commit
+    await greenlet_spawn(self.sync_session.commit)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 203, in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\session.py", line 2030, in commit
+    trans.commit(_to_root=True)
+  File "<string>", line 2, in commit
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\session.py", line 1311, in commit
+    self._prepare_impl()
+  File "<string>", line 2, in _prepare_impl
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\session.py", line 1286, in _prepare_impl
+    self.session.flush()
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\session.py", line 4331, in flush
+    self._flush(objects)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\session.py", line 4466, in _flush
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 121, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\session.py", line 4427, in _flush
+    flush_context.execute()
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\unitofwork.py", line 466, in execute
+    rec.execute(self)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\unitofwork.py", line 642, in execute
+    util.preloaded.orm_persistence.save_obj(
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\persistence.py", line 93, in save_obj
+    _emit_insert_statements(
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\persistence.py", line 1048, in _emit_insert_statements
+    result = connection.execute(
+             ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\base.py", line 1419, in execute
+    return meth(
+           ^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\sql\elements.py", line 527, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\base.py", line 2363, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 182, in execute
+    self._adapt_connection._handle_exception(error)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 342, in _handle_exception
+    raise error
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 164, in execute
+    self.await_(_cursor.execute(operation, parameters))
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\cursor.py", line 40, in execute
+    await self._execute(self._cursor.execute, sql, parameters)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\cursor.py", line 32, in _execute
+    return await self._conn._execute(fn, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\core.py", line 160, in _execute
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\core.py", line 63, in _connection_worker_thread
+    result = function()
+             ^^^^^^^^^^
+sqlalchemy.exc.ProgrammingError: (sqlite3.ProgrammingError) Error binding parameter 3: type 'BackgroundTasks' is not supported
+[SQL: INSERT INTO jobs (job_id, project_id, image_path, source_pdf_path, compressed_pdf_path, status, pdf_status, pdf_commands_json, vlm_result_json, vlm_stats, validation_json, qr_verified, manual_json_text, manual_updated_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('job-1772376023-78fc10', 'proj1', <fastapi.background.BackgroundTasks object at 0x00000155B11F0B90>, None, None, 'ready', None, None, None, None, None, 0, None, None, 1772376023.6478238, 1772376023.6478238)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+------------------------------ Captured log call ------------------------------
+ERROR    backend.routers.pdf:pdf.py:47 Error processing PDF upload: (sqlite3.ProgrammingError) Error binding parameter 3: type 'BackgroundTasks' is not supported
+[SQL: INSERT INTO jobs (job_id, project_id, image_path, source_pdf_path, compressed_pdf_path, status, pdf_status, pdf_commands_json, vlm_result_json, vlm_stats, validation_json, qr_verified, manual_json_text, manual_updated_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('job-1772376023-78fc10', 'proj1', <fastapi.background.BackgroundTasks object at 0x00000155B11F0B90>, None, None, 'ready', None, None, None, None, None, 0, None, None, 1772376023.6478238, 1772376023.6478238)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+Traceback (most recent call last):
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 182, in execute
+    self._adapt_connection._handle_exception(error)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 342, in _handle_exception
+    raise error
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 164, in execute
+    self.await_(_cursor.execute(operation, parameters))
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\cursor.py", line 40, in execute
+    await self._execute(self._cursor.execute, sql, parameters)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\cursor.py", line 32, in _execute
+    return await self._conn._execute(fn, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\core.py", line 160, in _execute
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\core.py", line 63, in _connection_worker_thread
+    result = function()
+             ^^^^^^^^^^
+sqlite3.ProgrammingError: Error binding parameter 3: type 'BackgroundTasks' is not supported
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\tange\Desktop\all_project\py for NKNU GA\AI_AGENT_LAB\backend\routers\pdf.py", line 44, in upload_pdf
+    return await engine.enqueue_pdf_upload(project_id, pdf_path, background_tasks)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\Desktop\all_project\py for NKNU GA\AI_AGENT_LAB\backend\engine\core.py", line 220, in enqueue_pdf_upload
+    await job_repo.insert_job(job_id, image_path, "ready")
+  File "C:\Users\tange\Desktop\all_project\py for NKNU GA\AI_AGENT_LAB\backend\repositories\job_repository.py", line 48, in insert_job
+    await session.commit()
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\ext\asyncio\session.py", line 1000, in commit
+    await greenlet_spawn(self.sync_session.commit)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 203, in greenlet_spawn
+    result = context.switch(value)
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\session.py", line 2030, in commit
+    trans.commit(_to_root=True)
+  File "<string>", line 2, in commit
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\session.py", line 1311, in commit
+    self._prepare_impl()
+  File "<string>", line 2, in _prepare_impl
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\state_changes.py", line 137, in _go
+    ret_value = fn(self, *arg, **kw)
+                ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\session.py", line 1286, in _prepare_impl
+    self.session.flush()
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\session.py", line 4331, in flush
+    self._flush(objects)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\session.py", line 4466, in _flush
+    with util.safe_reraise():
+         ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\util\langhelpers.py", line 121, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\session.py", line 4427, in _flush
+    flush_context.execute()
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\unitofwork.py", line 466, in execute
+    rec.execute(self)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\unitofwork.py", line 642, in execute
+    util.preloaded.orm_persistence.save_obj(
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\persistence.py", line 93, in save_obj
+    _emit_insert_statements(
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\orm\persistence.py", line 1048, in _emit_insert_statements
+    result = connection.execute(
+             ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\base.py", line 1419, in execute
+    return meth(
+           ^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\sql\elements.py", line 527, in _execute_on_connection
+    return connection._execute_clauseelement(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\base.py", line 2363, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 182, in execute
+    self._adapt_connection._handle_exception(error)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 342, in _handle_exception
+    raise error
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\dialects\sqlite\aiosqlite.py", line 164, in execute
+    self.await_(_cursor.execute(operation, parameters))
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 132, in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\sqlalchemy\util\_concurrency_py3k.py", line 196, in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\cursor.py", line 40, in execute
+    await self._execute(self._cursor.execute, sql, parameters)
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\cursor.py", line 32, in _execute
+    return await self._conn._execute(fn, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\core.py", line 160, in _execute
+    return await future
+           ^^^^^^^^^^^^
+  File "C:\Users\tange\AppData\Roaming\mamba\envs\OCR_GA\Lib\site-packages\aiosqlite\core.py", line 63, in _connection_worker_thread
+    result = function()
+             ^^^^^^^^^^
+sqlalchemy.exc.ProgrammingError: (sqlite3.ProgrammingError) Error binding parameter 3: type 'BackgroundTasks' is not supported
+[SQL: INSERT INTO jobs (job_id, project_id, image_path, source_pdf_path, compressed_pdf_path, status, pdf_status, pdf_commands_json, vlm_result_json, vlm_stats, validation_json, qr_verified, manual_json_text, manual_updated_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)]
+[parameters: ('job-1772376023-78fc10', 'proj1', <fastapi.background.BackgroundTasks object at 0x00000155B11F0B90>, None, None, 'ready', None, None, None, None, None, 0, None, None, 1772376023.6478238, 1772376023.6478238)]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+=========================== short test summary info ===========================
+FAILED tests/test_routers_pdf.py::test_upload_pdf - assert 500 == 200
+ +  where 500 = <Response [500 Internal Server Error]>.status_code
+======================= 1 failed, 285 passed in 10.76s ========================

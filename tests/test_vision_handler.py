@@ -186,7 +186,7 @@ class TestVisionHandler:
 
     def test_prepare_image_b64_exception(self):
         from backend.processing.vision_handler import VisionHandler
-        handler = VisionHandler({})
+        handler = VisionHandler({"vision_settings": {}})
         
         with patch("cv2.imencode", return_value=(False, None)):
             with pytest.raises(ValueError, match="圖片編碼失敗"):
@@ -205,7 +205,7 @@ class TestVisionHandler:
 
     def test_process_handwritten_no_client(self):
         from backend.processing.vision_handler import VisionHandler
-        handler = VisionHandler({})
+        handler = VisionHandler({"vision_settings": {}})
         assert getattr(handler, '_client', None) is None
         res, stats = handler.process_handwritten(np.zeros((10,10,3), dtype=np.uint8))
         assert res == ""
@@ -222,14 +222,14 @@ class TestVisionHandler:
 
     def test_image_to_markdown(self):
         from backend.processing.vision_handler import VisionHandler
-        handler = VisionHandler({})
+        handler = VisionHandler({"vision_settings": {}})
         with patch.object(handler, 'process_image', return_value=({}, {})) as mock_proc:
             handler.image_to_markdown(np.zeros((10,10,3), dtype=np.uint8))
             mock_proc.assert_called_once()
 
     def test_process_image_no_client(self):
         from backend.processing.vision_handler import VisionHandler
-        handler = VisionHandler({})
+        handler = VisionHandler({"vision_settings": {}})
         res, stats = handler.process_image(np.zeros((10,10,3), dtype=np.uint8))
         assert res == {}
         assert "error" in stats
@@ -246,7 +246,7 @@ class TestVisionHandler:
 
     def test_repair_json_heuristics(self):
         from backend.processing.vision_handler import VisionHandler
-        handler = VisionHandler({})
+        handler = VisionHandler({"vision_settings": {}})
         
         # Test 1: trailing comma at the absolute end
         assert handler._repair_json('[1, 2,') == '[1, 2]'
@@ -274,7 +274,7 @@ class TestVisionHandler:
 
     def test_describe_image_no_client(self):
         from backend.processing.vision_handler import VisionHandler
-        handler = VisionHandler({})
+        handler = VisionHandler({"vision_settings": {}})
         res, stats = handler.describe_image(np.zeros((10,10,3), dtype=np.uint8))
         assert res == ""
         assert "error" in stats

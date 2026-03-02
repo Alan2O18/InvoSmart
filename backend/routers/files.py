@@ -12,6 +12,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+from backend.utils.utils import handle_upload_files
+
 @router.post("/{project_id}/add_files")
 async def add_files(
     project_id: str,
@@ -21,25 +23,13 @@ async def add_files(
 ):
     """Add files to project."""
     logger.info(f"Received add_files request for {project_id}, type={type}, files={len(files)}")
-    temp_dir = tempfile.mkdtemp()
-    saved_file_paths = []
     try:
-        for file in files:
-            file_path = os.path.join(temp_dir, file.filename)
-            logger.info(f"Saving temp file to {file_path}")
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            saved_file_paths.append(file_path)
-        
-        logger.info(f"Calling engine.add_project_files with {saved_file_paths}")
-        return await engine.add_project_files(project_id, saved_file_paths, type=type)
+        async with handle_upload_files(files) as saved_file_paths:
+            logger.info(f"Calling engine.add_project_files with {saved_file_paths}")
+            return await engine.add_project_files(project_id, saved_file_paths, type=type)
     except Exception as e:
-        logger.error(f"Error in add_files: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+        logger.error(f"Error in add_files: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @router.post("/{project_id}/rotate/{filename}")

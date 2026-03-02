@@ -48,13 +48,4 @@ def test_update_activity_info(mock_app_client, mock_engine_for_api):
     assert response.status_code == 200
     assert response.json() == {"info": "updated"}
 
-def test_get_project_job_ids(mock_app_client, mock_engine_for_api):
-    mock_job_repo = AsyncMock()
-    mock_job_repo.list_jobs = AsyncMock(return_value=[
-        {"job_id": "j1", "status": "done", "image_path": "a.jpg"}
-    ])
-    mock_engine_for_api.get_job_repo.return_value = mock_job_repo
-    
-    response = mock_app_client.get("/api/projects/proj1/job-ids")
-    assert response.status_code == 200
-    assert response.json() == [{"job_id": "j1", "status": "done", "image_path": "a.jpg"}]
+

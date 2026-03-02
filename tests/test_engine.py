@@ -56,18 +56,21 @@ class TestEngineProjectManagement:
         res = await engine.create_project("existing_proj", [], metadata={})
         assert res["status"] in ["already_registered", "resumed_registered"]
 
-    async def test_get_task_manager_creates_singleton(self, real_engine_with_temp_workspace):
-        """Test that get_task_manager returns the same instance for the same project."""
+    async def test_get_job_repo_creates_singleton(self, real_engine_with_temp_workspace):
+        """Test that get_job_repo returns the same instance for the same project."""
         engine = real_engine_with_temp_workspace
         
         # Setup project
-        await engine.project_repo.register_project("tm_proj", "TM", str(engine.project_repo.workspace_root / "tm_proj"))
-        engine.project_repo._ensure_layout(engine.project_repo._project_root("tm_proj"))
+        project_id = "tm_proj"
+        await engine.project_repo.register_project(project_id, "TM", str(engine.project_repo.workspace_root / project_id))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root(project_id))
         
-        tm1 = engine.get_task_manager("tm_proj")
-        tm2 = engine.get_task_manager("tm_proj")
+        repo1 = engine.get_job_repo(project_id)
+        repo2 = engine.get_job_repo(project_id)
         
-        assert tm1 is tm2
+        assert repo1 is repo2
+        # Ensure it's cached
+        assert project_id in engine._job_repos
 
     async def test_engine_init_and_workers(self, real_engine_with_temp_workspace):
         """Test Engine initialization with workers, config loading and queue status."""
@@ -178,7 +181,7 @@ class TestEngineFileOps:
         async def mock_splitting(project_id, target_files=None):
             root = engine.project_repo._project_root(project_id)
             (root / "分割發票" / "split_1.jpg").touch()
-            tm = engine.get_task_manager(project_id)
+            tm = engine.get_job_repo(project_id)
             await tm.insert_job("split_1", "分割發票/split_1.jpg")
             return {"status": "split_completed"}
         
@@ -187,7 +190,7 @@ class TestEngineFileOps:
         res = await engine.run_splitting("split_proj")
         assert res["status"] == "split_completed"
         
-        tm = engine.get_task_manager("split_proj")
+        tm = engine.get_job_repo("split_proj")
         jobs = await tm.list_jobs()
         assert len(jobs) == 1
 
@@ -348,7 +351,7 @@ class TestEngineProcessing:
         await engine.project_repo.register_project("proc_proj", "Proc", str(engine.project_repo.workspace_root / "proc_proj"))
         engine.project_repo._ensure_layout(engine.project_repo._project_root("proc_proj"))
         
-        tm = engine.get_task_manager("proc_proj")
+        tm = engine.get_job_repo("proc_proj")
         await tm.insert_job("job1", "test.jpg")
         
         # VLM-First: run_processing queues ready/failed jobs
@@ -370,7 +373,7 @@ class TestEngineProcessing:
         await engine.project_repo.register_project("done_proj", "Done", str(engine.project_repo.workspace_root / "done_proj"))
         engine.project_repo._ensure_layout(engine.project_repo._project_root("done_proj"))
         
-        tm = engine.get_task_manager("done_proj")
+        tm = engine.get_job_repo("done_proj")
         await tm.insert_job("job1", "test.jpg")
         await tm.update_job("job1", status="done")
         
@@ -384,7 +387,7 @@ class TestEngineProcessing:
         await engine.project_repo.register_project("single_proc", "Single", str(engine.project_repo.workspace_root / "single_proc"))
         engine.project_repo._ensure_layout(engine.project_repo._project_root("single_proc"))
         
-        tm = engine.get_task_manager("single_proc")
+        tm = engine.get_job_repo("single_proc")
         await tm.insert_job("single_job", "test.jpg")
         
         res = await engine.run_single_processing("single_proc", "single_job")
@@ -433,7 +436,7 @@ class TestEngineJobManagement:
         await engine.project_repo.register_project("del_job", "Del", str(engine.project_repo.workspace_root / "del_job"))
         engine.project_repo._ensure_layout(engine.project_repo._project_root("del_job"))
         
-        tm = engine.get_task_manager("del_job")
+        tm = engine.get_job_repo("del_job")
         await tm.insert_job("to_delete", "test.jpg")
         
         await engine.delete_job("del_job", "to_delete")

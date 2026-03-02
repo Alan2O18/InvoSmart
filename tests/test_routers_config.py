@@ -13,9 +13,9 @@ def test_get_config_short_key(mock_app_client, mock_engine_for_api):
     assert response.status_code == 200
     assert response.json()["vision_settings"]["api_key"] == "***"
 
-@patch('backend.routers.config.os.path.exists', return_value=True)
-@patch('backend.routers.config.open', new_callable=mock_open, read_data='{"vision_settings": {"api_key": "old_key"}}')
-def test_update_config(mock_file, mock_exists, mock_app_client, mock_engine_for_api):
+@patch('backend.routers.config.load_config', return_value={"vision_settings": {"api_key": "old_key"}})
+@patch('backend.routers.config.save_config')
+def test_update_config(mock_save, mock_load, mock_app_client, mock_engine_for_api):
     response = mock_app_client.post("/api/config/", json={"vision_settings": {"api_key": "123***890", "model": "gemini"}})
     assert response.status_code == 200
     assert response.json()["status"] == "success"

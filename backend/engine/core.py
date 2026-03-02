@@ -17,6 +17,7 @@ import time
 import uuid
 import threading
 import logging
+from pathlib import Path
 from typing import Optional, Dict
 
 from backend.repositories.project_repository import ProjectRepository
@@ -27,6 +28,7 @@ from .workers import global_receipt_worker_loop
 from .pdf_worker import pdf_worker_loop
 from .file_ops import FileOps
 from .export import ExportHandler
+from .voucher_generator import VoucherGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,10 @@ class Engine:
         # 內部組件
         self.file_ops = FileOps(self.project_repo, self.receipt_splitter, self)
         self.export_handler = ExportHandler(self.project_repo, self)
+        
+        # 憑證產生組件
+        template_path = str(Path(__file__).parent.parent.parent / "dev_data" / "憑證黏貼用紙.pdf")
+        self.voucher_generator = VoucherGenerator(template_path)
 
         # JobRepository 緩存 (per-project)
         self._job_repos: Dict[str, JobRepository] = {}
@@ -101,11 +107,8 @@ class Engine:
 
     def _load_config(self) -> dict:
         """載入配置檔案"""
-        local_config = "config.json"
-        if os.path.exists(local_config):
-            with open(local_config, "r", encoding="utf-8") as f:
-                return json.load(f)
-        return {}
+        from backend.utils.config import load_config
+        return load_config()
     
     def _create_project_repo(self) -> ProjectRepository:
         """創建 ProjectRepository"""
@@ -192,11 +195,6 @@ class Engine:
                 self._job_repos[project_id] = JobRepository(project_id, session_factory=factory)
             return self._job_repos[project_id]
 
-    # Backward compat alias (for workers.py etc.)
-    def get_task_manager(self, project_id: str):
-        """Alias for get_job_repo — backward compatibility."""
-        return self.get_job_repo(project_id)
-
     # ========================================
     # Job Operations (直接操作 JobRepository)
     # ========================================
@@ -215,7 +213,6 @@ class Engine:
         image_path 會指向已抽取的首頁 JPG (供 VLM 分析)。
         source_pdf_path 保存 PDF 原始路徑。
         """
-        import os as _os
         job_repo = self.get_job_repo(project_id)
         job_id = f"job-{int(time.time())}-{uuid.uuid4().hex[:6]}"
         
@@ -223,11 +220,11 @@ class Engine:
         await job_repo.insert_job(job_id, image_path, "ready")
         
         # 2. 補充 PDF 特殊欄位 (Bug 1 fix: 同時設定 compressed_pdf_path 讓 Worker 有輸出路徑)
-        source_dir = _os.path.dirname(source_pdf_path)
-        output_dir = _os.path.join(_os.path.dirname(source_dir), "輸出結果")  # 與 原始輸入 平行
-        _os.makedirs(output_dir, exist_ok=True)
-        stem = _os.path.splitext(_os.path.basename(source_pdf_path))[0]
-        compressed_pdf_path = _os.path.join(output_dir, f"{stem}_compressed.pdf")
+        source_dir = os.path.dirname(source_pdf_path)
+        output_dir = os.path.join(os.path.dirname(source_dir), "輸出結果")  # 與 原始輸入 平行
+        os.makedirs(output_dir, exist_ok=True)
+        stem = os.path.splitext(os.path.basename(source_pdf_path))[0]
+        compressed_pdf_path = os.path.join(output_dir, f"{stem}_compressed.pdf")
         
         await job_repo.update_job(
             job_id,
@@ -372,6 +369,41 @@ class Engine:
 
     async def archive_project(self, project_id: str):
         return await self.export_handler.seal_project(project_id)
+        
+    async def generate_voucher_pdf(self, project_id: str) -> str:
+        """生成憑證黏貼報表 PDF，回傳儲存路徑。"""
+        job_repo = self.get_job_repo(project_id)
+        jobs = await job_repo.list_jobs()
+        
+        # 只拿 status == 'done' 且尚未被刪除原始圖片的發票
+        done_jobs = [j for j in jobs if j.get("status") == "done" and j.get("image_path")]
+        
+        # 依照 updated_at 排序一下
+        done_jobs.sort(key=lambda x: x.get("updated_at", 0))
+        
+        # Bug 1 fix: 正規化為絕對路徑，避免相對路徑找不到檔案
+        root = self.project_repo._project_root(project_id)
+        image_paths = []
+        for j in done_jobs:
+            p = Path(j["image_path"])
+            if not p.is_absolute():
+                p = root / "分割發票" / p
+            image_paths.append(str(p))
+        
+        if not image_paths:
+            raise ValueError("找不到任何已處理完成的憑證 (status='done')。請先完成至少一張憑證辨識。")
+            
+        root = self.project_repo._project_root(project_id)
+        out_dir = root / "輸出結果"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_pdf_path = out_dir / f"憑證黏貼_自動生成_{project_id}.pdf"
+        
+        # 產生 PDF
+        success = self.voucher_generator.generate_voucher_pdf(image_paths, str(out_pdf_path))
+        if not success:
+            raise RuntimeError("產生憑證黏貼 PDF 失敗。")
+            
+        return str(out_pdf_path)
 
     async def regenerate_project(self, project_id: str, excel_path: str):
         from backend.engine.regeneration_handler import RegenerationHandler

@@ -11,7 +11,8 @@
         "debug": true,
         "timeout": 120,
         "max_retries": 3,
-        "reasoning_effort": "low"
+        "reasoning_effort": "low",
+        "model": "gemini"
     },
     "ocr_settings": {
         "engine": "rapidocr",

@@ -1,6 +1,11 @@
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends
 import asyncio
+import logging
+
 from backend.dependencies import get_engine
+from backend.engine.core import Engine
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -24,7 +29,7 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
             try:
                 engine = get_engine()
                 progress = engine.project_repo.get_project_status(project_id)
-            except:
+            except Exception:
                 progress = {}
             
             await websocket.send_json({
@@ -37,8 +42,8 @@ async def websocket_endpoint(websocket: WebSocket, project_id: str):
     except WebSocketDisconnect:
         pass
     except Exception as e:
-        print(f"WebSocket error for {project_id}: {e}")
+        logger.error(f"WebSocket error for {project_id}: {e}")
         try:
             await websocket.close()
-        except:
+        except Exception:
             pass

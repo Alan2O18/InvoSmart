@@ -84,6 +84,17 @@ class VisionHandler:
         Args:
             config: 配置字典，包含 vision_settings
         """
+        from backend.utils.config import load_config
+        
+        # If config is empty or doesn't have vision_settings, try loading from central config
+        if not config or "vision_settings" not in config:
+            try:
+                central_config = load_config()
+                if central_config:
+                    config = central_config
+            except Exception as e:
+                logger.warning(f"[VisionHandler] Failed to load central config: {e}")
+                
         vision_settings = config.get("vision_settings", {})
         
         # API 設定

@@ -20,9 +20,12 @@
     </div>
 
     <div class="workspace">
-      <!-- Left Panel: PDF & Canvas -->
       <div class="canvas-container" ref="containerRef">
-        <div class="canvas-wrapper" v-show="!loadingPdf">
+        <div v-if="errorMsg" class="error-overlay">
+          <p>⚠️ {{ errorMsg }}</p>
+          <button @click="$emit('saved')" class="secondary-btn">← 放棄並返回</button>
+        </div>
+        <div class="canvas-wrapper" v-show="!loadingPdf && !errorMsg">
           <canvas ref="pdfCanvasRef" class="pdf-layer"></canvas>
           <canvas ref="fabricCanvasRef" class="fabric-layer"></canvas>
         </div>
@@ -51,12 +54,13 @@
 <script setup>
 import { ref, onMounted, onUnmounted, shallowRef, watch } from 'vue'
 import * as pdfjsLib from 'pdfjs-dist/build/pdf'
+import pdfWorker from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import * as fabric from 'fabric' // Correct import for v6 fabric.js
 import api from '../services/api'
 import JsonFieldEditor from './JsonFieldEditor.vue'
 
-// Set up PDF.js worker using CDN to avoid Vite build complexity for now
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.mjs`
+// Set up PDF.js worker using Local Vite import instead of CDN
+pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorker
 
 const props = defineProps({
   job: { type: Object, required: true },
@@ -69,6 +73,7 @@ const containerRef = ref(null)
 const pdfCanvasRef = ref(null)
 const fabricCanvasRef = ref(null)
 const loadingPdf = ref(true)
+const errorMsg = ref('')
 const saving = ref(false)
 const formData = ref({})
 const hasSelection = ref(false)
@@ -95,6 +100,7 @@ const initData = () => {
 
 const loadPdf = async () => {
   loadingPdf.value = true
+  errorMsg.value = ''
   try {
     const url = `http://localhost:8000/api/pdf/${props.projectId}/${props.job.job_id}/download`
     const loadingTask = pdfjsLib.getDocument(url)
@@ -103,7 +109,11 @@ const loadPdf = async () => {
     await renderPage(1)
   } catch (error) {
     console.error('Error loading PDF:', error)
-    alert('無法載入 PDF')
+    if (error.name === 'MissingPDFException') {
+      errorMsg.value = "找不到 PDF 檔案，可能尚未上傳或已被刪除。"
+    } else {
+      errorMsg.value = `PDF 讀取失敗: ${error.message}`
+    }
   } finally {
     loadingPdf.value = false
   }
@@ -401,6 +411,29 @@ onUnmounted(() => {
   transform: translate(-50%, -50%);
   color: #888;
   font-size: 1.2rem;
+}
+
+.error-overlay {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 400px;
+  color: #ef4444;
+  font-size: 1.1rem;
+  gap: 1rem;
+}
+
+.secondary-btn {
+  background: #444;
+  color: #ccc;
+  padding: 0.6rem 1.2rem;
+  border: 1px solid #555;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.secondary-btn:hover {
+  background: #555;
 }
 
 .data-panel {

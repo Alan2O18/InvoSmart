@@ -6,6 +6,7 @@ import logging
 import json
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from backend.dependencies import get_engine
 from backend.engine.core import Engine
@@ -25,6 +26,8 @@ async def list_projects(engine: Engine = Depends(get_engine)):
     return await engine.project_repo.list_projects()
 
 
+from backend.utils.utils import handle_upload_files
+
 @router.post("/")
 async def create_project(
     project_id: str = Form(...),
@@ -33,48 +36,28 @@ async def create_project(
     engine: Engine = Depends(get_engine)
 ):
     """Create a new project with uploaded files."""
-    temp_dir = tempfile.mkdtemp()
-    saved_file_paths = []
-    
     try:
-        for file in files:
-            file_path = os.path.join(temp_dir, file.filename)
-            with open(file_path, "wb") as buffer:
-                shutil.copyfileobj(file.file, buffer)
-            saved_file_paths.append(file_path)
-        
-        meta_dict = {}
-        activity_name = None
-        if metadata:
-            try:
-                meta_dict = json.loads(metadata)
-                activity_name = meta_dict.get('name') or meta_dict.get('projectName')
-            except:
-                pass
+        async with handle_upload_files(files) as saved_file_paths:
+            meta_dict = {}
+            activity_name = None
+            if metadata:
+                try:
+                    meta_dict = json.loads(metadata)
+                    activity_name = meta_dict.get('name') or meta_dict.get('projectName')
+                except Exception:
+                    pass
 
-        result = await engine.create_project(project_id, saved_file_paths, name=activity_name, metadata=meta_dict)
-        return result
+            result = await engine.create_project(project_id, saved_file_paths, name=activity_name, metadata=meta_dict)
+            return result
     except Exception as e:
         logger.error(f"Error creating project: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 @router.put("/{project_id}")
 async def update_project(project_id: str, metadata: dict, engine: Engine = Depends(get_engine)):
     """Update project metadata."""
     try:
-        activity_name = metadata.get('name') or metadata.get('projectName')
-        if activity_name:
-            existing = await engine.project_repo.get_project(project_id)
-            if existing:
-                # Assuming ProjectRepository `register_project` updates name. Just doing metadata for now.
-                # Actually, register_project takes name! We can leverage it or just let update_project_metadata handle JSON metadata.
-                # The ORM update will be simpler. I'll just rely on `update_project_metadata` combining things.
-                await engine.project_repo.update_project_metadata(project_id, metadata)
-                return await engine.project_repo.get_project(project_id)
-                
         await engine.project_repo.update_project_metadata(project_id, metadata)
         return await engine.project_repo.get_project(project_id)
     except Exception as e:
@@ -114,21 +97,24 @@ async def update_activity_info(project_id: str, info: dict, engine: Engine = Dep
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{project_id}/job-ids")
-async def get_project_job_ids(project_id: str, engine: Engine = Depends(get_engine)):
-    """Get list of job IDs for navigation."""
+
+@router.post("/{project_id}/generate-voucher-pdf")
+async def generate_voucher_pdf(project_id: str, engine: Engine = Depends(get_engine)):
+    """產生並下載憑證黏貼 PDF"""
     try:
-        job_repo = engine.get_job_repo(project_id)
-        jobs = await job_repo.list_jobs()
-        # Return lightweight list for navigation
-        return [
-            {
-                "job_id": job["job_id"],
-                "status": job["status"],
-                "image_path": job["image_path"]
-            }
-            for job in jobs
-        ]
+        pdf_path = await engine.generate_voucher_pdf(project_id)
+        if not os.path.exists(pdf_path):
+            raise HTTPException(status_code=404, detail="PDF generation failed")
+            
+        return FileResponse(
+            path=pdf_path,
+            filename=f"憑證黏貼_{project_id}.pdf",
+            media_type="application/pdf"
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except FileNotFoundError as fnf:
+        raise HTTPException(status_code=404, detail=str(fnf))
     except Exception as e:
-        logger.error(f"Error getting job IDs for {project_id}: {e}")
+        logger.error(f"Error generating voucher PDF: {e}")
         raise HTTPException(status_code=500, detail=str(e))
