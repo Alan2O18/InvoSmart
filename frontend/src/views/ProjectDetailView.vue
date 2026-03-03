@@ -33,7 +33,10 @@
       <div class="arrow">→</div>
       <div class="step" :class="{ active: canGenerateVoucher }">
         <h3>4. 匯出憑證</h3>
-        <button @click="generateVoucherPdf" :disabled="!canGenerateVoucher || loading" class="pdf-btn">產生黏貼紙</button>
+        <div style="display: flex; flex-direction: column; gap: 0.5rem; justify-content: center; align-items: center;">
+          <button @click="generateVoucherPdf" :disabled="!canGenerateVoucher || loading" class="pdf-btn">快速產生黏貼紙</button>
+          <button @click="openVoucherEditor" :disabled="!canGenerateVoucher || loading" class="mini-btn">開啟憑證編輯器</button>
+        </div>
       </div>
       <div class="arrow">→</div>
       <div class="step" :class="{ active: canArchive }">
@@ -371,6 +374,10 @@ const runArchive = async () => {
   } 
   catch (e) { alert(e); } 
   finally { loading.value = false; }
+}
+
+const openVoucherEditor = () => {
+  router.push(`/project/${projectId}/voucher-editor`)
 }
 
 const generateVoucherPdf = async () => {

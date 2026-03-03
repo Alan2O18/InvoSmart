@@ -40,6 +40,11 @@ const router = createRouter({
       component: () => import('../views/PdfEditorView.vue')
     },
     {
+      path: '/project/:id/voucher-editor',
+      name: 'voucher-editor',
+      component: () => import('../views/VoucherEditorView.vue')
+    },
+    {
       path: '/kanban',
       name: 'kanban',
       component: () => import('../views/KanbanView.vue')

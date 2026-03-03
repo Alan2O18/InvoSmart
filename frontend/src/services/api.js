@@ -104,6 +104,21 @@ export default {
       responseType: 'blob'
     })
   },
+  getVoucherTemplate(projectId) {
+    return api.get(`/api/voucher/${projectId}/template`)
+  },
+  getVoucherLayout(projectId) {
+    return api.get(`/api/voucher/${projectId}/layout`)
+  },
+  saveVoucherLayout(projectId, payload) {
+    return api.post(`/api/voucher/${projectId}/layout`, payload)
+  },
+  generateVoucherFromLayout(projectId, payload) {
+    return api.post(`/api/voucher/${projectId}/generate`, payload)
+  },
+  getVoucherImageUrl(projectId, jobId, thumb = true) {
+    return `/api/voucher/${projectId}/image/${jobId}?thumb=${thumb ? 'true' : 'false'}`
+  },
   runArchive(projectId) {
     return api.post(`/api/projects/${projectId}/run_archive`)
   },

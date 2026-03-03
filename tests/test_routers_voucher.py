@@ -1,0 +1,464 @@
+from unittest.mock import AsyncMock
+
+import fitz
+from PIL import Image
+
+
+def test_get_template_returns_done_invoices_with_result(mock_app_client, mock_engine_for_api, monkeypatch):
+    mock_engine_for_api.project_repo.get_project = AsyncMock(
+        return_value={"project_id": "proj1", "name": "Project 1", "created_at": "2026-01-01"}
+    )
+
+    mock_job_repo = AsyncMock()
+    mock_job_repo.list_jobs = AsyncMock(return_value=[{"job_id": "j1", "status": "done"}])
+    mock_job_repo.get_display_result = AsyncMock(return_value={"amount": "123"})
+    mock_engine_for_api.get_job_repo.return_value = mock_job_repo
+
+    monkeypatch.setattr(
+        "backend.routers.voucher.get_voucher_settings",
+        lambda: {
+            "template_pdf_path": __file__,
+            "font_ttf_path": "",
+            "layout_root": "./backend/data/projects",
+            "max_pages": 10,
+            "autosave_interval_sec": 30,
+            "thumb_max_width": 800,
+        },
+    )
+    monkeypatch.setattr("backend.routers.voucher._template_png_base64", lambda *_: "mock_png")
+
+    response = mock_app_client.get("/api/voucher/proj1/template")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["templatePng"] == "mock_png"
+    assert payload["invoices"][0]["jobId"] == "j1"
+    assert payload["invoices"][0]["result"]["amount"] == "123"
+
+
+def test_layout_save_and_load(mock_app_client, monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "backend.routers.voucher.get_voucher_settings",
+        lambda: {
+            "template_pdf_path": "",
+            "font_ttf_path": "",
+            "layout_root": str(tmp_path),
+            "max_pages": 10,
+            "autosave_interval_sec": 30,
+            "thumb_max_width": 800,
+        },
+    )
+
+    save_resp = mock_app_client.post(
+        "/api/voucher/proj1/layout",
+        json={"globalPrefix": "", "startIndex": 1, "pages": [{"pageIndex": 0, "fields": {}, "images": []}]},
+    )
+    assert save_resp.status_code == 200
+    assert save_resp.json()["status"] == "success"
+
+    load_resp = mock_app_client.get("/api/voucher/proj1/layout")
+    assert load_resp.status_code == 200
+    assert load_resp.json()["pages"][0]["pageIndex"] == 0
+
+
+def test_generate_rejects_unauthorized_jobid(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+    template_pdf = tmp_path / "template.pdf"
+
+    doc = fitz.open()
+    doc.new_page(width=595, height=842)
+    doc.save(template_pdf)
+    doc.close()
+
+    monkeypatch.setattr(
+        "backend.routers.voucher.get_voucher_settings",
+        lambda: {
+            "template_pdf_path": str(template_pdf),
+            "font_ttf_path": "",
+            "layout_root": str(tmp_path),
+            "max_pages": 10,
+            "autosave_interval_sec": 30,
+            "thumb_max_width": 800,
+        },
+    )
+
+    mock_job_repo = AsyncMock()
+    mock_job_repo.get_job = AsyncMock(return_value=None)
+    mock_engine_for_api.get_job_repo.return_value = mock_job_repo
+
+    response = mock_app_client.post(
+        "/api/voucher/proj1/generate",
+        json={
+            "globalPrefix": "D-16",
+            "startIndex": 1,
+            "pages": [
+                {
+                    "pageIndex": 0,
+                    "fields": {
+                        "voucherNo": "D-16-01",
+                        "budgetItem": "",
+                        "amount": "100",
+                        "purpose": "餐費",
+                        "receiptCount": "1",
+                        "payDate": "2024-11-28",
+                        "isManuallyEdited": False,
+                    },
+                    "images": [{"jobId": "foreign_job", "x": 30, "y": 394, "w": 100, "h": 100}],
+                }
+            ],
+        },
+    )
+    assert response.status_code == 403
+    assert response.json()["detail"]["error"] == "FORBIDDEN"
+
+
+def test_generate_strict_amount_validation_422(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+    template_pdf = tmp_path / "template.pdf"
+
+    doc = fitz.open()
+    doc.new_page(width=595, height=842)
+    doc.save(template_pdf)
+    doc.close()
+
+    monkeypatch.setattr(
+        "backend.routers.voucher.get_voucher_settings",
+        lambda: {
+            "template_pdf_path": str(template_pdf),
+            "font_ttf_path": "",
+            "layout_root": str(tmp_path),
+            "max_pages": 10,
+            "autosave_interval_sec": 30,
+            "thumb_max_width": 800,
+        },
+    )
+
+    mock_job_repo = AsyncMock()
+    mock_job_repo.get_job = AsyncMock(return_value={"job_id": "j1", "image_path": "x"})
+    mock_engine_for_api.get_job_repo.return_value = mock_job_repo
+
+    response = mock_app_client.post(
+        "/api/voucher/proj1/generate",
+        json={
+            "globalPrefix": "D-16",
+            "startIndex": 1,
+            "pages": [
+                {
+                    "pageIndex": 0,
+                    "fields": {
+                        "voucherNo": "D-16-01",
+                        "budgetItem": "",
+                        "amount": "10000000",
+                        "purpose": "餐費",
+                        "receiptCount": "1",
+                        "payDate": "2024-11-28",
+                        "isManuallyEdited": False,
+                    },
+                    "images": [{"jobId": "j1", "x": 30, "y": 394, "w": 100, "h": 100}],
+                }
+            ],
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_generate_success_returns_pdf_file(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+    template_pdf = tmp_path / "template.pdf"
+    image_path = tmp_path / "receipt.jpg"
+
+    doc = fitz.open()
+    doc.new_page(width=595, height=842)
+    doc.save(template_pdf)
+    doc.close()
+
+    Image.new("RGB", (300, 200), color=(255, 255, 255)).save(image_path)
+
+    monkeypatch.setattr(
+        "backend.routers.voucher.get_voucher_settings",
+        lambda: {
+            "template_pdf_path": str(template_pdf),
+            "font_ttf_path": "",
+            "layout_root": str(tmp_path),
+            "max_pages": 10,
+            "autosave_interval_sec": 30,
+            "thumb_max_width": 800,
+        },
+    )
+
+    mock_job_repo = AsyncMock()
+    mock_job_repo.get_job = AsyncMock(return_value={"job_id": "j1", "image_path": str(image_path)})
+    mock_engine_for_api.get_job_repo.return_value = mock_job_repo
+
+    response = mock_app_client.post(
+        "/api/voucher/proj1/generate",
+        json={
+            "globalPrefix": "D-16",
+            "startIndex": 1,
+            "pages": [
+                {
+                    "pageIndex": 0,
+                    "fields": {
+                        "voucherNo": "D-16-01",
+                        "budgetItem": "帶動組",
+                        "amount": "100",
+                        "purpose": "餐費",
+                        "receiptCount": "1",
+                        "payDate": "2024-11-28",
+                        "isManuallyEdited": False,
+                    },
+                    "images": [{"jobId": "j1", "x": 30, "y": 394, "w": 100, "h": 100}],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["filename"].endswith(".pdf")
+    assert (tmp_path / "proj1" / "outputs" / payload["filename"]).exists()
+
+
+def test_generate_missing_image_still_outputs_pdf(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+    template_pdf = tmp_path / "template.pdf"
+
+    doc = fitz.open()
+    doc.new_page(width=595, height=842)
+    doc.save(template_pdf)
+    doc.close()
+
+    monkeypatch.setattr(
+        "backend.routers.voucher.get_voucher_settings",
+        lambda: {
+            "template_pdf_path": str(template_pdf),
+            "font_ttf_path": "",
+            "layout_root": str(tmp_path),
+            "max_pages": 10,
+            "autosave_interval_sec": 30,
+            "thumb_max_width": 800,
+        },
+    )
+
+    missing_path = str(tmp_path / "not_exists.jpg")
+    mock_job_repo = AsyncMock()
+    mock_job_repo.get_job = AsyncMock(return_value={"job_id": "j1", "image_path": missing_path})
+    mock_engine_for_api.get_job_repo.return_value = mock_job_repo
+
+    response = mock_app_client.post(
+        "/api/voucher/proj1/generate",
+        json={
+            "globalPrefix": "D-16",
+            "startIndex": 1,
+            "pages": [
+                {
+                    "pageIndex": 0,
+                    "fields": {
+                        "voucherNo": "D-16-01",
+                        "budgetItem": "帶動組",
+                        "amount": "100",
+                        "purpose": "餐費",
+                        "receiptCount": "1",
+                        "payDate": "2024-11-28",
+                        "isManuallyEdited": False,
+                    },
+                    "images": [{"jobId": "j1", "x": 30, "y": 394, "w": 100, "h": 100}],
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+
+
+# ── Additional tests per v29 §10.1 ─────────────────────────────────────────
+
+def _make_voucher_settings(template_pdf, tmp_path):
+    return {
+        "template_pdf_path": str(template_pdf),
+        "font_ttf_path": "",
+        "layout_root": str(tmp_path),
+        "max_pages": 10,
+        "autosave_interval_sec": 30,
+        "thumb_max_width": 800,
+    }
+
+
+def _make_template_pdf(tmp_path):
+    template_pdf = tmp_path / "template.pdf"
+    doc = fitz.open()
+    doc.new_page(width=595, height=842)
+    doc.save(template_pdf)
+    doc.close()
+    return template_pdf
+
+
+def test_layout_draft_accepts_empty_paydate(mock_app_client, monkeypatch, tmp_path):
+    """v29 §10.1.6: payDate='' in Draft → 200."""
+    monkeypatch.setattr(
+        "backend.routers.voucher.get_voucher_settings",
+        lambda: _make_voucher_settings("", tmp_path),
+    )
+
+    response = mock_app_client.post(
+        "/api/voucher/proj1/layout",
+        json={
+            "globalPrefix": "D-16",
+            "startIndex": 1,
+            "pages": [{
+                "pageIndex": 0,
+                "fields": {
+                    "voucherNo": "D-16-01",
+                    "amount": "",
+                    "payDate": "",
+                    "receiptCount": "",
+                },
+                "images": [],
+            }],
+        },
+    )
+    assert response.status_code == 200
+
+
+def test_generate_strict_rejects_empty_paydate(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+    """v29 §10.1.6: payDate='' in Strict → 422."""
+    template_pdf = _make_template_pdf(tmp_path)
+    monkeypatch.setattr(
+        "backend.routers.voucher.get_voucher_settings",
+        lambda: _make_voucher_settings(template_pdf, tmp_path),
+    )
+
+    mock_job_repo = AsyncMock()
+    mock_job_repo.get_job = AsyncMock(return_value={"job_id": "j1", "image_path": "x"})
+    mock_engine_for_api.get_job_repo.return_value = mock_job_repo
+
+    response = mock_app_client.post(
+        "/api/voucher/proj1/generate",
+        json={
+            "globalPrefix": "D-16",
+            "startIndex": 1,
+            "pages": [{
+                "pageIndex": 0,
+                "fields": {
+                    "voucherNo": "D-16-01",
+                    "budgetItem": "",
+                    "amount": "100",
+                    "purpose": "餐費",
+                    "receiptCount": "1",
+                    "payDate": "",
+                    "isManuallyEdited": False,
+                },
+                "images": [{"jobId": "j1", "x": 30, "y": 394, "w": 100, "h": 100}],
+            }],
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_generate_strict_rejects_decimal_amount(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+    """Decimal amount like '100.5' → 422."""
+    template_pdf = _make_template_pdf(tmp_path)
+    monkeypatch.setattr(
+        "backend.routers.voucher.get_voucher_settings",
+        lambda: _make_voucher_settings(template_pdf, tmp_path),
+    )
+
+    mock_job_repo = AsyncMock()
+    mock_job_repo.get_job = AsyncMock(return_value={"job_id": "j1", "image_path": "x"})
+    mock_engine_for_api.get_job_repo.return_value = mock_job_repo
+
+    response = mock_app_client.post(
+        "/api/voucher/proj1/generate",
+        json={
+            "globalPrefix": "D-16",
+            "startIndex": 1,
+            "pages": [{
+                "pageIndex": 0,
+                "fields": {
+                    "voucherNo": "D-16-01",
+                    "budgetItem": "",
+                    "amount": "100.5",
+                    "purpose": "餐費",
+                    "receiptCount": "1",
+                    "payDate": "2024-11-28",
+                    "isManuallyEdited": False,
+                },
+                "images": [{"jobId": "j1", "x": 30, "y": 394, "w": 100, "h": 100}],
+            }],
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_generate_strict_rejects_non_digit_amount(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+    """Non-digit amount like 'abc' → 422."""
+    template_pdf = _make_template_pdf(tmp_path)
+    monkeypatch.setattr(
+        "backend.routers.voucher.get_voucher_settings",
+        lambda: _make_voucher_settings(template_pdf, tmp_path),
+    )
+
+    response = mock_app_client.post(
+        "/api/voucher/proj1/generate",
+        json={
+            "globalPrefix": "D-16",
+            "startIndex": 1,
+            "pages": [{
+                "pageIndex": 0,
+                "fields": {
+                    "voucherNo": "D-16-01",
+                    "amount": "abc",
+                    "receiptCount": "1",
+                    "payDate": "2024-11-28",
+                },
+                "images": [{"jobId": "j1", "x": 30, "y": 394, "w": 100, "h": 100}],
+            }],
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_generate_strict_rejects_zero_width_image(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+    """Image with w=0 → 422."""
+    template_pdf = _make_template_pdf(tmp_path)
+    monkeypatch.setattr(
+        "backend.routers.voucher.get_voucher_settings",
+        lambda: _make_voucher_settings(template_pdf, tmp_path),
+    )
+
+    response = mock_app_client.post(
+        "/api/voucher/proj1/generate",
+        json={
+            "globalPrefix": "D-16",
+            "startIndex": 1,
+            "pages": [{
+                "pageIndex": 0,
+                "fields": {
+                    "voucherNo": "D-16-01",
+                    "amount": "100",
+                    "receiptCount": "1",
+                    "payDate": "2024-11-28",
+                },
+                "images": [{"jobId": "j1", "x": 30, "y": 394, "w": 0, "h": 100}],
+            }],
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_layout_draft_accepts_invalid_date(mock_app_client, monkeypatch, tmp_path):
+    """Draft schema allows invalid date strings for autosave."""
+    monkeypatch.setattr(
+        "backend.routers.voucher.get_voucher_settings",
+        lambda: _make_voucher_settings("", tmp_path),
+    )
+
+    response = mock_app_client.post(
+        "/api/voucher/proj1/layout",
+        json={
+            "globalPrefix": "D-16",
+            "startIndex": 1,
+            "pages": [{
+                "pageIndex": 0,
+                "fields": {"payDate": "not-a-date", "amount": "100.5"},
+                "images": [],
+            }],
+        },
+    )
+    assert response.status_code == 200

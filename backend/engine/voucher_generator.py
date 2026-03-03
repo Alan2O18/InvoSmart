@@ -1,10 +1,14 @@
 # backend/engine/voucher_generator.py
 import os
 import logging
+import re
+from io import BytesIO
 import fitz  # PyMuPDF
 from typing import List
+from PIL import Image
 
 logger = logging.getLogger(__name__)
+
 
 class VoucherGenerator:
     """
@@ -12,11 +16,158 @@ class VoucherGenerator:
     將處理完成的發票圖片，自動縮放並貼上範本下方的空白區域。
     """
     
-    def __init__(self, template_path: str):
+    def __init__(self, template_path: str, font_path: str = ""):
         self.template_path = template_path
+        self.font_path = font_path
         
         if not os.path.exists(template_path):
             logger.warning(f"[VoucherGenerator] 找不到範本路徑 {template_path}，匯出時可能失敗")
+
+    @staticmethod
+    def _safe_text(text: str) -> str:
+        if not text:
+            return ""
+        return re.sub(r"[^\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\w\s\-_/、，。:：※]", "", text)
+
+    @staticmethod
+    def _to_roc_date(pay_date: str) -> str:
+        if not pay_date or not pay_date.strip():
+            return ""
+        match = re.search(r"^(\d{4})-(\d{2})-(\d{2})", pay_date)
+        if not match:
+            return ""
+        year, month, day = match.groups()
+        return f"{int(year) - 1911}/{month}/{day}"
+
+    def _insert_text(self, page: fitz.Page, point: tuple[float, float], text: str, fontsize: int = 12):
+        safe_text = self._safe_text(text)
+        if not safe_text.strip():
+            return
+        page.insert_text(
+            point,
+            safe_text,
+            fontsize=fontsize,
+            fontname="F0" if self.font_path else "helv",
+            fontfile=self.font_path if self.font_path else None,
+        )
+
+    def _insert_purpose(self, page: fitz.Page, purpose: str):
+        safe_text = self._safe_text(purpose)
+        if not safe_text.strip():
+            return
+
+        rect = fitz.Rect(214, 248, 411, 328)
+        chosen_fontsize = 14
+        chosen_text = safe_text
+        truncated = False
+
+        # Measure on a scratch page to avoid double-writing on the real page
+        with fitz.open() as scratch_doc:
+            scratch_page = scratch_doc.new_page(width=595, height=842)
+            fontsize = 14
+            while fontsize >= 10:
+                remaining = scratch_page.insert_textbox(
+                    rect,
+                    safe_text,
+                    fontsize=fontsize,
+                    fontname="F0" if self.font_path else "helv",
+                    fontfile=self.font_path if self.font_path else None,
+                )
+                if remaining >= 0:
+                    chosen_fontsize = fontsize
+                    break
+                fontsize -= 1
+            else:
+                # All font sizes exhausted — truncate
+                chosen_fontsize = 10
+                chosen_text = safe_text[:80] + "...(略)"
+                truncated = True
+
+        # Write once on the real page
+        page.insert_textbox(
+            rect,
+            chosen_text,
+            fontsize=chosen_fontsize,
+            fontname="F0" if self.font_path else "helv",
+            fontfile=self.font_path if self.font_path else None,
+        )
+        if truncated:
+            logger.warning("Purpose text truncated during voucher rendering")
+
+    def _insert_amount_cells(self, page: fitz.Page, amount: str):
+        if not amount or not str(amount).isdigit():
+            return
+        text = str(int(amount)).rjust(7, "※")
+        y = 232
+        x_list = [430, 446, 462, 478, 494, 510, 526]
+        for idx, char in enumerate(text[:7]):
+            self._insert_text(page, (x_list[idx], y), char, fontsize=12)
+
+    @staticmethod
+    def _image_stream_for_rect(image_path: str, target_width_pts: float) -> bytes:
+        with Image.open(image_path) as image:
+            image = image.convert("RGB")
+            target_px = int((target_width_pts / 72.0) * 300)
+            target_px = max(1, min(target_px, image.width))
+            if target_px < image.width:
+                target_h = max(1, int((target_px / image.width) * image.height))
+                image = image.resize((target_px, target_h), Image.Resampling.LANCZOS)
+
+            buffer = BytesIO()
+            image.save(buffer, format="JPEG", quality=90)
+            return buffer.getvalue()
+
+    @staticmethod
+    def _render_missing_marker(page: fitz.Page, rect: fitz.Rect):
+        page.draw_rect(rect, color=(1, 0, 0), width=2)
+        page.draw_line(rect.tl, rect.br, color=(1, 0, 0), width=2)
+        page.draw_line(rect.tr, rect.bl, color=(1, 0, 0), width=2)
+        page.insert_text((rect.x0 + 4, rect.y0 + 14), "圖片損壞無法載入", fontsize=10, color=(1, 0, 0))
+
+    def generate_from_layout(self, pages: List[dict], job_image_map: dict[str, str], output_path: str) -> bool:
+        if not os.path.exists(self.template_path):
+            raise FileNotFoundError(f"Missing template PDF: {self.template_path}")
+
+        with fitz.open(self.template_path) as template_doc:
+            with fitz.open() as out_doc:
+                for page_payload in pages:
+                    images = page_payload.get("images", [])
+                    if not images:
+                        continue
+
+                    out_doc.insert_pdf(template_doc, from_page=0, to_page=0)
+                    page = out_doc[-1]
+
+                    fields = page_payload.get("fields", {})
+                    self._insert_text(page, (78, 238), str(fields.get("voucherNo", "")), fontsize=12)
+                    self._insert_text(page, (78, 208), str(fields.get("budgetItem", "")), fontsize=12)
+                    self._insert_amount_cells(page, str(fields.get("amount", "")))
+                    self._insert_purpose(page, str(fields.get("purpose", "")))
+                    self._insert_text(page, (534, 286), str(fields.get("receiptCount", "")), fontsize=12)
+                    self._insert_text(page, (436, 286), self._to_roc_date(str(fields.get("payDate", ""))), fontsize=12)
+
+                    for image in images:
+                        job_id = image.get("jobId")
+                        x = float(image.get("x", 0))
+                        y = float(image.get("y", 0))
+                        w = float(image.get("w", 0))
+                        h = float(image.get("h", 0))
+                        rect = fitz.Rect(x, y, x + w, y + h)
+
+                        image_path = job_image_map.get(job_id)
+                        if not image_path or not os.path.exists(image_path):
+                            self._render_missing_marker(page, rect)
+                            continue
+
+                        image_stream = self._image_stream_for_rect(image_path, w)
+                        page.insert_image(rect, stream=image_stream)
+
+                if out_doc.page_count == 0:
+                    out_doc.insert_pdf(template_doc, from_page=0, to_page=0)
+
+                out_doc.save(output_path, deflate=True, garbage=4)
+
+        return True
 
     def generate_voucher_pdf(self, image_paths: List[str], output_path: str) -> bool:
         """
@@ -33,8 +184,6 @@ class VoucherGenerator:
             
         try:
             doc = fitz.open(self.template_path)
-            # 取得範本第一頁
-            template_page = doc[0]
             
             # 定義可黏貼的區域 (A4 大小約 595 x 842 pts)
             # 根據範本，下半部是發票黏貼處，大約從 y=350 到 y=800

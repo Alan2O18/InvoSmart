@@ -1,0 +1,67 @@
+{
+  "globalPrefix": "D-16",
+  "startIndex": 1,
+  "pages": [
+    {
+      "pageIndex": 0,
+      "fields": {
+        "voucherNo": "",
+        "budgetItem": "",
+        "amount": "",
+        "purpose": "",
+        "receiptCount": "3",
+        "payDate": "",
+        "isManuallyEdited": false
+      },
+      "images": [
+        {
+          "jobId": "job-1771656709-5c5ee9",
+          "x": 30.0,
+          "y": 394.0,
+          "w": 180.0,
+          "h": 120.0
+        },
+        {
+          "jobId": "job-1771656709-948123",
+          "x": 50.0,
+          "y": 414.0,
+          "w": 180.0,
+          "h": 120.0
+        },
+        {
+          "jobId": "job-1771656718-a7aa00",
+          "x": 70.0,
+          "y": 434.0,
+          "w": 180.0,
+          "h": 120.0
+        }
+      ]
+    },
+    {
+      "pageIndex": 1,
+      "fields": {
+        "voucherNo": "",
+        "budgetItem": "",
+        "amount": "",
+        "purpose": "",
+        "receiptCount": "0",
+        "payDate": "",
+        "isManuallyEdited": false
+      },
+      "images": []
+    },
+    {
+      "pageIndex": 2,
+      "fields": {
+        "voucherNo": "",
+        "budgetItem": "",
+        "amount": "",
+        "purpose": "",
+        "receiptCount": "0",
+        "payDate": "",
+        "isManuallyEdited": false
+      },
+      "images": []
+    }
+  ]
+}
