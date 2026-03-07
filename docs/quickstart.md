@@ -17,10 +17,18 @@
 目前我們使用 micromamba 進行虛擬環境管理。
 環境名稱為 OCR_GA
 
+建議先啟用既有環境，再安裝/更新依賴：
+
+```bash
+micromamba activate OCR_GA
+pip install -r requirements.txt
+```
+
 
 ### 安裝依賴
 
 ```bash
+micromamba activate OCR_GA
 pip install -r requirements.txt
 ```
 
@@ -53,6 +61,7 @@ GOOGLE_API_KEY=your_gemini_api_key_here
 ## 4. 啟動後端服務
 ```bash
 # 啟動開發伺服器
+micromamba activate OCR_GA
 python -m uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
@@ -74,6 +83,8 @@ npm run dev
 
 前端介面預設運行於 `http://localhost:5173`。
 
+> **Voucher Editor 備註**: 若要驗證憑證黏貼編輯器，請先完成至少一個專案的收據辨識，讓專案內存在 `done` 狀態的 jobs；否則編輯器會顯示空白/無可用發票的引導畫面。
+
 ## 6. 驗證安裝
 
 1. 打開瀏覽器訪問 `http://localhost:5173`。
@@ -81,6 +92,7 @@ npm run dev
 3. 上傳一張收據圖片。
 4. 觀察後端 Log，確認 `VisionHandler` 成功調用遠端 API 並返回結果。
 5. 若能看到識別出的收據內容，即代表安裝成功。
+6. 若要驗證 Voucher Editor，進入專案頁後點擊「開啟憑證編輯器」，確認可載入模板、看到可用發票，且可成功下載 PDF。
 
 ---
 
@@ -91,3 +103,6 @@ A: **不需要**。VLM 運算在雲端進行，RapidOCR (用於輔助驗證) 使
 
 **Q: 為什麼找不到 Ollama 設定？**
 A: 本專案已棄用 Ollama。所有圖文理解與邏輯判斷皆由 VLM (Gemini Flash Lite) 一次完成。
+
+**Q: 為什麼 Voucher Editor 進去後沒有發票可拖拉？**
+A: Voucher Editor 只顯示 `done` 狀態的發票。請先在專案頁完成 `run_processing`，或確認目前專案真的已有辨識完成的 jobs。

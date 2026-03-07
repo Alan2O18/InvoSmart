@@ -147,7 +147,7 @@ const goBack = () => router.push(`/project/${projectId}`)
 
 const fetchJobList = async () => {
     try {
-        const res = await api.getProjectJobIds(projectId)
+    const res = await api.getProjectJobs(projectId)
         jobList.value = res.data
         if (hasNext.value) preloadImage(jobList.value[currentIndex.value + 1])
     } catch (e) {

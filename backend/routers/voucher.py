@@ -156,14 +156,6 @@ async def save_layout(project_id: str, payload: VoucherLayoutPayloadDraft):
     repo = get_layout_repo()
     return repo.save_layout(project_id, payload.model_dump())
 
-@router.get("/fonts/kaiu.ttf")
-async def get_kaiu_font():
-    settings = get_voucher_settings()
-    font_path = settings["font_ttf_path"]
-    if not os.path.exists(font_path):
-        raise HTTPException(status_code=500, detail={"error": "INTERNAL_ERROR", "detail": "Font file not found"})
-    return Response(content=open(font_path, "rb").read(), media_type="font/ttf")
-
 
 @router.post("/{project_id}/generate")
 async def generate_voucher_pdf(

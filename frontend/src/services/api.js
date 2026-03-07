@@ -62,7 +62,7 @@ export default {
   // PDF Processing
   // =====================
   uploadPdf(projectId, formData) {
-    return api.post(`/api/pdf/${projectId}/upload_pdf`, formData, {
+    return api.post(`/api/pdf/${projectId}/pdf`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   },
@@ -99,11 +99,6 @@ export default {
   },
   runWordExport(projectId) {
     return api.post(`/api/projects/${projectId}/run_word_export`, null, {
-      responseType: 'blob'
-    })
-  },
-  generateVoucherPdf(projectId) {
-    return api.post(`/api/projects/${projectId}/generate-voucher-pdf`, null, {
       responseType: 'blob'
     })
   },
@@ -154,17 +149,8 @@ export default {
   getJobDetails(projectId, jobId) {
     return api.get(`/api/projects/${projectId}/jobs/${jobId}/details`)
   },
-
-  getProjectJobIds(projectId) {
-    return api.get(`/api/projects/${projectId}/job-ids`)
-  },
   saveManualJson(projectId, jobId, jsonData) {
     return api.put(`/api/projects/${projectId}/jobs/${jobId}/json`, { json_data: jsonData })
-  },
-  regenerateFromManual(projectId, jobId) {
-    // Deprecated, but keeping method signature for now if needed by legacy calls
-    console.warn("regenerateFromManual is deprecated. Use runSingleProcessing instead.")
-    return api.post(`/api/projects/${projectId}/jobs/${jobId}/regenerate_from_manual`)
   },
 
   // =====================

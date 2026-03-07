@@ -1,8 +1,8 @@
 # 測試策略 (Testing Strategy V2)
 
 > **版本**: VLM-First V2
-> **日期**: 2026-02-17
-> **狀態**: 規劃中 (Planned)
+> **日期**: 2026-03-07
+> **狀態**: 使用中 (Living Document)
 
 本文件定義針對 VLM-First 架構的測試策略。由於核心邏輯依賴外部 VLM API (Gemini)，測試重點將從「單元邏輯覆蓋」轉向「整合測試」與「驗證機制」。
 
@@ -39,7 +39,31 @@
 
 - **Framework**: `pytest`
 - **Mocking**: `unittest.mock`
-- **Env**: 使用 `TESTing` 環境變數隔離資料庫 (避免汙染 `global_projects.db`)。
+- **Backend Env**: 使用既有 micromamba 環境 `OCR_GA`
+- **Frontend Test Runner**: 目前以 Node 內建 test runner 與 Vite build 為主
+- **Env**: 使用測試資料與 mock 隔離資料庫/外部 API，避免汙染正式資料
+
+### 2.1 目前建議指令
+
+```bash
+micromamba activate OCR_GA
+pytest tests/ -q
+```
+
+```bash
+cd frontend
+node --test tests/voucher-utils.test.js
+npm run build
+```
+
+### 2.2 Voucher Editor 最低驗證範圍
+
+Voucher Editor 涉及前端 Canvas、後端 route 驗證與 PDF 輸出，目前以「後端自動化 + 前端 build + 手動比對」為最實際的組合：
+
+1. 後端 route 測試：`/api/voucher/{project_id}/generate`、`/api/voucher/fonts/kaiu.ttf`
+2. 前端 utility 測試：日期解析、碰撞檢測、自動排版等純函式
+3. 前端 build：確保 `VoucherEditorView.vue` 的改動可編譯
+4. 手動驗證：Canvas 預覽、頁面切換、PDF 下載與版面對齊
 
 ---
 
@@ -53,3 +77,5 @@
    - `tests/unit/test_repos.py`
    - `tests/integration/test_api_jobs.py`
 3. **Mocking**: 建立 `MockVisionHandler` 用於測試 Pipeline。
+
+> **備註**: 實際專案目前仍保留部分歷史測試與相容層，例如 RapidOCR 相關測試。文件中的「清理」應視為持續整理方向，不代表現況已完全移除。
