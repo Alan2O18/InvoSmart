@@ -21,12 +21,12 @@ class BulkSuggestionRequest(BaseModel):
     values: List[str]
 
 
-from backend.database.core import AsyncSessionLocal
+from backend.repositories.suggestion_repository import SuggestionRepository
 
 def get_suggestion_repo() -> SuggestionRepository:
     """Dependency to provide a SuggestionRepository instance."""
-    return SuggestionRepository(session_factory=AsyncSessionLocal)
-
+    from backend.database import core
+    return SuggestionRepository(session_factory=lambda: core.AsyncSessionLocal())
 @router.get("/suggestions")
 async def get_suggestions(
     category: str = Query(..., description="分類: supplier, item_name, buyer, seller_id, buyer_id, stamp_shop_name"),

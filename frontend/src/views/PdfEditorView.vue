@@ -45,8 +45,13 @@ onMounted(async () => {
   }
 })
 
-const goBack = () => {
-  router.push(`/project/${projectId}`)
+const goBack = async () => {
+  try {
+    await router.push(`/project/${projectId}`)
+  } catch (err) {
+    console.error('Router navigation failed, forcing window location:', err)
+    window.location.href = `/project/${projectId}`
+  }
 }
 </script>
 

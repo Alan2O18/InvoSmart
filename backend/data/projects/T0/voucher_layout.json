@@ -6,11 +6,11 @@
       "pageIndex": 0,
       "fields": {
         "voucherNo": "",
-        "budgetItem": "",
-        "amount": "",
+        "budgetItem": "TEST",
+        "amount": "201",
         "purpose": "",
         "receiptCount": "0",
-        "payDate": "",
+        "payDate": "2025-11-20",
         "isManuallyEdited": true
       },
       "images": []
@@ -18,57 +18,28 @@
     {
       "pageIndex": 1,
       "fields": {
-        "voucherNo": "D-16-01~04",
+        "voucherNo": "",
         "budgetItem": "",
-        "amount": "76",
-        "purpose": "茶水費",
+        "amount": "201",
+        "purpose": "",
         "receiptCount": "0",
         "payDate": "2025-11-20",
-        "isManuallyEdited": false
+        "isManuallyEdited": true
       },
       "images": []
     },
     {
       "pageIndex": 2,
       "fields": {
-        "voucherNo": "D-16-05~08",
+        "voucherNo": "",
         "budgetItem": "",
         "amount": "201",
-        "purpose": "茶水費、影印費",
-        "receiptCount": "4",
+        "purpose": "",
+        "receiptCount": "0",
         "payDate": "2025-11-20",
-        "isManuallyEdited": false
+        "isManuallyEdited": true
       },
-      "images": [
-        {
-          "jobId": "job-1771656709-5c5ee9",
-          "x": 30.0,
-          "y": 394.0,
-          "w": 74.96,
-          "h": 165.01
-        },
-        {
-          "jobId": "job-1771656718-74a81f",
-          "x": 30.0,
-          "y": 563.0,
-          "w": 232.39,
-          "h": 165.0
-        },
-        {
-          "jobId": "job-1771656718-a7aa00",
-          "x": 187.66,
-          "y": 394.0,
-          "w": 229.57,
-          "h": 165.0
-        },
-        {
-          "jobId": "job-1771656709-948123",
-          "x": 108.96,
-          "y": 394.0,
-          "w": 74.7,
-          "h": 164.99
-        }
-      ]
+      "images": []
     }
   ]
 }

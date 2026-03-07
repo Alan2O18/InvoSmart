@@ -96,6 +96,22 @@ class TestRocDate:
         assert VoucherGenerator._to_roc_date("2024-13") == ""
 
 
+class TestPaymentAmountFormatting:
+    def test_formats_integer_amount_for_bottom_text(self):
+        assert VoucherGenerator._format_payment_amount("4607") == "4,607元整"
+
+    def test_ignores_non_digit_amount(self):
+        assert VoucherGenerator._format_payment_amount("46.07") == ""
+
+
+def test_invalid_font_path_logs_warning_and_falls_back(template_pdf, caplog):
+    with caplog.at_level(logging.WARNING):
+        generator = VoucherGenerator(template_path=template_pdf, font_path="/missing/kaiu.ttf")
+
+    assert generator.font_path == ""
+    assert "找不到字型路徑" in caplog.text
+
+
 # ── _insert_amount_cells (Defense #16, #17) ────────────────────────────────
 
 class TestAmountCells:
@@ -220,8 +236,8 @@ class TestGenerateFromLayout:
         generator.generate_from_layout(
             pages=[{
                 "fields": {
-                    "voucherNo": "D-16-01",
-                    "budgetItem": "帶動組",
+                    "voucherNo": "D-16-01\nD-16-02",
+                    "budgetItem": "ABCDEF",
                     "amount": "4607",
                     "purpose": "餐費、茶水",
                     "receiptCount": "3",
@@ -236,7 +252,11 @@ class TestGenerateFromLayout:
         with fitz.open(output) as doc:
             assert doc.page_count == 1
             text = doc[0].get_text()
+            assert "D-16-01" in text
+            assert "D-16-02" in text
+            assert "ABC" in text
             assert "113/11/28" in text  # ROC date
+            assert "4,607" in text
 
     def test_missing_image_draws_marker(self, generator, tmp_path):
         output = str(tmp_path / "missing.pdf")

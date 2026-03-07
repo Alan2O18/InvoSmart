@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+
+<head>
+    <meta charset="UTF-8">
+    <title>憑證座標校準工具</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Microsoft JhengHei', sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* ---- Left: Canvas ---- */
+        .canvas-area {
+            flex: 1;
+            overflow: auto;
+            padding: 16px;
+            position: relative;
+        }
+
+        .canvas-container {
+            position: relative;
+            display: inline-block;
+            cursor: crosshair;
+        }
+
+        .canvas-container img {
+            display: block;
+            user-select: none;
+            -webkit-user-drag: none;
+        }
+
+        /* Draggable text items */
+        .text-item {
+            position: absolute;
+            cursor: move;
+            padding: 2px 4px;
+            border: 1px dashed rgba(255, 80, 80, 0.7);
+            background: rgba(255, 255, 0, 0.15);
+            font-size: 14px;
+            white-space: pre;
+            user-select: none;
+            z-index: 10;
+            transition: border-color 0.15s;
+            line-height: 1.2;
+        }
+
+        .text-item:hover {
+            border-color: #ff0;
+        }
+
+        .text-item.selected {
+            border-color: #0f0;
+            background: rgba(0, 255, 0, 0.12);
+            z-index: 20;
+        }
+
+        /* Coordinate tooltip */
+        .coord-tooltip {
+            position: fixed;
+            top: 8px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.85);
+            color: #0f0;
+            padding: 6px 16px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-family: 'Consolas', monospace;
+            pointer-events: none;
+            z-index: 999;
+        }
+
+        /* ---- Right: Panel ---- */
+        .panel {
+            width: 360px;
+            background: #16213e;
+            border-left: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            padding: 16px;
+        }
+
+        .panel h2 {
+            font-size: 18px;
+            margin-bottom: 12px;
+            color: #e94560;
+        }
+
+        .panel h3 {
+            font-size: 14px;
+            margin: 12px 0 6px;
+            color: #aaa;
+        }
+
+        .field-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+            padding: 4px 8px;
+            background: #0f3460;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .field-row:hover {
+            background: #1a5276;
+        }
+
+        .field-row.active {
+            background: #1e6f5c;
+        }
+
+        .field-label {
+            flex: 1;
+            font-size: 13px;
+        }
+
+        .field-coord {
+            font-family: 'Consolas', monospace;
+            font-size: 12px;
+            color: #7bf;
+            min-width: 120px;
+            text-align: right;
+        }
+
+        .text-input {
+            width: 100%;
+            margin-bottom: 8px;
+            padding: 6px;
+            background: #0a0a23;
+            border: 1px solid #444;
+            color: #eee;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            margin-bottom: 6px;
+            width: 100%;
+        }
+
+        .btn-export {
+            background: #e94560;
+            color: #fff;
+        }
+
+        .btn-export:hover {
+            background: #c7374d;
+        }
+
+        .btn-add {
+            background: #0f3460;
+            color: #fff;
+        }
+
+        .btn-add:hover {
+            background: #1a5276;
+        }
+
+        .btn-copy {
+            background: #1e6f5c;
+            color: #fff;
+        }
+
+        .btn-copy:hover {
+            background: #29916e;
+        }
+
+        pre.output {
+            background: #0a0a23;
+            color: #0f0;
+            padding: 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 8px;
+        }
+
+        .zoom-ctrl {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+            align-items: center;
+        }
+
+        .zoom-ctrl button {
+            padding: 4px 12px;
+            background: #333;
+            color: #eee;
+            border: 1px solid #555;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .zoom-ctrl span {
+            font-size: 13px;
+            color: #aaa;
+        }
+
+        .edit-area {
+            background: #0a0a23;
+            padding: 10px;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            border: 1px solid #444;
+            display: none;
+        }
+
+        .edit-area h4 {
+            font-size: 13px;
+            color: #e94560;
+            margin-bottom: 8px;
+        }
+
+        .edit-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 6px;
+            align-items: center;
+        }
+
+        .edit-row label {
+            font-size: 12px;
+            width: 40px;
+            color: #aaa;
+        }
+
+        .edit-row input {
+            flex: 1;
+            padding: 4px;
+            background: #111;
+            color: #fff;
+            border: 1px solid #555;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="canvas-area" id="canvasArea">
+        <div class="canvas-container" id="container">
+            <img id="bgImage" src="template_hires.png" draggable="false">
+        </div>
+    </div>
+
+    <div class="coord-tooltip" id="coordTooltip">PDF: (0, 0) | Pixel: (0, 0)</div>
+
+    <div class="panel">
+        <h2>🎯 憑證座標校準工具</h2>
+
+        <div class="zoom-ctrl">
+            <button onclick="setZoom(zoom - 0.1)">−</button>
+            <span id="zoomLabel">100%</span>
+            <button onclick="setZoom(zoom + 0.1)">+</button>
+            <button onclick="setZoom(1)">1:1</button>
+            <button onclick="setZoom(0.75)">75%</button>
+        </div>
+
+        <div class="edit-area" id="editArea">
+            <h4>✏️ 編輯選取欄位：<span id="editName" style="color:#fff"></span></h4>
+            <div class="edit-row">
+                <label>X：</label>
+                <input type="number" step="0.5" id="editX" oninput="updateFromInputs()">
+            </div>
+            <div class="edit-row">
+                <label>Y：</label>
+                <input type="number" step="0.5" id="editY" oninput="updateFromInputs()">
+            </div>
+            <div class="edit-row">
+                <label>字粗：</label>
+                <input type="number" step="1" id="editSize" oninput="updateFromInputs()">
+            </div>
+        </div>
+
+        <h3>📝 文字欄位 (點擊選取或拖拉)</h3>
+        <div id="fieldList"></div>
+
+        <h3>新增欄位</h3>
+        <input id="newFieldName" class="text-input" placeholder="欄位名稱 (如：憑證編號)">
+        <input id="newFieldText" class="text-input" placeholder="顯示文字 (如：D-16-01)">
+        <button class="btn btn-add" onclick="addField()">+ 新增文字欄位</button>
+
+        <h3>匯出座標</h3>
+        <button class="btn btn-export" onclick="exportCoords()">📋 匯出 JSON 座標</button>
+        <button class="btn btn-copy" onclick="copyOutput()">📄 複製到剪貼簿</button>
+        <pre class="output" id="output"></pre>
+    </div>
+
+    <script>
+        // PDF dimensions (points)
+        const PDF_W = 595.0
+        const PDF_H = 842.0
+
+        // Image natural size (pixels)
+        const IMG_W = 1190
+        const IMG_H = 1685
+
+        // Scale: pixels per PDF point
+        const SCALE = IMG_W / PDF_W  // ~2.0
+
+        let zoom = 1.0
+        let fields = []
+        let selectedField = null
+        let dragState = null
+
+        const container = document.getElementById('container')
+        const bgImage = document.getElementById('bgImage')
+        const tooltip = document.getElementById('coordTooltip')
+        const fieldList = document.getElementById('fieldList')
+        const output = document.getElementById('output')
+        const editArea = document.getElementById('editArea')
+        const editName = document.getElementById('editName')
+        const editX = document.getElementById('editX')
+        const editY = document.getElementById('editY')
+        const editSize = document.getElementById('editSize')
+
+        // ---- Zoom ----
+        function setZoom(z) {
+            zoom = Math.max(0.3, Math.min(2.0, z))
+            bgImage.style.width = (IMG_W * zoom) + 'px'
+            bgImage.style.height = (IMG_H * zoom) + 'px'
+            document.getElementById('zoomLabel').textContent = Math.round(zoom * 100) + '%'
+            // Reposition all items
+            fields.forEach(f => positionElement(f))
+        }
+
+        // ---- Coordinate conversion ----
+        function pxToPdf(px, py) {
+            return {
+                x: +(px / (SCALE * zoom)).toFixed(1),
+                y: +(py / (SCALE * zoom)).toFixed(1)
+            }
+        }
+        function pdfToPx(pdfX, pdfY) {
+            return {
+                x: pdfX * SCALE * zoom,
+                y: pdfY * SCALE * zoom
+            }
+        }
+
+        // ---- Field management ----
+        function createDefaults() {
+            const defaults = [
+                { name: '憑證編號', text: 'D-16-01\nD-16-02\nD-16-03', pdfX: 77, pdfY: 260, fontSize: 16 },
+                { name: '預算科目', text: '帶動組', pdfX: 148, pdfY: 280, fontSize: 16 },
+                { name: '金額_十萬', text: '※', pdfX: 212, pdfY: 280, fontSize: 16 },
+                { name: '金額_萬', text: '※', pdfX: 232, pdfY: 280, fontSize: 16 },
+                { name: '金額_千', text: '4', pdfX: 252, pdfY: 280, fontSize: 16 },
+                { name: '金額_百', text: '6', pdfX: 274, pdfY: 280, fontSize: 16 },
+                { name: '金額_十', text: '0', pdfX: 292, pdfY: 280, fontSize: 16 },
+                { name: '金額_元', text: '7', pdfX: 313, pdfY: 280, fontSize: 16 },
+                { name: '用途說明', text: '保險、茶水、餐食', pdfX: 340, pdfY: 280, fontSize: 16 },
+                { name: '發票張數', text: '3', pdfX: 476, pdfY: 100, fontSize: 16 },
+                { name: '支付日期', text: '114/11/28', pdfX: 210, pdfY: 770, fontSize: 16 },
+                { name: '支付金額', text: '4,607元整', pdfX: 313, pdfY: 770, fontSize: 16 },
+            ]
+            defaults.forEach(d => addFieldData(d))
+        }
+
+        function addFieldData(data) {
+            const el = document.createElement('div')
+            el.className = 'text-item'
+            el.textContent = data.text
+            // Apply zoom to font size
+            el.style.fontSize = (data.fontSize * zoom * SCALE) + 'px'
+            container.appendChild(el)
+
+            const field = {
+                name: data.name,
+                text: data.text,
+                pdfX: data.pdfX,
+                pdfY: data.pdfY,
+                fontSize: data.fontSize,
+                el
+            }
+            fields.push(field)
+            positionElement(field)
+            renderFieldList()
+
+            // Click to select
+            el.addEventListener('mousedown', (e) => {
+                e.stopPropagation()
+                selectField(field)
+                startDrag(e, field)
+            })
+        }
+
+        function positionElement(field) {
+            const px = pdfToPx(field.pdfX, field.pdfY)
+            field.el.style.left = px.x + 'px'
+            field.el.style.top = px.y + 'px'
+            field.el.style.fontSize = Math.max(8, field.fontSize * zoom * (SCALE * 0.8)) + 'px' // Approximate translation from points to pixels
+        }
+
+        function selectField(field) {
+            fields.forEach(f => f.el.classList.remove('selected'))
+            field.el.classList.add('selected')
+            selectedField = field
+
+            // Populate edit area
+            editArea.style.display = 'block'
+            editName.textContent = field.name
+            editX.value = field.pdfX
+            editY.value = field.pdfY
+            editSize.value = field.fontSize
+
+            renderFieldList()
+        }
+
+        function updateFromInputs() {
+            if (!selectedField) return
+            selectedField.pdfX = parseFloat(editX.value) || 0
+            selectedField.pdfY = parseFloat(editY.value) || 0
+            selectedField.fontSize = parseInt(editSize.value) || 12
+            positionElement(selectedField)
+            renderFieldList()
+        }
+
+        function updateEditInputsIfSelected(field) {
+            if (selectedField === field) {
+                editX.value = field.pdfX.toFixed(1)
+                editY.value = field.pdfY.toFixed(1)
+            }
+        }
+
+        function renderFieldList() {
+            fieldList.innerHTML = ''
+            fields.forEach((f, idx) => {
+                const row = document.createElement('div')
+                row.className = 'field-row' + (f === selectedField ? ' active' : '')
+                row.innerHTML = `
+      <span class="field-label">${f.name}</span>
+      <span class="field-coord">Sz:${f.fontSize} | (${f.pdfX.toFixed(1)}, ${f.pdfY.toFixed(1)})</span>
+    `
+                row.addEventListener('click', () => selectField(f))
+                fieldList.appendChild(row)
+            })
+        }
+
+        // ---- Drag ----
+        function startDrag(e, field) {
+            const rect = container.getBoundingClientRect()
+            dragState = {
+                field,
+                offsetX: e.clientX - (field.el.offsetLeft + rect.left),
+                offsetY: e.clientY - (field.el.offsetTop + rect.top)
+            }
+        }
+
+        document.addEventListener('mousemove', (e) => {
+            // Update tooltip
+            const rect = container.getBoundingClientRect()
+            const px = e.clientX - rect.left
+            const py = e.clientY - rect.top
+            if (px >= 0 && py >= 0 && px <= rect.width && py <= rect.height) {
+                const pdf = pxToPdf(px, py)
+                tooltip.textContent = `PDF: (${pdf.x}, ${pdf.y})  |  Pixel: (${Math.round(px)}, ${Math.round(py)})`
+                tooltip.style.display = 'block'
+            }
+
+            // Drag
+            if (!dragState) return
+            const containerRect = container.getBoundingClientRect()
+            const newLeft = e.clientX - containerRect.left - dragState.offsetX
+            const newTop = e.clientY - containerRect.top - dragState.offsetY
+            dragState.field.el.style.left = newLeft + 'px'
+            dragState.field.el.style.top = newTop + 'px'
+
+            const pdf = pxToPdf(newLeft, newTop)
+            dragState.field.pdfX = pdf.x
+            dragState.field.pdfY = pdf.y
+            updateEditInputsIfSelected(dragState.field)
+            renderFieldList()
+        })
+
+        document.addEventListener('mouseup', () => {
+            dragState = null
+        })
+
+        // ---- Add field ----
+        function addField() {
+            const name = document.getElementById('newFieldName').value.trim()
+            const text = document.getElementById('newFieldText').value.trim()
+            if (!name || !text) return alert('請填寫名稱和文字')
+            addFieldData({ name, text, pdfX: 200, pdfY: 300, fontSize: 16 })
+            document.getElementById('newFieldName').value = ''
+            document.getElementById('newFieldText').value = ''
+        }
+
+        // ---- Export ----
+        function exportCoords() {
+            const result = {}
+            fields.forEach(f => {
+                result[f.name] = {
+                    pdfX: +f.pdfX.toFixed(1),
+                    pdfY: +f.pdfY.toFixed(1),
+                    fontSize: f.fontSize,
+                    text: f.text
+                }
+            })
+
+            // Also export grouped amount
+            const amountFields = fields.filter(f => f.name.startsWith('金額_'))
+            if (amountFields.length) {
+                result['__金額X陣列'] = amountFields.map(f => +f.pdfX.toFixed(1))
+                result['__金額Y'] = +(amountFields[0]?.pdfY || 0).toFixed(1)
+            }
+
+            const json = JSON.stringify(result, null, 2)
+            output.textContent = json
+        }
+
+        function copyOutput() {
+            const text = output.textContent
+            if (!text) return exportCoords()
+            navigator.clipboard.writeText(text).then(() => {
+                alert('已複製到剪貼簿！')
+            })
+        }
+
+        // ---- Init ----
+        bgImage.onload = () => {
+            setZoom(0.75)
+            createDefaults()
+        }
+    </script>
+</body>
+
+</html>

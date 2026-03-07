@@ -16,6 +16,7 @@ from PIL import Image
 
 from backend.dependencies import get_engine
 from backend.engine.core import Engine
+from backend.engine.voucher_text_config import get_voucher_text_config_payload
 from backend.engine.voucher_generator import VoucherGenerator
 from backend.models.voucher_payload import VoucherLayoutPayloadDraft, VoucherLayoutPayloadStrict
 from backend.repositories.voucher_layout_repo import VoucherLayoutRepository, sanitize_project_id
@@ -68,6 +69,22 @@ def _load_image_bytes(image_path: str, thumb: bool, max_width: int) -> tuple[byt
             return buffer.getvalue(), "image/webp"
         image.save(buffer, format="JPEG", quality=95)
         return buffer.getvalue(), "image/jpeg"
+
+
+@router.get("/fonts/kaiu.ttf")
+async def get_kaiu_font():
+    settings = get_voucher_settings()
+    font_path = settings["font_ttf_path"]
+
+    if not os.path.exists(font_path):
+        raise HTTPException(status_code=500, detail={"error": "INTERNAL_ERROR", "detail": "Voucher font not found"})
+
+    return FileResponse(path=font_path, media_type="font/ttf")
+
+
+@router.get("/text-config")
+async def get_voucher_text_config():
+    return get_voucher_text_config_payload()
 
 
 @router.get("/{project_id}/template")
@@ -134,15 +151,7 @@ async def get_voucher_image(
     return Response(content=content, media_type=content_type)
 
 
-@router.get("/fonts/kaiu.ttf")
-async def get_kaiu_font():
-    settings = get_voucher_settings()
-    font_path = settings["font_ttf_path"]
 
-    if not os.path.exists(font_path):
-        raise HTTPException(status_code=500, detail={"error": "INTERNAL_ERROR", "detail": "Voucher font not found"})
-
-    return FileResponse(path=font_path, media_type="font/ttf")
 
 
 @router.get("/{project_id}/layout")

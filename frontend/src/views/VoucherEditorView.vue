@@ -6,7 +6,7 @@
         <h2>憑證黏貼編輯器</h2>
       </div>
       <div class="header-right">
-        <button class="save-btn" @click="removeSelectedOnCanvas">刪除選取</button>
+        <button class="save-btn" @mousedown.prevent="removeSelectedOnCanvas">刪除選取</button>
         <button class="save-btn" :disabled="isSaving" @click="saveLayout">{{ isSaving ? '儲存中...' : '儲存草稿' }}</button>
         <button class="generate-btn" :disabled="!canGenerate" @click="generatePdf">產出 PDF</button>
       </div>
@@ -18,7 +18,7 @@
       <label>Start Index</label>
       <input v-model.number="startIndex" type="number" min="1" />
       <button @click="addPage" :disabled="pages.length >= maxPages">+ 新增頁</button>
-      <button @click="runAutoLayout" :disabled="!activePage?.images?.length">⚡ 自動排版</button>
+      <button @click="runAutoLayout" :disabled="canvasLoading || !activePage?.images?.length">⚡ 自動排版</button>
       <span class="status" :class="{ bad: hasInvalidDate || hasDecimalAmount || hasExcessiveAmount }">
         {{ statusText }}
       </span>
@@ -126,6 +126,7 @@ import { useActiveElement, useEventListener, useThrottleFn } from '@vueuse/core'
 import api from '../services/api'
 import {
   autoLayoutImages,
+  buildVoucherTextPreviewEntries,
   canGenerateVoucher,
   clampImageRect,
   collectUsedJobIds,
@@ -145,28 +146,26 @@ const maxPages = 10
 const CANVAS_WIDTH = 595
 const CANVAS_HEIGHT = 842
 const SAFE_ZONE = { x0: 30, y0: 394, x1: 565, y1: 730 }
-
-const getFullImageUrl = (url) => {
-  if (!url) return ''
-  if (url.startsWith('/api')) {
-    return (api.defaults?.baseURL || 'http://localhost:8000') + url
-  }
-  return url
-}
+const PREVIEW_TEXT_COLOR = '#1e3a8a'
 
 const ready = ref(false)
 const isSaving = ref(false)
 const templatePng = ref('')
-const previewFontFamily = ref('serif')
 const invoices = ref([])
+const voucherTextConfig = ref(null)
 const activePageIndex = ref(0)
 const renderToken = ref(0)
+const pendingImageLoads = ref(0)
 const globalPrefix = ref('D-16')
 const startIndex = ref(1)
 const canvasRef = ref(null)
 let fabricCanvas = null
-let canvasLoading = false  // Guard: prevent sync from wiping data during async image load
-let pendingImageLoads = 0  // Track how many images are still loading
+let previewDrawTimer = null
+let previewFontLoadPromise = null
+const canvasLoadState = {
+  token: 0,
+  pending: 0,
+}
 const pages = ref([
   {
     pageIndex: 0,
@@ -197,6 +196,7 @@ const hasInvalidDate = computed(() => hasInvalidDateUtil(pages.value))
 const hasDecimalAmount = computed(() => hasDecimalAmountUtil(pages.value))
 const hasExcessiveAmount = computed(() => hasExcessiveAmountUtil(pages.value))
 const canGenerate = computed(() => canGenerateVoucher(pages.value, isSaving.value))
+const canvasLoading = computed(() => pendingImageLoads.value > 0)
 
 const statusText = computed(() => {
   if (hasInvalidDate.value) return '日期格式異常，請修正'
@@ -240,7 +240,149 @@ const activeEl = useActiveElement()
 
 let autosaveTimer = null
 
+
+const getFullImageUrl = (url) => {
+  if (!url) return ''
+  return api.toAbsoluteUrl(url)
+}
+
 const templateDataUrl = computed(() => (templatePng.value ? `data:image/png;base64,${templatePng.value}` : ''))
+
+const clearTextPreviewObjects = () => {
+  if (!fabricCanvas) return
+  const previewObjects = fabricCanvas.getObjects().filter(obj => obj?.data?.kind === 'text_preview')
+  previewObjects.forEach(obj => fabricCanvas.remove(obj))
+}
+
+const createPurposePreviewObject = (entry) => {
+  const baseOptions = {
+    left: entry.left,
+    top: entry.top,
+    width: entry.width,
+    fontSize: entry.fontSize,
+    fontFamily: entry.fontFamily,
+    lineHeight: entry.lineHeight,
+    fill: PREVIEW_TEXT_COLOR,
+    selectable: false,
+    evented: false,
+    splitByGrapheme: true,
+    originX: 'left',
+    originY: 'top',
+    excludeFromExport: true,
+  }
+
+  const makeTextbox = (text, fontSize) => new fabric.Textbox(text, {
+    ...baseOptions,
+    fontSize,
+  })
+
+  for (let fontSize = entry.fontSize; fontSize >= entry.minFontSize; fontSize -= 1) {
+    const textbox = makeTextbox(entry.text, fontSize)
+    if (textbox.calcTextHeight() <= entry.height) {
+      return textbox
+    }
+  }
+
+  let truncated = entry.text.slice(0, entry.truncateAt)
+  while (truncated.length > 0) {
+    const candidate = `${truncated}${entry.truncateSuffix}`
+    const textbox = makeTextbox(candidate, entry.minFontSize)
+    if (textbox.calcTextHeight() <= entry.height) {
+      return textbox
+    }
+    truncated = truncated.slice(0, -1)
+  }
+
+  return makeTextbox(entry.truncateSuffix, entry.minFontSize)
+}
+
+const createPreviewObject = (entry) => {
+  if (entry.type === 'textbox') {
+    const textbox = createPurposePreviewObject(entry)
+    textbox.data = { kind: 'text_preview', fieldKey: entry.key }
+    return textbox
+  }
+
+  const text = new fabric.Text(entry.text, {
+    left: entry.left,
+    top: entry.top,
+    fontSize: entry.fontSize,
+    fontFamily: entry.fontFamily,
+    fill: PREVIEW_TEXT_COLOR,
+    selectable: false,
+    evented: false,
+    originX: 'left',
+    originY: 'top',
+    excludeFromExport: true,
+  })
+  text.data = { kind: 'text_preview', fieldKey: entry.key }
+  return text
+}
+
+const drawTextFieldsOnCanvas = (targetPageIndex = activePageIndex.value, token = renderToken.value, attempt = 0) => {
+  if (!fabricCanvas || !activePage.value || !voucherTextConfig.value) return
+  if (activePageIndex.value !== targetPageIndex || renderToken.value !== token) return
+
+  if (canvasLoadState.token === token && canvasLoadState.pending > 0) {
+    if (attempt >= 60) {
+      console.warn('voucher preview text draw timed out waiting for image loads to settle')
+      return
+    }
+    previewDrawTimer = window.setTimeout(() => {
+      previewDrawTimer = null
+      drawTextFieldsOnCanvas(targetPageIndex, token, attempt + 1)
+    }, 16)
+    return
+  }
+
+  clearTextPreviewObjects()
+
+  const entries = buildVoucherTextPreviewEntries(activePage.value.fields, voucherTextConfig.value)
+  entries.forEach(entry => {
+    const obj = createPreviewObject(entry)
+    fabricCanvas.add(obj)
+  })
+  fabricCanvas.requestRenderAll()
+}
+
+const queueTextPreviewDraw = (targetPageIndex = activePageIndex.value, token = renderToken.value) => {
+  if (previewDrawTimer) {
+    window.clearTimeout(previewDrawTimer)
+  }
+  previewDrawTimer = window.setTimeout(() => {
+    previewDrawTimer = null
+    drawTextFieldsOnCanvas(targetPageIndex, token)
+  }, 0)
+}
+
+const ensurePreviewFontLoaded = async () => {
+  if (previewFontLoadPromise || !voucherTextConfig.value?.font?.url || !window.FontFace) {
+    return previewFontLoadPromise
+  }
+
+  const { family, url } = voucherTextConfig.value.font
+  if (document.fonts?.check?.(`12px "${family}"`)) {
+    return Promise.resolve()
+  }
+
+  previewFontLoadPromise = new window.FontFace(family, `url(${api.toAbsoluteUrl(url)})`)
+    .load()
+    .then(fontFace => {
+      document.fonts.add(fontFace)
+      queueTextPreviewDraw()
+    })
+    .catch(error => {
+      console.warn('voucher preview font load failed', error)
+    })
+
+  return previewFontLoadPromise
+}
+
+const ensurePageNumbers = () => {
+  pages.value.forEach((page, index) => {
+    page.pageIndex = index
+  })
+}
 
 const getDownloadFilename = (headers, fallback) => {
   const disposition = headers?.['content-disposition'] || headers?.['Content-Disposition'] || ''
@@ -252,100 +394,8 @@ const getDownloadFilename = (headers, fallback) => {
       return utf8Match[1]
     }
   }
-
   const plainMatch = disposition.match(/filename="?([^";]+)"?/i)
   return plainMatch?.[1] || fallback
-}
-
-const toRocDate = (value) => {
-  const iso = normalizeDateToISO(value)
-  if (!iso) return ''
-  const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (!match) return ''
-  const [, year, month, day] = match
-  return `${Number(year) - 1911}/${month}/${day}`
-}
-
-const drawTextFieldsOnCanvas = () => {
-  if (!fabricCanvas || !activePage.value) return
-
-  fabricCanvas.getObjects()
-    .filter(o => o?.data?.kind === 'text_preview')
-    .forEach(o => fabricCanvas.remove(o))
-
-  const f = activePage.value.fields || {}
-  const textProps = {
-    fontFamily: previewFontFamily.value,
-    fontSize: 12,
-    fill: '#000',
-    selectable: false,
-    evented: false,
-    originX: 'left',
-    originY: 'top',
-    excludeFromExport: true,
-  }
-
-  const addText = (text, x, y, opts = {}) => {
-    if (!String(text || '').trim()) return
-    const node = new fabric.Text(String(text), {
-      ...textProps,
-      left: x,
-      top: y,
-      ...opts,
-    })
-    node.data = { kind: 'text_preview' }
-    fabricCanvas.add(node)
-  }
-
-  addText(f.voucherNo, 78, 226)
-  addText(f.budgetItem, 78, 196)
-
-  if (f.amount && /^\d+$/.test(String(f.amount))) {
-    const padded = String(parseInt(f.amount, 10)).padStart(7, '※')
-    const xList = [430, 446, 462, 478, 494, 510, 526]
-    for (let i = 0; i < 7; i++) {
-      addText(padded[i], xList[i], 220)
-    }
-  }
-
-  if (String(f.purpose || '').trim()) {
-    const purposeBox = new fabric.Textbox(String(f.purpose), {
-      ...textProps,
-      left: 214,
-      top: 248,
-      width: 197,
-      fontSize: 14,
-    })
-    purposeBox.data = { kind: 'text_preview' }
-    fabricCanvas.add(purposeBox)
-  }
-
-  addText(toRocDate(f.payDate), 436, 274)
-  addText(f.receiptCount, 534, 274)
-  fabricCanvas.requestRenderAll()
-}
-
-const loadKaiuFont = async () => {
-  try {
-    const fontUrl = `${api.defaults?.baseURL || window.location.origin}/api/voucher/fonts/kaiu.ttf`
-    const kaiuFont = new FontFace('KaiU', `url(${fontUrl})`)
-    await kaiuFont.load()
-    document.fonts.add(kaiuFont)
-    previewFontFamily.value = 'KaiU'
-  } catch (error) {
-    console.warn('KaiU font preload failed, fallback to default preview font', error)
-    previewFontFamily.value = 'serif'
-  }
-
-  if (fabricCanvas) {
-    drawTextFieldsOnCanvas()
-  }
-}
-
-const ensurePageNumbers = () => {
-  pages.value.forEach((page, index) => {
-    page.pageIndex = index
-  })
 }
 
 const addPage = () => {
@@ -367,14 +417,10 @@ const addPage = () => {
 }
 
 const switchPage = async (index) => {
-  console.log('[SWITCH] Start: from page', activePageIndex.value, 'to page', index)
-  console.log('[SWITCH] Page data BEFORE save:', JSON.stringify(pages.value.map(p => ({ idx: p.pageIndex, imgCount: p.images.length }))))
   await saveLayout()
-  console.log('[SWITCH] Page data AFTER save:', JSON.stringify(pages.value.map(p => ({ idx: p.pageIndex, imgCount: p.images.length }))))
   activePageIndex.value = index
   await nextTick()
   await loadActivePageToCanvas()
-  console.log('[SWITCH] Page data AFTER load:', JSON.stringify(pages.value.map(p => ({ idx: p.pageIndex, imgCount: p.images.length }))))
   // Only backfill missing auto fields when switching pages; keep existing draft edits.
   recalculatePageFields(activePage.value, { onlyFillEmpty: true })
 }
@@ -386,11 +432,11 @@ const recalculateVoucherNumbers = () => {
     page.fields.receiptCount = String(count)
 
     if (count > 0) {
-      const from = String(runningIndex).padStart(2, '0')
-      const to = String(runningIndex + count - 1).padStart(2, '0')
-      page.fields.voucherNo = count > 1
-        ? `${globalPrefix.value}-${from}~${to}`
-        : `${globalPrefix.value}-${from}`
+      const lines = Array.from({ length: count }, (_, offset) => {
+        const currentIndex = String(runningIndex + offset).padStart(2, '0')
+        return `${globalPrefix.value}-${currentIndex}`
+      })
+      page.fields.voucherNo = lines.join('\n')
       runningIndex += count
     } else {
       page.fields.voucherNo = ''
@@ -497,6 +543,9 @@ const _doAddInvoice = (invoice) => {
   recalculatePageFields(activePage.value)
   recalculateVoucherNumbers()
 
+  canvasLoadState.token = renderToken.value
+  canvasLoadState.pending += 1
+  pendingImageLoads.value = canvasLoadState.pending
   addInvoiceObjectToCanvas(newRect, activePageIndex.value, renderToken.value)
 }
 
@@ -591,7 +640,7 @@ const drawSafeZoneGuides = () => {
     excludeFromExport: true,
   })
   fabricCanvas.add(rect)
-  rect.sendToBack()
+  fabricCanvas.sendObjectToBack(rect)
 }
 
 const applyObjectBounds = (obj) => {
@@ -599,8 +648,8 @@ const applyObjectBounds = (obj) => {
   if (obj?.data?.kind !== 'invoice') return
 
   const aspectRatio = obj.width && obj.height ? obj.width / obj.height : 1
-  let w = obj.width * obj.scaleX
-  let h = obj.height * obj.scaleY
+  let w = obj.getScaledWidth()
+  let h = obj.getScaledHeight()
   const maxW = SAFE_ZONE.x1 - SAFE_ZONE.x0
   const maxH = SAFE_ZONE.y1 - SAFE_ZONE.y0
 
@@ -622,29 +671,18 @@ const applyObjectBounds = (obj) => {
 
 const syncActivePageFromCanvas = () => {
   if (!fabricCanvas || !activePage.value) return
+  if (canvasLoading.value) return
 
-  // Guard: don't overwrite data while images are still loading asynchronously
-  if (canvasLoading) {
-    console.log('[SYNC] BLOCKED — canvas is still loading images, skip sync')
-    return
-  }
-
-  const allObjects = fabricCanvas.getObjects()
-  console.log('[SYNC] Total canvas objects:', allObjects.length,
-    'kinds:', allObjects.map(o => o?.data?.kind || 'NO-DATA'))
-
-  const nextImages = allObjects
+  const nextImages = fabricCanvas
+    .getObjects()
     .filter(obj => obj?.data?.kind === 'invoice')
     .map(obj => clampImageRect({
       jobId: obj.data.jobId,
       x: obj.left,
       y: obj.top,
-      w: obj.width * obj.scaleX,
-      h: obj.height * obj.scaleY,
+      w: obj.getScaledWidth(),
+      h: obj.getScaledHeight(),
     }, SAFE_ZONE))
-
-  console.log('[SYNC] Page', activePageIndex.value, 'found', nextImages.length, 'invoices.',
-    'Before:', activePage.value.images.length, 'images')
 
   activePage.value.images = nextImages
   activePage.value.fields.receiptCount = String(nextImages.length)
@@ -660,8 +698,8 @@ const updateOverlapHighlight = () => {
       jobId: o.data.jobId,
       x: o.left,
       y: o.top,
-      w: o.width * o.scaleX,
-      h: o.height * o.scaleY,
+      w: o.getScaledWidth(),
+      h: o.getScaledHeight(),
     }))
   const overlappingIds = findOverlappingJobIds(liveRects)
 
@@ -709,11 +747,8 @@ const makePlaceholderGroup = (imageData) => {
 }
 
 const addInvoiceObjectToCanvas = (imageData, targetPageIndex, token) => {
-  pendingImageLoads++
   const imageEl = new window.Image()
   imageEl.onload = () => {
-    pendingImageLoads--
-    if (pendingImageLoads <= 0) { canvasLoading = false; pendingImageLoads = 0 }
     if (!fabricCanvas) return
     if (activePageIndex.value !== targetPageIndex || renderToken.value !== token) return
 
@@ -750,25 +785,27 @@ const addInvoiceObjectToCanvas = (imageData, targetPageIndex, token) => {
     fabricCanvas.add(obj)
     fabricCanvas.requestRenderAll()
     updateOverlapHighlight()
-    drawTextFieldsOnCanvas()
+    if (canvasLoadState.token === token) {
+      canvasLoadState.pending = Math.max(0, canvasLoadState.pending - 1)
+      pendingImageLoads.value = canvasLoadState.pending
+      queueTextPreviewDraw(targetPageIndex, token)
+    }
   }
 
   imageEl.onerror = () => {
-    pendingImageLoads--
-    if (pendingImageLoads <= 0) { canvasLoading = false; pendingImageLoads = 0 }
     if (!fabricCanvas) return
     if (activePageIndex.value !== targetPageIndex || renderToken.value !== token) return
     const placeholder = makePlaceholderGroup(imageData)
     fabricCanvas.add(placeholder)
     fabricCanvas.requestRenderAll()
-    drawTextFieldsOnCanvas()
+    if (canvasLoadState.token === token) {
+      canvasLoadState.pending = Math.max(0, canvasLoadState.pending - 1)
+      pendingImageLoads.value = canvasLoadState.pending
+      queueTextPreviewDraw(targetPageIndex, token)
+    }
   }
 
-  let url = api.getVoucherImageUrl(projectId, imageData.jobId, true)
-  if (url.startsWith('/api')) {
-    url = (api.defaults?.baseURL || 'http://localhost:8000') + url
-  }
-  imageEl.src = url
+  imageEl.src = api.toAbsoluteUrl(api.getVoucherImageUrl(projectId, imageData.jobId, true))
 }
 
 // ── Step 4: Auto-layout ─────────────────────────────────────────────────────
@@ -789,8 +826,8 @@ const runAutoLayout = () => {
     const obj = canvasObjMap.get(img.jobId)
     return {
       jobId: img.jobId,
-      originalWidth: obj?.width || (img.w),
-      originalHeight: obj?.height || (img.h),
+      originalWidth: obj?.width || obj?.getScaledWidth() || img.w,
+      originalHeight: obj?.height || obj?.getScaledHeight() || img.h,
     }
   })
 
@@ -821,16 +858,12 @@ const runAutoLayout = () => {
 
 const loadActivePageToCanvas = async () => {
   if (!fabricCanvas || !activePage.value) return
-  console.log('[LOAD] Loading page', activePageIndex.value, 'images:', activePage.value.images.length)
-
-  // Set loading guard BEFORE clearing canvas
-  const imageCount = (activePage.value.images || []).length
-  canvasLoading = imageCount > 0
-  pendingImageLoads = 0
-
   const targetPageIndex = activePageIndex.value
   const token = renderToken.value + 1
   renderToken.value = token
+  canvasLoadState.token = token
+  canvasLoadState.pending = (activePage.value.images || []).length
+  pendingImageLoads.value = canvasLoadState.pending
 
   fabricCanvas.clear()
 
@@ -857,17 +890,21 @@ const loadActivePageToCanvas = async () => {
       bg.sendToBack()
       drawSafeZoneGuides()
       fabricCanvas.requestRenderAll()
-      drawTextFieldsOnCanvas()
+      queueTextPreviewDraw(targetPageIndex, token)
     }
     bgImage.src = templateDataUrl.value
   } else {
     drawSafeZoneGuides()
-    drawTextFieldsOnCanvas()
+    queueTextPreviewDraw(targetPageIndex, token)
   }
 
   ;(activePage.value.images || []).forEach(imageData => {
     addInvoiceObjectToCanvas(imageData, targetPageIndex, token)
   })
+
+  if (!(activePage.value.images || []).length) {
+    queueTextPreviewDraw(targetPageIndex, token)
+  }
 }
 
 const removeSelectedOnCanvas = () => {
@@ -920,10 +957,9 @@ const initCanvas = () => {
 }
 
 onMounted(async () => {
-  void loadKaiuFont()
-
   try {
-    const [templateResp, layoutResp] = await Promise.all([
+    const [textConfigResp, templateResp, layoutResp] = await Promise.all([
+      api.getVoucherTextConfig(),
       api.getVoucherTemplate(projectId),
       api.getVoucherLayout(projectId),
     ])
@@ -937,6 +973,7 @@ onMounted(async () => {
       console.warn('getProjectDetail failed, budgetItem stays empty', e)
     }
 
+    voucherTextConfig.value = textConfigResp.data
     templatePng.value = templateResp.data.templatePng || ''
     invoices.value = templateResp.data.invoices || []
 
@@ -966,12 +1003,12 @@ onMounted(async () => {
   }
 
   await nextTick()
+  await ensurePreviewFontLoaded()
   initCanvas()
   await loadActivePageToCanvas()
   // Initial load should not overwrite existing draft values from saved layout.
   recalculatePageFields(activePage.value, { onlyFillEmpty: true })
   recalculateVoucherNumbers()
-  drawTextFieldsOnCanvas()
 
   autosaveTimer = window.setInterval(saveLayout, 30000)
 })
@@ -990,6 +1027,9 @@ useEventListener(window, 'keydown', (event) => {
 })
 
 onBeforeUnmount(async () => {
+  if (previewDrawTimer) {
+    window.clearTimeout(previewDrawTimer)
+  }
   if (autosaveTimer) {
     window.clearInterval(autosaveTimer)
   }
@@ -1004,7 +1044,16 @@ onBeforeUnmount(async () => {
 })
 
 watch([globalPrefix, startIndex], recalculateVoucherNumbers)
-watch(() => activePage.value?.fields, drawTextFieldsOnCanvas, { deep: true })
+watch(
+  () => activePage.value?.fields,
+  () => {
+    queueTextPreviewDraw()
+  },
+  { deep: true },
+)
+watch(voucherTextConfig, () => {
+  queueTextPreviewDraw()
+})
 </script>
 
 <style scoped>

@@ -3,9 +3,12 @@ import os
 import logging
 import re
 from io import BytesIO
+from pathlib import Path
 import fitz  # PyMuPDF
 from typing import List
 from PIL import Image
+
+from backend.engine.voucher_text_config import get_text_field_config
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +22,15 @@ class VoucherGenerator:
     def __init__(self, template_path: str, font_path: str = ""):
         self.template_path = template_path
         self.font_path = font_path
+        self.text_field_config = get_text_field_config()
+
+        if self.font_path:
+            resolved_font_path = str(Path(self.font_path).expanduser())
+            if os.path.exists(resolved_font_path):
+                self.font_path = resolved_font_path
+            else:
+                logger.warning("[VoucherGenerator] 找不到字型路徑 %s，改用內建字型", self.font_path)
+                self.font_path = ""
         
         if not os.path.exists(template_path):
             logger.warning(f"[VoucherGenerator] 找不到範本路徑 {template_path}，匯出時可能失敗")
@@ -27,7 +39,7 @@ class VoucherGenerator:
     def _safe_text(text: str) -> str:
         if not text:
             return ""
-        return re.sub(r"[^\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\w\s\-_/、，。:：※]", "", text)
+        return re.sub(r"[^\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\w\s\-_/、，。,.:：※]", "", text)
 
     @staticmethod
     def _to_roc_date(pay_date: str) -> str:
@@ -51,21 +63,46 @@ class VoucherGenerator:
             fontfile=self.font_path if self.font_path else None,
         )
 
+    def _insert_named_text(self, page: fitz.Page, field_name: str, text: str):
+        config = self.text_field_config[field_name]
+        safe_text = self._safe_text(text)
+        max_chars = int(config.get("maxChars", 0))
+        if max_chars > 0:
+            safe_text = safe_text[:max_chars]
+        self._insert_text(page, tuple(config["point"]), safe_text, fontsize=int(config["fontSize"]))
+
+    def _insert_multiline_named_text(self, page: fitz.Page, field_name: str, text: str):
+        config = self.text_field_config[field_name]
+        line_step = float(config.get("lineStep", 20))
+        x, y = tuple(config["point"])
+        for line_index, line in enumerate(str(text).replace("、", "\n").splitlines()):
+            self._insert_text(page, (x, y + (line_index * line_step)), line, fontsize=int(config["fontSize"]))
+
+    @staticmethod
+    def _format_payment_amount(amount: str) -> str:
+        if not amount or not str(amount).isdigit():
+            return ""
+        return f"{int(amount):,}元整"
+
     def _insert_purpose(self, page: fitz.Page, purpose: str):
         safe_text = self._safe_text(purpose)
         if not safe_text.strip():
             return
 
-        rect = fitz.Rect(214, 248, 411, 328)
-        chosen_fontsize = 14
+        config = self.text_field_config["purpose"]
+        rect = fitz.Rect(*config["rect"])
+        chosen_fontsize = int(config["fontSize"])
         chosen_text = safe_text
         truncated = False
+        min_fontsize = int(config.get("minFontSize", chosen_fontsize))
+        truncate_at = int(config.get("truncateAt", 80))
+        truncate_suffix = str(config.get("truncateSuffix", "...(略)"))
 
         # Measure on a scratch page to avoid double-writing on the real page
         with fitz.open() as scratch_doc:
             scratch_page = scratch_doc.new_page(width=595, height=842)
-            fontsize = 14
-            while fontsize >= 10:
+            fontsize = chosen_fontsize
+            while fontsize >= min_fontsize:
                 remaining = scratch_page.insert_textbox(
                     rect,
                     safe_text,
@@ -79,8 +116,8 @@ class VoucherGenerator:
                 fontsize -= 1
             else:
                 # All font sizes exhausted — truncate
-                chosen_fontsize = 10
-                chosen_text = safe_text[:80] + "...(略)"
+                chosen_fontsize = min_fontsize
+                chosen_text = safe_text[:truncate_at] + truncate_suffix
                 truncated = True
 
         # Write once on the real page
@@ -97,11 +134,15 @@ class VoucherGenerator:
     def _insert_amount_cells(self, page: fitz.Page, amount: str):
         if not amount or not str(amount).isdigit():
             return
-        text = str(int(amount)).rjust(7, "※")
-        y = 232
-        x_list = [430, 446, 462, 478, 494, 510, 526]
-        for idx, char in enumerate(text[:7]):
-            self._insert_text(page, (x_list[idx], y), char, fontsize=12)
+        config = self.text_field_config["amount"]
+        pad_length = int(config.get("padLength", 7))
+        pad_char = str(config.get("padChar", "※"))
+        text = str(int(amount)).rjust(pad_length, pad_char)
+        y = float(config["y"])
+        x_list = list(config["xList"])
+        font_size = int(config["fontSize"])
+        for idx, char in enumerate(text[:pad_length]):
+            self._insert_text(page, (x_list[idx], y), char, fontsize=font_size)
 
     @staticmethod
     def _image_stream_for_rect(image_path: str, target_width_pts: float) -> bytes:
@@ -139,12 +180,13 @@ class VoucherGenerator:
                     page = out_doc[-1]
 
                     fields = page_payload.get("fields", {})
-                    self._insert_text(page, (78, 238), str(fields.get("voucherNo", "")), fontsize=12)
-                    self._insert_text(page, (78, 208), str(fields.get("budgetItem", "")), fontsize=12)
+                    self._insert_multiline_named_text(page, "voucherNo", str(fields.get("voucherNo", "")))
+                    self._insert_named_text(page, "budgetItem", str(fields.get("budgetItem", "")))
                     self._insert_amount_cells(page, str(fields.get("amount", "")))
                     self._insert_purpose(page, str(fields.get("purpose", "")))
-                    self._insert_text(page, (534, 286), str(fields.get("receiptCount", "")), fontsize=12)
-                    self._insert_text(page, (436, 286), self._to_roc_date(str(fields.get("payDate", ""))), fontsize=12)
+                    self._insert_named_text(page, "receiptCount", str(fields.get("receiptCount", "")))
+                    self._insert_named_text(page, "payDate", self._to_roc_date(str(fields.get("payDate", ""))))
+                    self._insert_named_text(page, "paymentAmount", self._format_payment_amount(str(fields.get("amount", ""))))
 
                     for image in images:
                         job_id = image.get("jobId")

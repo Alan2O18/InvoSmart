@@ -1,7 +1,9 @@
 import axios from 'axios'
 
+const API_BASE_URL = 'http://localhost:8000'
+
 const api = axios.create({
-  baseURL: 'http://localhost:8000',
+  baseURL: API_BASE_URL,
   headers: {}
 })
 
@@ -102,6 +104,9 @@ export default {
       responseType: 'blob'
     })
   },
+  getVoucherTextConfig() {
+    return api.get('/api/voucher/text-config')
+  },
   getVoucherTemplate(projectId) {
     return api.get(`/api/voucher/${projectId}/template`)
   },
@@ -115,6 +120,9 @@ export default {
     return api.post(`/api/voucher/${projectId}/generate`, payload, {
       responseType: 'blob'
     })
+  },
+  toAbsoluteUrl(path) {
+    return new URL(path, API_BASE_URL).toString()
   },
   getVoucherImageUrl(projectId, jobId, thumb = true) {
     return `/api/voucher/${projectId}/image/${jobId}?thumb=${thumb ? 'true' : 'false'}`

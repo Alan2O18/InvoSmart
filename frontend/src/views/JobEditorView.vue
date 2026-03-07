@@ -142,8 +142,17 @@ const updateFromForm = (newVal) => {
     manualJsonData.value = newVal
 }
 
-// --- Methods ---
-const goBack = () => router.push(`/project/${projectId}`)
+const goBack = async () => {
+    if (isDirty.value) {
+        const sure = confirm("您有未儲存的變更。確定要離開嗎？")
+        if (sure === false) return
+    }
+    try {
+        await router.push(`/project/${projectId}`)
+    } catch (e) {
+        window.location.href = `/project/${projectId}`
+    }
+}
 
 const fetchJobList = async () => {
     try {
@@ -326,10 +335,15 @@ onUnmounted(() => {
     window.removeEventListener('keydown', handleKeydown)
 })
 
-onBeforeRouteLeave(async () => {
+onBeforeRouteLeave(async (to, from, next) => {
     if (isDirty.value) {
-        if (!confirm("您有未儲存的變更。確定要離開嗎？")) return false
+        const sure = confirm("您有未儲存的變更。確定要離開嗎？")
+        if (!sure) {
+            next(false)
+            return
+        }
     }
+    next()
 })
 
 watch(() => route.query.jobId, (newId, oldId) => {

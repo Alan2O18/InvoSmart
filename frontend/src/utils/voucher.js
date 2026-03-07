@@ -8,6 +8,13 @@ export function collectUsedJobIds(pages = []) {
   return used
 }
 
+const VOUCHER_SAFE_TEXT_PATTERN = /[^\u4E00-\u9FFF\u3400-\u4DBF\u3040-\u309F\u30A0-\u30FF\w\s\-_/、，。,.:：※]/g
+
+export function sanitizeVoucherText(text) {
+  if (text === null || text === undefined) return ''
+  return String(text).replace(VOUCHER_SAFE_TEXT_PATTERN, '')
+}
+
 export function parseDateString(value) {
   if (value === null || value === undefined) return NaN
   const raw = String(value).trim()
@@ -53,6 +60,20 @@ export function normalizeDateToISO(value) {
   return `${yyyy}-${mm}-${dd}`
 }
 
+export function formatVoucherRocDate(value) {
+  const iso = normalizeDateToISO(value)
+  if (!iso) return ''
+  const [year, month, day] = iso.split('-')
+  return `${Number(year) - 1911}/${month}/${day}`
+}
+
+export function formatVoucherPaymentAmount(amount) {
+  if (amount === null || amount === undefined) return ''
+  const raw = String(amount).trim()
+  if (!/^\d+$/.test(raw)) return ''
+  return `${parseInt(raw, 10).toLocaleString('en-US')}元整`
+}
+
 export function hasInvalidDate(pages = []) {
   return pages.some(page => {
     const payDate = page?.fields?.payDate
@@ -91,6 +112,113 @@ export function canGenerateVoucher(pages = [], isSaving = false) {
 
 export function round2(value) {
   return Math.round(Number(value) * 100) / 100
+}
+
+export function formatVoucherAmountCells(amount, padLength = 7, padChar = '※') {
+  if (amount === null || amount === undefined) return ''
+  const raw = String(amount).trim()
+  if (!/^\d+$/.test(raw)) return ''
+  return String(parseInt(raw, 10)).padStart(padLength, padChar)
+}
+
+export function pdfBaselineToCanvasTop(pdfY, fontSize, baselineRatio = 0.82) {
+  return round2(Number(pdfY) - (Number(fontSize) * Number(baselineRatio)))
+}
+
+export function buildVoucherTextPreviewEntries(fields = {}, textConfig = {}) {
+  const configMap = textConfig?.fields || {}
+  const fontFamily = textConfig?.font?.family || 'sans-serif'
+  const entries = []
+
+  const pushPointEntry = (key, rawValue) => {
+    const config = configMap[key]
+    let text = sanitizeVoucherText(rawValue)
+    if (!config || !text.trim()) return
+    if (config.maxChars) {
+      text = text.slice(0, Number(config.maxChars))
+    }
+    entries.push({
+      key,
+      type: 'text',
+      text,
+      left: Number(config.point[0]),
+      top: pdfBaselineToCanvasTop(config.point[1], config.fontSize, config.preview?.baselineRatio ?? 0.82),
+      fontSize: Number(config.fontSize),
+      fontFamily,
+    })
+  }
+
+  const pushMultilineEntry = (key, rawValue) => {
+    const config = configMap[key]
+    if (!config) return
+    const lineStep = Number(config.lineStep || 20)
+    const rawText = String(rawValue || '').replace(/、/g, '\n')
+    const lines = rawText
+      .split(/\r?\n/)
+      .map(line => sanitizeVoucherText(line))
+      .filter(line => line.trim())
+
+    lines.forEach((line, index) => {
+      entries.push({
+        key: `${key}-${index}`,
+        type: 'text',
+        text: line,
+        left: Number(config.point[0]),
+        top: pdfBaselineToCanvasTop(Number(config.point[1]) + (index * lineStep), config.fontSize, config.preview?.baselineRatio ?? 0.82),
+        fontSize: Number(config.fontSize),
+        fontFamily,
+      })
+    })
+  }
+
+  pushMultilineEntry('voucherNo', fields.voucherNo)
+  pushPointEntry('budgetItem', fields.budgetItem)
+  pushPointEntry('receiptCount', fields.receiptCount)
+  pushPointEntry('payDate', formatVoucherRocDate(fields.payDate))
+  pushPointEntry('paymentAmount', formatVoucherPaymentAmount(fields.amount))
+
+  const amountConfig = configMap.amount
+  if (amountConfig) {
+    const cellText = formatVoucherAmountCells(
+      fields.amount,
+      Number(amountConfig.padLength || 7),
+      amountConfig.padChar || '※',
+    )
+    for (let index = 0; index < cellText.length; index += 1) {
+      entries.push({
+        key: `amount-${index}`,
+        type: 'text',
+        text: cellText[index],
+        left: Number(amountConfig.xList[index]),
+        top: pdfBaselineToCanvasTop(amountConfig.y, amountConfig.fontSize, amountConfig.preview?.baselineRatio ?? 0.82),
+        fontSize: Number(amountConfig.fontSize),
+        fontFamily,
+      })
+    }
+  }
+
+  const purposeConfig = configMap.purpose
+  const safePurpose = sanitizeVoucherText(fields.purpose)
+  if (purposeConfig && safePurpose.trim()) {
+    const [x0, y0, x1, y1] = purposeConfig.rect
+    entries.push({
+      key: 'purpose',
+      type: 'textbox',
+      text: safePurpose,
+      left: Number(x0),
+      top: Number(y0),
+      width: Number(x1) - Number(x0),
+      height: Number(y1) - Number(y0),
+      fontSize: Number(purposeConfig.fontSize),
+      minFontSize: Number(purposeConfig.minFontSize || purposeConfig.fontSize),
+      lineHeight: Number(purposeConfig.lineHeight || 1.2),
+      truncateAt: Number(purposeConfig.truncateAt || 80),
+      truncateSuffix: purposeConfig.truncateSuffix || '...(略)',
+      fontFamily,
+    })
+  }
+
+  return entries
 }
 
 export function clampImageRect(rect, safeZone = { x0: 30, y0: 394, x1: 565, y1: 730 }) {

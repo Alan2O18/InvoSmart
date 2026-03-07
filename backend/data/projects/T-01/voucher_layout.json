@@ -1,0 +1,19 @@
+{
+  "globalPrefix": "D-16",
+  "startIndex": 1,
+  "pages": [
+    {
+      "pageIndex": 0,
+      "fields": {
+        "voucherNo": "",
+        "budgetItem": "",
+        "amount": "",
+        "purpose": "",
+        "receiptCount": "0",
+        "payDate": "",
+        "isManuallyEdited": false
+      },
+      "images": []
+    }
+  ]
+}

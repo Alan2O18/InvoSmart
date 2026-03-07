@@ -80,6 +80,21 @@ def test_get_kaiu_font_returns_ttf_file(mock_app_client, tmp_path):
     assert response.content == b"mock-font"
 
 
+def test_get_voucher_text_config_returns_shared_field_map(mock_app_client):
+    response = mock_app_client.get("/api/voucher/text-config")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["version"] == "0.0.6"
+    assert payload["font"]["url"] == "/api/voucher/fonts/kaiu.ttf"
+    assert payload["fields"]["voucherNo"]["point"] == [78.5, 255]
+    assert payload["fields"]["voucherNo"]["lineStep"] == 20
+    assert payload["fields"]["budgetItem"]["maxChars"] == 3
+    assert payload["fields"]["amount"]["padLength"] == 7
+    assert payload["fields"]["paymentAmount"]["point"] == [314, 767]
+    assert payload["fields"]["purpose"]["type"] == "textbox"
+
+
 def test_get_template_returns_done_invoices_with_result(mock_app_client, mock_engine_for_api, monkeypatch):
     mock_engine_for_api.project_repo.get_project = AsyncMock(
         return_value={"project_id": "proj1", "name": "Project 1", "created_at": "2026-01-01"}

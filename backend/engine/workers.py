@@ -48,7 +48,7 @@ def global_receipt_worker_loop(engine):
                 continue
             
             # 獲取 Job
-            job = job_repo.get_job(job_id)
+            job = loop.run_until_complete(job_repo.get_job(job_id))
             if not job:
                 logger.warning(f"[Worker] Job 不存在: {job_id}")
                 continue
