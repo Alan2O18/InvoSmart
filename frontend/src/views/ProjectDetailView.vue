@@ -34,7 +34,6 @@
       <div class="step" :class="{ active: canGenerateVoucher }">
         <h3>4. 匯出憑證</h3>
         <div style="display: flex; flex-direction: column; gap: 0.5rem; justify-content: center; align-items: center;">
-          <button @click="generateVoucherPdf" :disabled="!canGenerateVoucher || loading" class="pdf-btn">快速產生黏貼紙</button>
           <button @click="openVoucherEditor" :disabled="!canGenerateVoucher || loading" class="mini-btn">開啟憑證編輯器</button>
         </div>
       </div>
@@ -378,25 +377,6 @@ const runArchive = async () => {
 
 const openVoucherEditor = () => {
   router.push(`/project/${projectId}/voucher-editor`)
-}
-
-const generateVoucherPdf = async () => {
-  loading.value = true
-  try {
-      const res = await api.generateVoucherPdf(projectId);
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement('a');
-      link.href = url;
-      link.setAttribute('download', `${projectId}_voucher.pdf`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
-      
-      alert('憑證黏貼紙已產生並下載！');
-  } 
-  catch (e) { alert('產生憑證失敗: ' + (e.response?.data?.detail || e.message)); } 
-  finally { loading.value = false; }
 }
 
 const handleFileUpload = async (event, type) => {

@@ -43,10 +43,10 @@ def rotate_image(project_id: str, filename: str, angle: int = 90, engine: Engine
 
 
 @router.get("/{project_id}/raw_files")
-def get_raw_files(project_id: str, engine: Engine = Depends(get_engine)):
+async def get_raw_files(project_id: str, engine: Engine = Depends(get_engine)):
     """Get list of raw files in project."""
     try:
-        return engine.get_raw_files(project_id)
+        return await engine.get_raw_files(project_id)
     except Exception as e:
         logger.error(f"Error getting raw files for {project_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))

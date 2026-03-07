@@ -11,7 +11,7 @@ from typing import Any, Dict, List
 
 import fitz
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from PIL import Image
 
 from backend.dependencies import get_engine
@@ -134,6 +134,17 @@ async def get_voucher_image(
     return Response(content=content, media_type=content_type)
 
 
+@router.get("/fonts/kaiu.ttf")
+async def get_kaiu_font():
+    settings = get_voucher_settings()
+    font_path = settings["font_ttf_path"]
+
+    if not os.path.exists(font_path):
+        raise HTTPException(status_code=500, detail={"error": "INTERNAL_ERROR", "detail": "Voucher font not found"})
+
+    return FileResponse(path=font_path, media_type="font/ttf")
+
+
 @router.get("/{project_id}/layout")
 async def get_layout(project_id: str):
     repo = get_layout_repo()
@@ -144,6 +155,14 @@ async def get_layout(project_id: str):
 async def save_layout(project_id: str, payload: VoucherLayoutPayloadDraft):
     repo = get_layout_repo()
     return repo.save_layout(project_id, payload.model_dump())
+
+@router.get("/fonts/kaiu.ttf")
+async def get_kaiu_font():
+    settings = get_voucher_settings()
+    font_path = settings["font_ttf_path"]
+    if not os.path.exists(font_path):
+        raise HTTPException(status_code=500, detail={"error": "INTERNAL_ERROR", "detail": "Font file not found"})
+    return Response(content=open(font_path, "rb").read(), media_type="font/ttf")
 
 
 @router.post("/{project_id}/generate")
@@ -193,7 +212,4 @@ async def generate_voucher_pdf(
         logger.exception("Voucher generation failed")
         raise HTTPException(status_code=500, detail={"error": "INTERNAL_ERROR", "detail": "Voucher generation failed"})
 
-    return {
-        "pdfUrl": str(output_path),
-        "filename": filename,
-    }
+    return FileResponse(path=output_path, filename=filename, media_type="application/pdf")

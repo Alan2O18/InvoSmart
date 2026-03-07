@@ -19,7 +19,7 @@ def test_rotate_image(mock_app_client, mock_engine_for_api):
     assert response.status_code == 200
 
 def test_get_raw_files(mock_app_client, mock_engine_for_api):
-    mock_engine_for_api.get_raw_files.return_value = ["f1.jpg", "f2.jpg"]
+    mock_engine_for_api.get_raw_files = AsyncMock(return_value=["f1.jpg", "f2.jpg"])
     response = mock_app_client.get("/api/projects/proj1/raw_files")
     assert response.status_code == 200
     assert response.json() == ["f1.jpg", "f2.jpg"]

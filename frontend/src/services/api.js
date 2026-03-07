@@ -20,6 +20,9 @@ export default {
   getProject(projectId) {
     return api.get(`/api/projects/${projectId}`)
   },
+  getProjectDetail(projectId) {
+    return api.get(`/api/projects/${projectId}/detail`)
+  },
   updateProject(projectId, metadata) {
     return api.put(`/api/projects/${projectId}`, metadata)
   },
@@ -114,7 +117,9 @@ export default {
     return api.post(`/api/voucher/${projectId}/layout`, payload)
   },
   generateVoucherFromLayout(projectId, payload) {
-    return api.post(`/api/voucher/${projectId}/generate`, payload)
+    return api.post(`/api/voucher/${projectId}/generate`, payload, {
+      responseType: 'blob'
+    })
   },
   getVoucherImageUrl(projectId, jobId, thumb = true) {
     return `/api/voucher/${projectId}/image/${jobId}?thumb=${thumb ? 'true' : 'false'}`

@@ -82,3 +82,55 @@ graph TD
 - **VLM 失敗**: 若 API 呼叫失敗，系統會自動重試 (預設 3 次)，若仍失敗則標記 Job 為 `failed` 並記錄錯誤訊息。
 - **QR 失敗**: 若無法讀取 QR Code，僅會在 Log 顯示警告，**不會** 中斷流程，系統將退回純 VLM 模式。
 - **驗算失敗**: 即使邏輯驗算發現錯誤 (如金額不符)，Job 狀態仍會是 `done`，但在前端會顯示 **紅色警告** 提示人工介入。
+
+---
+
+## 5. 憑證黏貼管線 (Voucher Pipeline)
+
+Voucher Editor 是建立在主處理流程完成之後的後段子管線，負責把已完成辨識的發票排入憑證模板，並產出正式 PDF。
+
+```mermaid
+graph TD
+   DoneJobs[done jobs / display_result] --> Template[GET voucher template]
+   Template --> Editor[Frontend Voucher Editor Canvas]
+   Editor --> SaveDraft[POST voucher layout]
+   Editor --> Generate[POST voucher generate]
+   SaveDraft --> LayoutJson[voucher_layout.json]
+   Generate --> Auth[驗證 jobId 與專案關聯]
+   Auth --> Render[VoucherGenerator + PyMuPDF]
+   Render --> PDF[application/pdf FileResponse]
+```
+
+### 5.1 流程步驟
+
+1. **載入模板與發票來源**
+  - 前端呼叫 `GET /api/voucher/{project_id}/template`。
+  - 後端回傳模板 PNG 預覽與所有 `done` 狀態發票。
+
+2. **前端排版與欄位計算**
+  - 使用者在 Canvas 放置發票圖片。
+  - 前端依發票資料自動計算 `amount`、`payDate`、`purpose`、`receiptCount`、`voucherNo`。
+  - 文字預覽以 KaiU 字型與 PDF 座標對齊。
+
+3. **草稿儲存**
+  - 前端透過 `POST /api/voucher/{project_id}/layout` autosave。
+  - 後端把草稿存到 `voucher_layout.json`。
+
+4. **PDF 產出**
+  - 前端送出 `VoucherLayoutPayloadStrict` 到 `POST /api/voucher/{project_id}/generate`。
+  - 後端驗證每個 `jobId` 屬於該專案，並把空白頁排除在外。
+  - `VoucherGenerator` 將模板、字型、欄位文字與發票圖片合成 PDF。
+
+5. **下載與人工核對**
+  - API 回傳 `application/pdf` 檔案串流。
+  - 使用者在瀏覽器下載檔案，並比對 Canvas 預覽與實際輸出。
+
+### 5.2 子管線的設計重點
+
+| 設計點 | 說明 |
+|---|---|
+| **模板來源** | 固定使用 `backend/assets/templates/憑證黏貼用紙.pdf` |
+| **字型一致性** | 前後端共用 `kaiu.ttf`，避免預覽與輸出字寬不同 |
+| **草稿與正式輸出分離** | layout autosave 可接受空欄位；generate 則走 strict 驗證 |
+| **專案授權檢查** | `generate` 會重新確認每個 `jobId` 是否屬於該專案 |
+| **輸出方式** | 直接回傳 PDF `FileResponse`，不再依賴 JSON 檔名回應 |

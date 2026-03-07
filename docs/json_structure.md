@@ -156,3 +156,103 @@ interface JobDetail {
     manual_json?: VlmResult;   // 人工修正版本 (若有值則 UI 優先顯示)
 }
 ```
+
+---
+
+## Voucher Layout (`voucher_layout.json`)
+
+對應檔案位置：`backend/data/projects/<sanitized_project_id>/voucher_layout.json`。  
+對應模型：`VoucherLayoutPayloadDraft` / `VoucherLayoutPayloadStrict`。
+
+### 範例 (Example)
+
+```json
+{
+    "globalPrefix": "D-16",
+    "startIndex": 1,
+    "pages": [
+        {
+            "pageIndex": 0,
+            "fields": {
+                "voucherNo": "D-16-01~04",
+                "budgetItem": "茶水費",
+                "amount": "201",
+                "purpose": "茶水費、影印費",
+                "receiptCount": "4",
+                "payDate": "2025-11-20",
+                "isManuallyEdited": false
+            },
+            "images": [
+                {
+                    "jobId": "job-1771656709-5c5ee9",
+                    "x": 30.0,
+                    "y": 394.0,
+                    "w": 74.96,
+                    "h": 165.01
+                }
+            ]
+        }
+    ]
+}
+```
+
+### TypeScript Interface
+
+```typescript
+interface VoucherImagePayload {
+    jobId: string;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+}
+
+interface VoucherFieldsDraft {
+    voucherNo: string;
+    budgetItem: string;
+    amount: string;
+    purpose: string;
+    receiptCount: string;
+    payDate: string;
+    isManuallyEdited: boolean;
+}
+
+interface VoucherPageDraft {
+    pageIndex: number;
+    fields: VoucherFieldsDraft;
+    images: VoucherImagePayload[];
+}
+
+interface VoucherLayoutPayloadDraft {
+    globalPrefix: string;
+    startIndex: number;
+    pages: VoucherPageDraft[];
+}
+```
+
+### Draft 與 Strict 的差異
+
+`POST /api/voucher/{project_id}/layout` 使用 Draft model，允許空字串，方便前端 autosave 草稿。  
+`POST /api/voucher/{project_id}/generate` 使用 Strict model，只有真正要產出 PDF 的頁面才可送出，且會套用下列驗證：
+
+1. `voucherNo`、`amount`、`receiptCount`、`payDate` 不可為空字串。
+2. `amount` 必須全為數字，且數值 `<= 9999999`。
+3. `receiptCount` 必須全為數字。
+4. `payDate` 必須是可被 `datetime.fromisoformat()` 接受的 ISO 日期字串，例如 `2025-11-20`。
+5. `images[].jobId` 不可為空，且 `w`、`h` 必須大於 `0`。
+
+### 欄位說明
+
+| 欄位 | 型別 | 說明 |
+|---|---|---|
+| `globalPrefix` | `string` | 憑證號碼前綴，例如 `D-16` |
+| `startIndex` | `number` | 起始流水號，用於自動重算 `voucherNo` |
+| `pages[].pageIndex` | `number` | 頁面序號 |
+| `pages[].fields.voucherNo` | `string` | 最終印在 PDF 上的憑證號碼 |
+| `pages[].fields.budgetItem` | `string` | 預算別 |
+| `pages[].fields.amount` | `string` | 金額字串，輸出時會拆成七格 |
+| `pages[].fields.purpose` | `string` | 用途說明 |
+| `pages[].fields.receiptCount` | `string` | 本頁發票張數 |
+| `pages[].fields.payDate` | `string` | ISO 日期字串 |
+| `pages[].fields.isManuallyEdited` | `boolean` | 是否已手動覆蓋用途欄位 |
+| `pages[].images` | `VoucherImagePayload[]` | 本頁已放置的發票圖片矩形座標 |

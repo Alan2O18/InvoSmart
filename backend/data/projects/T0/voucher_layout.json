@@ -9,43 +9,21 @@
         "budgetItem": "",
         "amount": "",
         "purpose": "",
-        "receiptCount": "3",
+        "receiptCount": "0",
         "payDate": "",
-        "isManuallyEdited": false
+        "isManuallyEdited": true
       },
-      "images": [
-        {
-          "jobId": "job-1771656709-5c5ee9",
-          "x": 30.0,
-          "y": 394.0,
-          "w": 180.0,
-          "h": 120.0
-        },
-        {
-          "jobId": "job-1771656709-948123",
-          "x": 50.0,
-          "y": 414.0,
-          "w": 180.0,
-          "h": 120.0
-        },
-        {
-          "jobId": "job-1771656718-a7aa00",
-          "x": 70.0,
-          "y": 434.0,
-          "w": 180.0,
-          "h": 120.0
-        }
-      ]
+      "images": []
     },
     {
       "pageIndex": 1,
       "fields": {
-        "voucherNo": "",
+        "voucherNo": "D-16-01~04",
         "budgetItem": "",
-        "amount": "",
-        "purpose": "",
+        "amount": "76",
+        "purpose": "茶水費",
         "receiptCount": "0",
-        "payDate": "",
+        "payDate": "2025-11-20",
         "isManuallyEdited": false
       },
       "images": []
@@ -53,15 +31,44 @@
     {
       "pageIndex": 2,
       "fields": {
-        "voucherNo": "",
+        "voucherNo": "D-16-05~08",
         "budgetItem": "",
-        "amount": "",
-        "purpose": "",
-        "receiptCount": "0",
-        "payDate": "",
+        "amount": "201",
+        "purpose": "茶水費、影印費",
+        "receiptCount": "4",
+        "payDate": "2025-11-20",
         "isManuallyEdited": false
       },
-      "images": []
+      "images": [
+        {
+          "jobId": "job-1771656709-5c5ee9",
+          "x": 30.0,
+          "y": 394.0,
+          "w": 74.96,
+          "h": 165.01
+        },
+        {
+          "jobId": "job-1771656718-74a81f",
+          "x": 30.0,
+          "y": 563.0,
+          "w": 232.39,
+          "h": 165.0
+        },
+        {
+          "jobId": "job-1771656718-a7aa00",
+          "x": 187.66,
+          "y": 394.0,
+          "w": 229.57,
+          "h": 165.0
+        },
+        {
+          "jobId": "job-1771656709-948123",
+          "x": 108.96,
+          "y": 394.0,
+          "w": 74.7,
+          "h": 164.99
+        }
+      ]
     }
   ]
 }

@@ -1,7 +1,5 @@
 # Projects Router - 專案 CRUD 端點
-import shutil
 import os
-import tempfile
 import logging
 import json
 from typing import List, Optional
@@ -10,6 +8,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from backend.dependencies import get_engine
 from backend.engine.core import Engine
+from backend.utils.utils import handle_upload_files
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -25,8 +24,6 @@ async def list_projects(engine: Engine = Depends(get_engine)):
     """List all projects."""
     return await engine.project_repo.list_projects()
 
-
-from backend.utils.utils import handle_upload_files
 
 @router.post("/")
 async def create_project(
@@ -75,6 +72,21 @@ async def delete_project(project_id: str, engine: Engine = Depends(get_engine)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/{project_id}/detail")
+async def get_project_detail(project_id: str, engine: Engine = Depends(get_engine)):
+    """Get full project payload (including metadata)."""
+    try:
+        project = await engine.project_repo.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return project
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting detail for {project_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/{project_id}")
 async def get_project_status(project_id: str, engine: Engine = Depends(get_engine)):
     """Get project status and details."""
@@ -95,7 +107,6 @@ async def update_activity_info(project_id: str, info: dict, engine: Engine = Dep
     except Exception as e:
         logger.error(f"Error updating activity info: {e}")
         raise HTTPException(status_code=500, detail=str(e))
-
 
 
 @router.post("/{project_id}/generate-voucher-pdf")

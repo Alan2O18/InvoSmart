@@ -15,6 +15,7 @@ backend/
 ├── dependencies.py      # 依賴注入 (get_engine)
 ├── engine/              # 核心協調層
 │   ├── core.py          # Engine 類別 (Singleton)
+│   ├── voucher_generator.py  # 憑證 PDF 產生器 (PyMuPDF)
 │   └── workers.py       # Global Worker 迴圈
 ├── processing/          # 業務邏輯層
 │   ├── receipt_processor.py  # 主要處理入口
@@ -24,12 +25,20 @@ backend/
 ├── repositories/        # 資料存取層
 │   ├── project_repository.py # Global DB
 │   ├── job_repository.py     # Project DB
+│   ├── voucher_layout_repo.py # Voucher 草稿 JSON
 │   └── suggestion_repository.py # Suggestion DB
 └── routers/             # API路由
     ├── projects.py      # 專案管理
+    ├── files.py         # 檔案增刪與旋轉
     ├── jobs.py          # 任務操作
     ├── processing.py    # 批次執行
-    └── ...
+    ├── pdf.py           # PDF 上傳與下載
+    ├── voucher.py       # Voucher Editor / PDF 產出
+    ├── groups.py        # 群組管理
+    ├── correction.py    # 人工文字修正
+    ├── suggestions.py   # 建議詞
+    ├── config.py        # 系統設定
+    └── websocket.py     # 即時狀態
 ```
 
 ---
@@ -115,6 +124,25 @@ pytest tests/
 1. 編輯 `backend/processing/python_validator.py`。
 2. 在 `validate()` 方法中加入新的檢查規則。
 3. 更新 `ValidationResult` 的評分權重。
+
+### 新增或修改 Voucher 生成功能
+1. **資料結構先對齊**
+    - 修改 `backend/models/voucher_payload.py` 時，同步更新 `docs/json_structure.md`。
+    - 區分 autosave 用的 Draft model 與產出 PDF 用的 Strict model。
+2. **草稿持久化**
+    - 修改 `backend/repositories/voucher_layout_repo.py`。
+    - 確認寫入檔案仍保持原子性：先寫 `.tmp`，再 `os.replace()`。
+3. **PDF 生成邏輯**
+    - 修改 `backend/engine/voucher_generator.py`。
+    - 優先保持模板座標與前端 Canvas 預覽一致，避免只修其中一邊。
+4. **API 層**
+    - 修改 `backend/routers/voucher.py`。
+    - `layout` 與 `generate` 的驗證嚴格度不要混用。
+5. **前端協作點**
+    - 若修改欄位名稱、PDF 座標或字型來源，需同步檢查 `frontend/src/views/VoucherEditorView.vue` 與 `frontend/src/services/api.js`。
+6. **最低驗證要求**
+    - 後端至少補 route 測試。
+    - 前端至少通過 build，並手動比對 Canvas 預覽與 PDF 輸出。
 
 ---
 
