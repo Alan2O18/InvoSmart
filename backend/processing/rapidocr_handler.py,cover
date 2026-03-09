@@ -1,0 +1,289 @@
+  # backend/processing/rapidocr_handler.py
+> """
+> RapidOCR Handler - 輕量級 OCR 處理器
+  
+> 使用 RapidOCR (ONNX Runtime) 進行文字識別，
+> 相比 PaddleOCR 更輕量（~14MB vs ~200MB+）且速度更快。
+  
+> 主要用於傳統發票（無 QR Code）的文字識別，
+> 作為 VLM 視覺識別的參考資料進行交叉驗證。
+> """
+> import logging
+> import numpy as np
+> from typing import Optional
+  
+> logger = logging.getLogger(__name__)
+  
+  # 嘗試導入 RapidOCR
+> try:
+>     from rapidocr_onnxruntime import RapidOCR
+>     RAPIDOCR_AVAILABLE = True
+! except ImportError:
+!     RAPIDOCR_AVAILABLE = False
+!     logger.warning("rapidocr-onnxruntime 未安裝，RapidOCR 功能不可用")
+  
+  
+> class RapidOCRHandler:
+>     """
+>     輕量級 OCR 處理器
+      
+>     Features:
+>     - 使用 ONNX Runtime 推論，CPU 友好
+>     - 支援中英文混合識別
+>     - 輸出包含文字、位置、信心度
+>     """
+  
+>     def __init__(self, config: dict):
+>         """
+>         初始化 RapidOCR Handler
+          
+>         Args:
+>             config: 配置字典
+>         """
+>         self.config = config
+>         self.engine: Optional[RapidOCR] = None
+>         self._initialized = False
+  
+>     def _ensure_initialized(self):
+>         """延遲初始化 OCR 引擎"""
+>         if self._initialized:
+>             return
+          
+>         if not RAPIDOCR_AVAILABLE:
+>             logger.error("RapidOCR 不可用")
+>             self._initialized = True
+>             return
+  
+>         try:
+>             logger.info("正在初始化 RapidOCR 引擎 (PP-OCRv5 Server, max_side_len=2560)...")
+>             self.engine = RapidOCR(
+>                 ocr_version='PP-OCRv5',
+>                 det_model_type='server',
+>                 rec_model_type='server',
+>                 det_limit_side_len=2560,  # 提高最大像素以增強識別精度
+>                 det_db_unclip_ratio = 2.0, #提高檢測範圍，降低分詞
+>                 det_db_box_thresh=0.15, #降低門檻，把那些寫很淡的字（如手寫日期）硬抓出來
+>                 det_db_thresh=0.2 #降低連通域閾值，只要有一點點像素連著就算同一個字
+>             )
+>             logger.info("RapidOCR 引擎初始化完成 (PP-OCRv5 Server)")
+>         except Exception as e:
+>             logger.error(f"初始化 RapidOCR 失敗: {e}", exc_info=True)
+>             self.engine = None
+          
+>         self._initialized = True
+  
+>     def do_ocr(self, image_array: np.ndarray) -> tuple[list[dict], dict]:
+>         """
+>         執行 OCR 並返回結構化結果與統計資訊
+          
+>         Args:
+>             image_array: OpenCV 格式的圖片陣列 (BGR 或灰階)
+          
+>         Returns:
+>             tuple: (result, stats)
+>                 result: list of dict [{"text": "...", "box": [...], "confidence": 0.95}, ...]
+>                 stats: {"engine": "rapidocr", "total_time_s": float, "text_blocks_count": int, ...}
+>         """
+>         import time
+>         start_time = time.time()
+          
+>         self._ensure_initialized()
+          
+>         empty_stats = {
+>             "engine": "rapidocr",
+>             "total_time_s": 0,
+>             "text_blocks_count": 0,
+>             "started_at": int(start_time),
+>             "completed_at": int(start_time)
+>         }
+          
+>         if not self.engine:
+>             logger.warning("RapidOCR 引擎不可用，返回空結果")
+>             return [], empty_stats
+  
+>         try:
+>             logger.debug("執行 RapidOCR 識別...")
+              
+              # RapidOCR 接受 numpy array 作為輸入
+>             result, elapse = self.engine(image_array)
+              
+>             end_time = time.time()
+              
+>             if result is None:
+>                 logger.debug("RapidOCR 未識別到任何文字")
+>                 stats = {
+>                     "engine": "rapidocr",
+>                     "total_time_s": round(end_time - start_time, 3),
+>                     "text_blocks_count": 0,
+>                     "started_at": int(start_time),
+>                     "completed_at": int(end_time)
+>                 }
+>                 return [], stats
+  
+>             structured_results = []
+>             for item in result:
+                  # RapidOCR 返回格式: [[四個角點座標], 文字, 信心度]
+>                 box_points, text, confidence = item
+                  
+                  # 將四個角點轉換為邊界框 [x1, y1, x2, y2]
+>                 x_coords = [p[0] for p in box_points]
+>                 y_coords = [p[1] for p in box_points]
+>                 x1, x2 = int(min(x_coords)), int(max(x_coords))
+>                 y1, y2 = int(min(y_coords)), int(max(y_coords))
+                  
+>                 structured_results.append({
+>                     "text": text,
+>                     "box": [x1, y1, x2, y2],
+>                     "confidence": float(confidence)
+>                 })
+  
+              # RapidOCR elapse 可能是 list 或 float
+>             if isinstance(elapse, list):
+>                 ocr_time = sum(elapse) if elapse else 0
+>             else:
+>                 ocr_time = elapse
+              
+>             stats = {
+>                 "engine": "rapidocr",
+>                 "total_time_s": round(end_time - start_time, 3),
+>                 "ocr_engine_time_s": round(ocr_time, 3) if ocr_time else None,
+>                 "text_blocks_count": len(structured_results),
+>                 "started_at": int(start_time),
+>                 "completed_at": int(end_time)
+>             }
+              
+>             logger.debug(f"RapidOCR 識別完成，共 {len(structured_results)} 個文字區塊，耗時 {stats['total_time_s']}s")
+>             return structured_results, stats
+  
+>         except Exception as e:
+>             logger.error(f"RapidOCR 識別失敗: {e}", exc_info=True)
+>             end_time = time.time()
+>             stats = {
+>                 "engine": "rapidocr",
+>                 "total_time_s": round(end_time - start_time, 3),
+>                 "text_blocks_count": 0,
+>                 "error": str(e),
+>                 "started_at": int(start_time),
+>                 "completed_at": int(end_time)
+>             }
+>             return [], stats
+  
+>     def to_plain_text(self, ocr_result: list[dict]) -> str:
+>         """
+>         將 OCR 結果轉為純文字
+          
+>         根據文字區塊的 Y 座標進行排序，同一行的文字按 X 座標排列。
+          
+>         Args:
+>             ocr_result: do_ocr() 返回的結構化結果
+              
+>         Returns:
+>             str: 重組後的純文字，每行以換行符分隔
+>         """
+>         if not ocr_result:
+>             return ""
+  
+          # 按 Y 座標排序
+>         sorted_items = sorted(ocr_result, key=lambda x: x["box"][1])
+          
+          # 計算行高用於判斷是否同一行
+>         heights = [item["box"][3] - item["box"][1] for item in sorted_items]
+>         median_height = sorted(heights)[len(heights) // 2] if heights else 20
+>         y_threshold = median_height * 0.5
+  
+>         lines = []
+>         current_line = []
+>         last_y = None
+  
+>         for item in sorted_items:
+>             y1 = item["box"][1]
+              
+>             if last_y is None:
+>                 current_line.append(item)
+>             elif abs(y1 - last_y) <= y_threshold:
+                  # 同一行
+!                 current_line.append(item)
+>             else:
+                  # 新的一行
+>                 if current_line:
+                      # 同一行內按 X 座標排序
+>                     current_line.sort(key=lambda x: x["box"][0])
+>                     line_text = " ".join([x["text"] for x in current_line])
+>                     lines.append(line_text)
+>                 current_line = [item]
+              
+>             last_y = y1
+  
+          # 處理最後一行
+>         if current_line:
+>             current_line.sort(key=lambda x: x["box"][0])
+>             line_text = " ".join([x["text"] for x in current_line])
+>             lines.append(line_text)
+  
+>         return "\n".join(lines)
+  
+>     def get_high_confidence_text(self, ocr_result: list[dict], threshold: float = 0.8) -> list[dict]:
+>         """
+>         取得高信心度的識別結果
+          
+>         Args:
+>             ocr_result: do_ocr() 返回的結構化結果
+>             threshold: 信心度閾值（預設 0.8）
+              
+>         Returns:
+>             list of dict: 過濾後的高信心度結果
+>         """
+>         return [item for item in ocr_result if item.get("confidence", 0) >= threshold]
+  
+>     def extract_numbers(self, ocr_result: list[dict]) -> list[str]:
+>         """
+>         從 OCR 結果中提取所有數字
+          
+>         用於快速取得可能的金額、發票號碼等數字資訊。
+          
+>         Args:
+>             ocr_result: do_ocr() 返回的結構化結果
+              
+>         Returns:
+>             list of str: 提取的數字列表
+>         """
+>         import re
+>         numbers = []
+>         for item in ocr_result:
+>             text = item.get("text", "")
+              # 匹配連續數字（包含可能的小數點）
+>             found = re.findall(r'\d+\.?\d*', text)
+>             numbers.extend(found)
+>         return numbers
+  
+  
+  # 測試用
+> if __name__ == "__main__":
+!     import sys
+!     import cv2
+  
+!     if len(sys.argv) < 2:
+!         print("Usage: python rapidocr_handler.py <image_path>")
+!         sys.exit(1)
+  
+!     image_path = sys.argv[1]
+!     image = cv2.imread(image_path)
+  
+!     if image is None:
+!         print(f"無法讀取圖片: {image_path}")
+!         sys.exit(1)
+  
+!     handler = RapidOCRHandler({})
+!     result, stats = handler.do_ocr(image)
+  
+!     print(f"識別到 {len(result)} 個文字區塊 (耗時 {stats.get('total_time_s', 0)}s):\n")
+      
+!     plain_text = handler.to_plain_text(result)
+!     print("重組後的文字:")
+!     print("-" * 40)
+!     print(plain_text)
+!     print("-" * 40)
+      
+!     print("\n提取的數字:")
+!     numbers = handler.extract_numbers(result)
+!     print(numbers)

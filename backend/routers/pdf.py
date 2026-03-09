@@ -1,18 +1,16 @@
 # backend/routers/pdf.py
 import os
-import shutil
-import tempfile
 import logging
-from typing import List, Dict
-from fastapi import APIRouter, HTTPException, UploadFile, File, Body, Depends, BackgroundTasks
+from typing import List
+from fastapi import APIRouter, HTTPException, UploadFile, File, Body, Depends
 from fastapi.responses import FileResponse
 from backend.dependencies import get_engine
 from backend.engine.core import Engine
+from backend.utils.utils import handle_upload_files
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-from backend.utils.utils import handle_upload_files
 
 @router.post("/{project_id}/pdf")
 async def upload_pdf(
@@ -36,10 +34,13 @@ async def upload_pdf(
                 raise ValueError("未找到有效的 PDF 檔案")
                 
             return await engine.file_ops.add_pdf_files(project_id, pdf_paths)
-            
+    except ValueError as e:
+        logger.warning(f"Invalid PDF upload for {project_id}: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Error processing PDF upload: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/{project_id}/{job_id}/commands")
 async def execute_pdf_commands(
@@ -65,6 +66,7 @@ async def execute_pdf_commands(
         logger.error(f"Error executing pdf commands: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to queue PDF commands: {str(e)}")
 
+
 @router.get("/{project_id}/{job_id}/download")
 async def download_processed_pdf(
     project_id: str,
@@ -84,7 +86,7 @@ async def download_processed_pdf(
         # 優先回傳處理後的，若尚未處理則回傳原始版本
         if compressed_pdf_path and os.path.exists(compressed_pdf_path):
             return FileResponse(
-                path=compressed_pdf_path, 
+                path=compressed_pdf_path,
                 filename=os.path.basename(compressed_pdf_path),
                 media_type="application/pdf"
             )

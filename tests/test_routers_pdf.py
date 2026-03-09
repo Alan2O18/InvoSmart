@@ -1,11 +1,10 @@
-import os
 import pytest
 from httpx import AsyncClient, ASGITransport
 import fitz
-import json
 
 from backend.main import app
 from backend.dependencies import get_engine
+
 
 @pytest.fixture
 def mock_engine(tmp_path):
@@ -52,12 +51,14 @@ def mock_engine(tmp_path):
     
     app.dependency_overrides.pop(get_engine, None)
 
+
 def create_test_pdf(path: str):
     doc = fitz.open()
     page = doc.new_page()
     page.insert_text((50, 50), "Test PDF")
     doc.save(path)
     doc.close()
+
 
 @pytest.mark.asyncio
 async def test_upload_pdf(mock_engine, tmp_path):
@@ -96,6 +97,7 @@ async def test_upload_pdf(mock_engine, tmp_path):
     assert job_details["status"] == "ready"
     assert job_details["pdf_status"] == "uploaded"
 
+
 @pytest.mark.asyncio
 async def test_execute_pdf_commands(mock_engine):
     # 1. Manually add a job to db
@@ -129,3 +131,40 @@ async def test_execute_pdf_commands(mock_engine):
     # verify status updated to pending_compression
     job = await job_repo.get_job(job_id)
     assert job["pdf_status"] == "pending_compression"
+
+
+@pytest.mark.asyncio
+async def test_upload_pdf_rejects_non_pdf(mock_engine, tmp_path):
+    text_path = tmp_path / "not-a-pdf.txt"
+    text_path.write_text("hello", encoding="utf-8")
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        with open(text_path, "rb") as f:
+            response = await client.post(
+                "/api/pdf/proj1/pdf",
+                files={"files": ("not-a-pdf.txt", f, "text/plain")}
+            )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "未找到有效的 PDF 檔案"
+
+
+@pytest.mark.asyncio
+async def test_download_processed_pdf_falls_back_to_source_pdf(mock_engine, tmp_path):
+    source_pdf = tmp_path / "source.pdf"
+    create_test_pdf(str(source_pdf))
+
+    job_repo = mock_engine.get_job_repo("proj1")
+    job_id = "job-download"
+    await job_repo.insert_job(job_id, "dummy.jpg", "done")
+    await job_repo.update_job(job_id, source_pdf_path=str(source_pdf), compressed_pdf_path=str(tmp_path / "missing.pdf"))
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get(f"/api/pdf/proj1/{job_id}/download")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"].endswith('filename="source.pdf"')
+

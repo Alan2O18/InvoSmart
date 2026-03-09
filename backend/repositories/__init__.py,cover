@@ -1,0 +1,8 @@
+  # backend/repositories/__init__.py
+> """
+> Repository Layer - 資料存取層
+  
+> VLM-First 架構的資料存取層。
+> """
+> from backend.repositories.project_repository import ProjectRepository
+> from backend.repositories.job_repository import JobRepository
