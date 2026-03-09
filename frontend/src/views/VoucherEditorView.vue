@@ -475,7 +475,7 @@ const recalculatePageFields = (page, options = {}) => {
     .filter(obj => !Number.isNaN(obj.ts))
     .sort((a, b) => a.ts - b.ts)
   const nextPayDate = validDateObjects.length
-    ? normalizeDateToISO(validDateObjects[validDateObjects.length - 1].raw)
+    ? normalizeDateToISO(validDateObjects[0].raw)
     : ''
   if (!onlyFillEmpty || !String(page.fields.payDate || '').trim()) {
     page.fields.payDate = nextPayDate
@@ -968,7 +968,7 @@ onMounted(async () => {
     try {
       const projectResp = await api.getProjectDetail(projectId)
       const meta = projectResp.data?.metadata || {}
-      defaultBudget = meta.budgetExpense?.[0]?.name || ''
+      defaultBudget = meta.group || ''
     } catch (e) {
       console.warn('getProjectDetail failed, budgetItem stays empty', e)
     }

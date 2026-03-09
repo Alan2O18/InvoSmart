@@ -5,15 +5,51 @@
     {
       "pageIndex": 0,
       "fields": {
-        "voucherNo": "",
+        "voucherNo": "D-16-01\nD-16-02\nD-16-03\nD-16-04\nD-16-05",
         "budgetItem": "",
-        "amount": "",
-        "purpose": "",
-        "receiptCount": "0",
-        "payDate": "",
+        "amount": "863",
+        "purpose": "交通、茶水、消耗性教材",
+        "receiptCount": "5",
+        "payDate": "2025-10-29",
         "isManuallyEdited": false
       },
-      "images": []
+      "images": [
+        {
+          "jobId": "job-1772896635-fd2c28",
+          "x": 351.06,
+          "y": 394.0,
+          "w": 64.71,
+          "h": 216.16
+        },
+        {
+          "jobId": "job-1772896635-faebed",
+          "x": 497.52,
+          "y": 394.0,
+          "w": 66.64,
+          "h": 216.0
+        },
+        {
+          "jobId": "job-1772896635-ef4d2c",
+          "x": 419.61,
+          "y": 394.0,
+          "w": 73.91,
+          "h": 216.0
+        },
+        {
+          "jobId": "job-1772896635-df57b4",
+          "x": 30.0,
+          "y": 394.0,
+          "w": 321.36,
+          "h": 219.18
+        },
+        {
+          "jobId": "job-1772896638-3de985",
+          "x": 200.0,
+          "y": 570.0,
+          "w": 55.75,
+          "h": 150.15
+        }
+      ]
     }
   ]
 }
