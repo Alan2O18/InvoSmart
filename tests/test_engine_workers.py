@@ -24,7 +24,7 @@ def mock_engine():
     
     # Job repo
     job_repo = MagicMock()
-    job_repo.get_job.return_value = {"job_id": "j1", "image_path": "fake/path.jpg"}
+    job_repo.get_job = AsyncMock(return_value={"job_id": "j1", "image_path": "fake/path.jpg"})
     engine.get_job_repo.return_value = job_repo
     
     return engine

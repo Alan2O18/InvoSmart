@@ -135,13 +135,16 @@ class VoucherGenerator:
         if not amount or not str(amount).isdigit():
             return
         config = self.text_field_config["amount"]
-        pad_length = int(config.get("padLength", 7))
+        pad_length = int(config.get("padLength", 6))
         pad_char = str(config.get("padChar", "※"))
-        text = str(int(amount)).rjust(pad_length, pad_char)
+        amount_text = str(int(amount))
         y = float(config["y"])
         x_list = list(config["xList"])
         font_size = int(config["fontSize"])
-        for idx, char in enumerate(text[:pad_length]):
+        if len(amount_text) > len(x_list):
+            raise ValueError(f"Amount '{amount_text}' exceeds voucher amount cells ({len(x_list)})")
+        text = amount_text.rjust(pad_length, pad_char)
+        for idx, char in enumerate(text[:len(x_list)]):
             self._insert_text(page, (x_list[idx], y), char, fontsize=font_size)
 
     @staticmethod

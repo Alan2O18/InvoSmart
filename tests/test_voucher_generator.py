@@ -116,7 +116,7 @@ def test_invalid_font_path_logs_warning_and_falls_back(template_pdf, caplog):
 
 class TestAmountCells:
     def test_pads_short_amount(self, generator, template_pdf):
-        """Amount '146' should be padded as '※※※※146'."""
+        """Amount '146' should be padded as '※※※146' in six-cell mode."""
         with fitz.open(template_pdf) as doc:
             page = doc[0]
             generator._insert_amount_cells(page, "146")
@@ -126,12 +126,18 @@ class TestAmountCells:
             assert "4" in text
             assert "6" in text
 
-    def test_seven_digit_amount(self, generator, template_pdf):
+    def test_six_digit_amount(self, generator, template_pdf):
         with fitz.open(template_pdf) as doc:
             page = doc[0]
-            generator._insert_amount_cells(page, "9999999")
+            generator._insert_amount_cells(page, "999999")
             text = page.get_text()
-            assert text.count("9") >= 7
+            assert text.count("9") >= 6
+
+    def test_amount_longer_than_cells_raises(self, generator, template_pdf):
+        with fitz.open(template_pdf) as doc:
+            page = doc[0]
+            with pytest.raises(ValueError):
+                generator._insert_amount_cells(page, "1234567")
 
     def test_empty_amount_does_nothing(self, generator, template_pdf):
         with fitz.open(template_pdf) as doc:

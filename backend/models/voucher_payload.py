@@ -50,8 +50,8 @@ class VoucherFieldsStrict(BaseModel):
     def validate_amount(cls, value: str) -> str:
         if not value.isdigit():
             raise ValueError("amount must contain digits only")
-        if int(value) > 9999999:
-            raise ValueError("amount must be <= 9999999")
+        if int(value) > 999999:
+            raise ValueError("amount must be <= 999999 (six-digit voucher limit)")
         return value
 
     @field_validator("receiptCount")

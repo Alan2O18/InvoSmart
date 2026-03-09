@@ -16,11 +16,12 @@ const sampleTextConfig = {
     voucherNo: { point: [78.5, 255], fontSize: 16, lineStep: 20, preview: { baselineRatio: 0.82 } },
     budgetItem: { point: [149, 270], fontSize: 18, maxChars: 3, preview: { baselineRatio: 0.82 } },
     amount: {
-      xList: [188, 208, 228, 250.5, 271.5, 291, 312],
+      xList: [208, 228, 250.5, 271.5, 291, 312],
       y: 270,
       fontSize: 16,
-      padLength: 7,
+      padLength: 6,
       padChar: '※',
+      digitPolicy: 6,
       preview: { baselineRatio: 0.82 },
     },
     purpose: {
@@ -46,8 +47,8 @@ test('formatVoucherRocDate mirrors backend ROC output', () => {
   assert.equal(formatVoucherRocDate('invalid-date'), '')
 })
 
-test('formatVoucherAmountCells keeps current 7-cell policy', () => {
-  assert.equal(formatVoucherAmountCells('146'), '※※※※146')
+test('formatVoucherAmountCells keeps current 6-cell policy', () => {
+  assert.equal(formatVoucherAmountCells('146'), '※※※146')
   assert.equal(formatVoucherAmountCells('abc'), '')
 })
 
@@ -76,9 +77,9 @@ test('buildVoucherTextPreviewEntries builds text and textbox preview entries', (
   assert.ok(entries.find(entry => entry.key === 'purpose' && entry.type === 'textbox'))
 
   const amountEntries = entries.filter(entry => entry.key.startsWith('amount-'))
-  assert.equal(amountEntries.length, 7)
+  assert.equal(amountEntries.length, 6)
   assert.equal(amountEntries[0].text, '※')
-  assert.equal(amountEntries[6].text, '7')
+  assert.equal(amountEntries[5].text, '7')
 
   const payDateEntry = entries.find(entry => entry.key === 'payDate')
   assert.equal(payDateEntry.text, '113/11/28')
@@ -89,4 +90,10 @@ test('buildVoucherTextPreviewEntries builds text and textbox preview entries', (
 
   const paymentAmountEntry = entries.find(entry => entry.key === 'paymentAmount')
   assert.equal(paymentAmountEntry.text, '4,607元整')
+})
+
+test('buildVoucherTextPreviewEntries guards xList overflow for legacy 7-digit amount', () => {
+  const entries = buildVoucherTextPreviewEntries({ amount: '1234567' }, sampleTextConfig)
+  const amountEntries = entries.filter(entry => entry.key.startsWith('amount-'))
+  assert.equal(amountEntries.length, 0)
 })

@@ -201,7 +201,7 @@ const canvasLoading = computed(() => pendingImageLoads.value > 0)
 const statusText = computed(() => {
   if (hasInvalidDate.value) return '日期格式異常，請修正'
   if (hasDecimalAmount.value) return '金額不可有小數'
-  if (hasExcessiveAmount.value) return '金額不可超過 9,999,999'
+  if (hasExcessiveAmount.value) return '金額不可超過 999,999'
   return '可產出'
 })
 
@@ -226,7 +226,7 @@ const isCurrentPageAmountExcessive = computed(() => {
   const amount = activePage.value?.fields?.amount
   if (!amount) return false
   const num = parseInt(String(amount), 10)
-  return !Number.isNaN(num) && num > 9999999
+  return !Number.isNaN(num) && num > 999999
 })
 
 // ── Step 3: purpose char count ──────────────────────────────────────────────

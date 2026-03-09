@@ -26,10 +26,12 @@ TEXT_FIELD_CONFIG: dict[str, dict[str, Any]] = {
     "amount": {
         "type": "amount_cells",
         "y": 270,
-        "xList": [188, 208, 228, 250.5, 271.5, 291, 312], # First index = 188 to support 7th digit (millions)
+        "xList": [208, 228, 250.5, 271.5, 291, 312],
         "fontSize": 16,
-        "padLength": 7,
+        "padLength": 6,
         "padChar": "※",
+        "digitPolicy": 6,
+        "legacyMaxDigits": 7,
         "preview": {"baselineRatio": 0.82},
     },
     "purpose": {
@@ -61,12 +63,14 @@ TEXT_FIELD_CONFIG: dict[str, dict[str, Any]] = {
     }
 }
 
+
 def get_text_field_config() -> dict[str, dict[str, Any]]:
     return deepcopy(TEXT_FIELD_CONFIG)
 
+
 def get_voucher_text_config_payload() -> dict[str, Any]:
     return {
-        "version": "0.0.6",
+        "version": "0.0.7",
         "font": dict(VOUCHER_FONT_CONFIG),
         "fields": get_text_field_config(),
     }

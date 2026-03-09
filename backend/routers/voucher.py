@@ -150,10 +150,6 @@ async def get_voucher_image(
     content, content_type = _load_image_bytes(image_path=image_path, thumb=thumb, max_width=max_width)
     return Response(content=content, media_type=content_type)
 
-
-
-
-
 @router.get("/{project_id}/layout")
 async def get_layout(project_id: str):
     repo = get_layout_repo()
@@ -207,6 +203,14 @@ async def generate_voucher_pdf(
     try:
         generator = VoucherGenerator(template_path=template_path, font_path=settings.get("font_ttf_path", ""))
         generator.generate_from_layout(payload.model_dump().get("pages", []), job_image_map=job_image_map, output_path=str(output_path))
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error": "VALIDATION_ERROR",
+                "detail": str(exc),
+            },
+        )
     except HTTPException:
         raise
     except Exception:

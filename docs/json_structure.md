@@ -174,7 +174,7 @@ interface JobDetail {
         {
             "pageIndex": 0,
             "fields": {
-                "voucherNo": "D-16-01~04",
+                "voucherNo": "D-16-01\nD-16-02",
                 "budgetItem": "茶水費",
                 "amount": "201",
                 "purpose": "茶水費、影印費",
@@ -236,7 +236,7 @@ interface VoucherLayoutPayloadDraft {
 `POST /api/voucher/{project_id}/generate` 使用 Strict model，只有真正要產出 PDF 的頁面才可送出，且會套用下列驗證：
 
 1. `voucherNo`、`amount`、`receiptCount`、`payDate` 不可為空字串。
-2. `amount` 必須全為數字，且數值 `<= 9999999`。
+2. `amount` 必須全為數字，且數值 `<= 999999`（六格金額制度）。
 3. `receiptCount` 必須全為數字。
 4. `payDate` 必須是可被 `datetime.fromisoformat()` 接受的 ISO 日期字串，例如 `2025-11-20`。
 5. `images[].jobId` 不可為空，且 `w`、`h` 必須大於 `0`。
@@ -250,7 +250,7 @@ interface VoucherLayoutPayloadDraft {
 | `pages[].pageIndex` | `number` | 頁面序號 |
 | `pages[].fields.voucherNo` | `string` | 最終印在 PDF 上的憑證號碼 |
 | `pages[].fields.budgetItem` | `string` | 預算別 |
-| `pages[].fields.amount` | `string` | 金額字串，輸出時會拆成七格 |
+| `pages[].fields.amount` | `string` | 金額字串，輸出時會拆成六格 |
 | `pages[].fields.purpose` | `string` | 用途說明 |
 | `pages[].fields.receiptCount` | `string` | 本頁發票張數 |
 | `pages[].fields.payDate` | `string` | ISO 日期字串 |

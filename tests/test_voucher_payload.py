@@ -1,5 +1,5 @@
 """
-Tests for voucher payload schema validation — covers v29 §10.1 items 2, 6.
+Tests for voucher payload schema validation.
 Defense #3 (Draft/Strict split), #7 (date validation), #15 (amount limit).
 """
 import pytest
@@ -45,7 +45,7 @@ class TestDraftSchema:
         assert fields.amount == "100.5"
 
     def test_excessive_amount_in_draft_accepted(self):
-        """Draft should accept amounts > 9999999."""
+        """Draft should still accept legacy 7-digit amounts for migration UX."""
         fields = VoucherFieldsDraft(amount="99999999")
         assert fields.amount == "99999999"
 
@@ -81,25 +81,25 @@ class TestStrictSchema:
                 payDate="not-a-date",
             )
 
-    def test_amount_10_million_rejected(self):
-        """v29 §10.1.2: amount=10000000 → 422 (Defense #15)."""
+    def test_amount_1_million_rejected(self):
+        """V0.0.7 six-cell policy: amount=1000000 -> invalid."""
         with pytest.raises(ValidationError) as exc_info:
             VoucherFieldsStrict(
                 voucherNo="D-16-01",
-                amount="10000000",
+                amount="1000000",
                 receiptCount="1",
                 payDate="2024-11-28",
             )
-        assert "9999999" in str(exc_info.value)
+        assert "999999" in str(exc_info.value)
 
-    def test_amount_9999999_accepted(self):
+    def test_amount_999999_accepted(self):
         fields = VoucherFieldsStrict(
             voucherNo="D-16-01",
-            amount="9999999",
+            amount="999999",
             receiptCount="1",
             payDate="2024-11-28",
         )
-        assert fields.amount == "9999999"
+        assert fields.amount == "999999"
 
     def test_decimal_amount_rejected(self):
         with pytest.raises(ValidationError):

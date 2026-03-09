@@ -85,13 +85,15 @@ def test_get_voucher_text_config_returns_shared_field_map(mock_app_client):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["version"] == "0.0.6"
+    assert payload["version"] == "0.0.7"
     assert payload["font"]["url"] == "/api/voucher/fonts/kaiu.ttf"
     assert payload["fields"]["voucherNo"]["point"] == [78.5, 255]
     assert payload["fields"]["voucherNo"]["lineStep"] == 20
     assert payload["fields"]["budgetItem"]["maxChars"] == 3
-    assert payload["fields"]["amount"]["padLength"] == 7
-    assert payload["fields"]["paymentAmount"]["point"] == [314, 767]
+    assert payload["fields"]["amount"]["padLength"] == 6
+    assert payload["fields"]["amount"]["digitPolicy"] == 6
+    assert len(payload["fields"]["amount"]["xList"]) == 6
+    assert payload["fields"]["paymentAmount"]["point"] == [314, 785]
     assert payload["fields"]["purpose"]["type"] == "textbox"
 
 
@@ -237,7 +239,7 @@ def test_generate_strict_amount_validation_422(mock_app_client, mock_engine_for_
                     "fields": {
                         "voucherNo": "D-16-01",
                         "budgetItem": "",
-                        "amount": "10000000",
+                        "amount": "1000000",
                         "purpose": "餐費",
                         "receiptCount": "1",
                         "payDate": "2024-11-28",
@@ -249,6 +251,48 @@ def test_generate_strict_amount_validation_422(mock_app_client, mock_engine_for_
         },
     )
     assert response.status_code == 422
+
+
+def test_generate_returns_422_when_generator_rejects_amount_cells(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+    template_pdf = _make_template_pdf(tmp_path)
+    monkeypatch.setattr(
+        "backend.routers.voucher.get_voucher_settings",
+        lambda: _make_voucher_settings(template_pdf, tmp_path),
+    )
+
+    mock_job_repo = AsyncMock()
+    mock_job_repo.get_job = AsyncMock(return_value={"job_id": "j1", "image_path": "x"})
+    mock_engine_for_api.get_job_repo.return_value = mock_job_repo
+
+    def _raise_value_error(*_args, **_kwargs):
+        raise ValueError("Amount '1234567' exceeds voucher amount cells (6)")
+
+    with patch("backend.routers.voucher.VoucherGenerator.generate_from_layout", side_effect=_raise_value_error):
+        response = mock_app_client.post(
+            "/api/voucher/proj1/generate",
+            json={
+                "globalPrefix": "D-16",
+                "startIndex": 1,
+                "pages": [
+                    {
+                        "pageIndex": 0,
+                        "fields": {
+                            "voucherNo": "D-16-01",
+                            "budgetItem": "",
+                            "amount": "123456",
+                            "purpose": "餐費",
+                            "receiptCount": "1",
+                            "payDate": "2024-11-28",
+                            "isManuallyEdited": False,
+                        },
+                        "images": [{"jobId": "j1", "x": 30, "y": 394, "w": 100, "h": 100}],
+                    }
+                ],
+            },
+        )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["error"] == "VALIDATION_ERROR"
 
 
 def test_generate_success_returns_pdf_file(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):

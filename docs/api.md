@@ -191,6 +191,13 @@
 `GET /voucher/fonts/kaiu.ttf`
 - **回應**: `font/ttf`
 
+### 取得 Voucher 文字欄位設定
+`GET /voucher/text-config`
+- **回應**:
+    - `version`: 目前欄位設定版本 (V0.0.7 起為六格金額制度)
+    - `font`: 前端預覽字型設定
+    - `fields.amount`: 包含 `xList`, `padLength`, `digitPolicy`, `legacyMaxDigits`
+
 ### 讀取排版草稿
 `GET /voucher/{project_id}/layout`
 - **回應**: `layout.json` 結構，見 `docs/json_structure.md`
@@ -203,6 +210,7 @@
 `POST /voucher/{project_id}/generate`
 - **Body**: `VoucherLayoutPayloadStrict`
 - **回應**: `application/pdf` 檔案串流 (`FileResponse`)
+- **Strict 金額規則**: `amount` 必須為純數字且 `<= 999999` (六格)
 
 ---
 

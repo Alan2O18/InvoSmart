@@ -1,7 +1,7 @@
 export function collectUsedJobIds(pages = []) {
   const used = new Set()
   pages.forEach(page => {
-    ;(page.images || []).forEach(image => {
+    ; (page.images || []).forEach(image => {
       if (image?.jobId) used.add(image.jobId)
     })
   })
@@ -98,7 +98,7 @@ export function hasExcessiveAmount(pages = []) {
     const amount = page?.fields?.amount
     if (!amount) return false
     const num = parseInt(String(amount), 10)
-    return !Number.isNaN(num) && num > 9999999
+    return !Number.isNaN(num) && num > 999999
   })
 }
 
@@ -114,7 +114,7 @@ export function round2(value) {
   return Math.round(Number(value) * 100) / 100
 }
 
-export function formatVoucherAmountCells(amount, padLength = 7, padChar = '※') {
+export function formatVoucherAmountCells(amount, padLength = 6, padChar = '※') {
   if (amount === null || amount === undefined) return ''
   const raw = String(amount).trim()
   if (!/^\d+$/.test(raw)) return ''
@@ -179,21 +179,28 @@ export function buildVoucherTextPreviewEntries(fields = {}, textConfig = {}) {
 
   const amountConfig = configMap.amount
   if (amountConfig) {
-    const cellText = formatVoucherAmountCells(
-      fields.amount,
-      Number(amountConfig.padLength || 7),
-      amountConfig.padChar || '※',
-    )
-    for (let index = 0; index < cellText.length; index += 1) {
-      entries.push({
-        key: `amount-${index}`,
-        type: 'text',
-        text: cellText[index],
-        left: Number(amountConfig.xList[index]),
-        top: pdfBaselineToCanvasTop(amountConfig.y, amountConfig.fontSize, amountConfig.preview?.baselineRatio ?? 0.82),
-        fontSize: Number(amountConfig.fontSize),
-        fontFamily,
-      })
+    const maxCells = Array.isArray(amountConfig.xList) ? amountConfig.xList.length : 0
+    if (maxCells > 0) {
+      const cellText = formatVoucherAmountCells(
+        fields.amount,
+        Number(amountConfig.padLength || maxCells),
+        amountConfig.padChar || '※',
+      )
+      // Legacy over-length values should not produce NaN coordinates or misleading partial preview.
+      if (cellText.length <= maxCells) {
+        for (let index = 0; index < cellText.length; index += 1) {
+          if (index >= amountConfig.xList.length) break; // Protect Canvas from NaN on legacy 7-digit data
+          entries.push({
+            key: `amount-${index}`,
+            type: 'text',
+            text: cellText[index],
+            left: Number(amountConfig.xList[index]),
+            top: pdfBaselineToCanvasTop(amountConfig.y, amountConfig.fontSize, amountConfig.preview?.baselineRatio ?? 0.82),
+            fontSize: Number(amountConfig.fontSize),
+            fontFamily,
+          })
+        }
+      }
     }
   }
 

@@ -288,3 +288,17 @@ V0.0.7 的難點不是改程式，而是避免把舊資料悄悄弄壞。建議�
 - `tests/test_voucher_generator.py`
 - `tests/test_routers_voucher.py`
 - `frontend/tests/voucher-text-preview.test.js`
+
+---
+
+## 邊緣案例與隱藏地雷 (Edge Cases & Hidden Traps)
+
+在實作 V0.0.7 之前，已經在既有程式碼中發現兩個足以造成系統崩潰或資料錯亂的隱藏地雷，必須在本次更新中強制排除：
+
+### 1. 前端 Canvas 預覽越界崩潰 (Out-of-Bounds Crash)
+若讀取到舊版 7 碼資料（例如 `1234567`），`formatVoucherAmountCells` 會回傳 7 個字元。而在 `buildVoucherTextPreviewEntries` 中，因為 `xList` 已經縮減為 6 格，當迴圈讀取到 `xList[6]` 時會拿到 `undefined`，進而導致回傳予 Fabric.js 的 Canvas x 座標為 `NaN`。這可能導致該張預覽圖完全死機。
+**要求**：必須實作保護機制，若字串長度超過 `xList.length`，應限制繪製或強制跳過多餘字元以保護 Canvas，同時維持 UI 上的過長錯誤紅框。
+
+### 2. 後端產生器的無聲截斷 (Silent Truncation)
+在 `backend/engine/voucher_generator.py` 中的 `_insert_amount_cells`，目前實作使用 `text[:pad_length]` 來迴圈繪製。如果意外傳入百萬級 7 碼數字（且未經過 Strict Validator 攔截），產生器會無形中「切掉個位數」，把錯的數字寫到正式 PDF 上（例如 `1234567` 變成 `123456`）。這在會計作業上是災難。
+**要求**：在 `_insert_amount_cells` 補上斷言防線。如果 `len(amount_str) > len(xList)`，絕不妥協截斷，應直接 `raise ValueError` 拒絕產出錯誤的 PDF。

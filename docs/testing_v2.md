@@ -65,6 +65,13 @@ Voucher Editor 涉及前端 Canvas、後端 route 驗證與 PDF 輸出，目前�
 3. 前端 build：確保 `VoucherEditorView.vue` 的改動可編譯
 4. 手動驗證：Canvas 預覽、頁面切換、PDF 下載與版面對齊
 
+### 2.3 V0.0.7 金額制度回歸重點
+
+1. Strict amount 必須為純數字且 `<= 999999`（六格），`1000000` 應回 422。
+2. `/api/voucher/text-config` 的 `fields.amount` 必須回傳六格 `xList` 與 `digitPolicy: 6`。
+3. 前端 preview utilities 必須避免 `xList` 越界造成 Canvas `NaN` 座標崩潰。
+4. `VoucherGenerator._insert_amount_cells` 對超過格數輸入應拋錯，禁止 silent truncation。
+
 ---
 
 ## 3. 遷移計畫

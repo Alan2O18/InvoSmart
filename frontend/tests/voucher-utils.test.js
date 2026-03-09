@@ -74,9 +74,9 @@ test('hasDecimalAmount detects decimal amount', () => {
   assert.equal(hasDecimalAmount([{ fields: { amount: '4607.5' } }]), true)
 })
 
-test('hasExcessiveAmount detects amount > 9999999 (Defense #15)', () => {
-  assert.equal(hasExcessiveAmount([{ fields: { amount: '9999999' } }]), false)
-  assert.equal(hasExcessiveAmount([{ fields: { amount: '10000000' } }]), true)
+test('hasExcessiveAmount detects amount > 999999 (six-cell policy)', () => {
+  assert.equal(hasExcessiveAmount([{ fields: { amount: '999999' } }]), false)
+  assert.equal(hasExcessiveAmount([{ fields: { amount: '1000000' } }]), true)
   assert.equal(hasExcessiveAmount([{ fields: { amount: '' } }]), false)
   assert.equal(hasExcessiveAmount([{ fields: { amount: '0' } }]), false)
 })
@@ -108,7 +108,7 @@ test('canGenerateVoucher honors lock conditions', () => {
   // Excessive amount blocks generation
   assert.equal(
     canGenerateVoucher(
-      [{ fields: { amount: '10000000', payDate: '2024-11-28' }, images: [{ jobId: 'a' }] }],
+      [{ fields: { amount: '1000000', payDate: '2024-11-28' }, images: [{ jobId: 'a' }] }],
       false,
     ),
     false,
