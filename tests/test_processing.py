@@ -4,7 +4,7 @@ Unit Tests for Processing Modules
 Tests OCR handler, LLM handler, text corrector, and data extractor.
 """
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 import json
 
 
@@ -147,6 +147,147 @@ class TestExtractDataMethod:
 
 # ============================================================================
 # LLMHandler Tests
+# ============================================================================
+
+class TestLLMHandlerAdvanced:
+    """Additional tests for LLMHandler to improve coverage."""
+    
+    @patch('backend.processing.llm_handler.ollama')
+    def test_call_with_thinking_no_content(self, mock_ollama):
+        """Test call_with_thinking when response has no content."""
+        from backend.processing.llm_handler import LLMHandler
+        
+        mock_ollama.list.return_value = []
+        config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
+        handler = LLMHandler(config)
+        
+        # Mock streaming response with empty content
+        mock_ollama.chat.return_value = [
+            MockChunk(content="", thinking="", done=True)
+        ]
+        
+        result, stats = handler.call_with_thinking("test prompt")
+        
+        assert result == ""
+        assert "total_time_s" in stats
+    
+    @patch('backend.processing.llm_handler.ollama')
+    def test_call_with_thinking_exception(self, mock_ollama):
+        """Test call_with_thinking exception handling."""
+        from backend.processing.llm_handler import LLMHandler
+        
+        mock_ollama.list.return_value = []
+        config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
+        handler = LLMHandler(config)
+        
+        mock_ollama.chat.side_effect = Exception("Network error")
+        
+        result, stats = handler.call_with_thinking("test prompt")
+        
+        assert result == ""
+        assert stats == {}
+    
+    @patch('backend.processing.llm_handler.ollama')
+    def test_structure_with_llm_empty_text(self, mock_ollama):
+        """Test structure_with_llm with empty input."""
+        from backend.processing.llm_handler import LLMHandler
+        
+        mock_ollama.list.return_value = []
+        config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
+        handler = LLMHandler(config)
+        
+        # Mock to return empty string which will fail JSON parse
+        mock_ollama.chat.return_value = create_stream_mock("")
+        
+        result = handler.structure_with_llm("")
+        
+        # Should return error dict when JSON parse fails
+        assert "error" in result
+    
+    @patch('backend.processing.llm_handler.ollama')
+    def test_structure_with_llm_json_parse_error(self, mock_ollama):
+        """Test structure_with_llm with invalid JSON response."""
+        from backend.processing.llm_handler import LLMHandler
+        
+        mock_ollama.list.return_value = []
+        config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
+        handler = LLMHandler(config)
+        
+        # Return invalid JSON
+        mock_ollama.chat.return_value = create_stream_mock("not a json {invalid")
+        
+        result = handler.structure_with_llm("test text")
+        
+        assert "error" in result
+    
+    @patch('backend.processing.llm_handler.ollama')
+    def test_regenerate_from_corrected_text(self, mock_ollama):
+        """Test regenerate_from_corrected_text."""
+        from backend.processing.llm_handler import LLMHandler
+        
+        mock_ollama.list.return_value = []
+        config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
+        handler = LLMHandler(config)
+        
+        mock_response = {"supplier": "corrected_supplier", "total_amount": 100}
+        mock_ollama.chat.return_value = create_stream_mock(json.dumps(mock_response))
+        
+        result = handler.regenerate_from_corrected_text("corrected text")
+        
+        assert result["supplier"] == "corrected_supplier"
+    
+    @patch('backend.processing.llm_handler.ollama')
+    def test_clean_receipt_success(self, mock_ollama):
+        """Test clean_receipt with valid OCR JSON."""
+        from backend.processing.llm_handler import LLMHandler
+        
+        mock_ollama.list.return_value = []
+        config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
+        handler = LLMHandler(config)
+        
+        ocr_json = {
+            "text": "supplier: test shop",
+            "lines": [{"text": "item 1", "confidence": 0.9}]
+        }
+        
+        expected_response = {"supplier": "test shop", "items": []}
+        # clean_receipt uses non-streaming ollama.chat
+        mock_ollama.chat.return_value = {
+            "message": {"content": json.dumps(expected_response)}
+        }
+        
+        result = handler.clean_receipt(ocr_json)
+        
+        assert result is not None
+        assert "supplier" in result
+    
+    @patch('backend.processing.llm_handler.ollama')
+    def test_clean_receipt_no_text(self, mock_ollama):
+        """Test clean_receipt with empty OCR text."""
+        from backend.processing.llm_handler import LLMHandler
+        
+        mock_ollama.list.return_value = []
+        config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
+        handler = LLMHandler(config)
+        
+        result = handler.clean_receipt({})
+        
+        assert result is None
+    
+    @patch('backend.processing.llm_handler.ollama')
+    def test_init_without_ollama(self, mock_ollama):
+        """Test LLMHandler init when ollama is not available."""
+        from backend.processing.llm_handler import LLMHandler
+        
+        mock_ollama.list.side_effect = Exception("Ollama not available")
+        
+        config = {"llm_settings": {"model_name": "qwen3:1.7b"}}
+        # Should raise SystemError when Ollama not running
+        with pytest.raises(SystemError, match="Ollama Service Not Running"):
+            handler = LLMHandler(config)
+
+# ============================================================================
+# LLMHandler Tests (Existing)
 # ============================================================================
 
 class TestLLMHandler:

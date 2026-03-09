@@ -74,3 +74,46 @@ def test_update_activity_info(mock_app_client, mock_engine_for_api):
     assert response.json() == {"info": "updated"}
 
 
+def test_create_project_metadata_parse_error(mock_app_client, mock_engine_for_api):
+    """Test create project with unparseable metadata."""
+    mock_engine_for_api.create_project = AsyncMock(return_value={"status": "created"})
+    files = {"files": ("test.jpg", io.BytesIO(b"fake"), "image/jpeg")}
+    data = {"project_id": "proj1", "metadata": 'invalid json {'}
+    
+    response = mock_app_client.post("/api/projects/", data=data, files=files)
+    assert response.status_code == 200  # Should still succeed with empty metadata
+
+
+def test_update_project_error(mock_app_client, mock_engine_for_api):
+    """Test update project exception handling."""
+    mock_engine_for_api.project_repo.update_project_metadata = AsyncMock(side_effect=Exception("DB error"))
+    
+    response = mock_app_client.put("/api/projects/proj1", json={"name": "new"})
+    assert response.status_code == 500
+
+
+def test_delete_project_error(mock_app_client, mock_engine_for_api):
+    """Test delete project exception handling."""
+    mock_engine_for_api.project_repo.delete_project = AsyncMock(side_effect=Exception("Delete failed"))
+    
+    response = mock_app_client.delete("/api/projects/proj1")
+    assert response.status_code == 500
+
+
+def test_get_project_status_not_found(mock_app_client, mock_engine_for_api):
+    """Test get project status when project doesn't exist."""
+    mock_engine_for_api.project_repo.sync_status_to_db = AsyncMock()
+    mock_engine_for_api.project_repo.get_project_status = AsyncMock(side_effect=FileNotFoundError("Not found"))
+    
+    response = mock_app_client.get("/api/projects/nonexistent")
+    assert response.status_code == 404
+
+
+def test_update_activity_info_error(mock_app_client, mock_engine_for_api):
+    """Test update activity info exception handling."""
+    mock_engine_for_api.project_repo.update_activity_info = AsyncMock(side_effect=Exception("Update failed"))
+    
+    response = mock_app_client.post("/api/projects/proj1/activity_info", json={"key": "val"})
+    assert response.status_code == 500
+
+
