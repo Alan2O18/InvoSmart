@@ -99,6 +99,18 @@
           </div>
         </div>
 
+        <!-- Admin Tools Section -->
+        <div class="section">
+          <h2>🛠️ 系統維護工具 (Admin Tools)</h2>
+          <p class="section-desc">以下工具僅供維護者使用，修改後將影響全系統憑證輸出。</p>
+          <div class="admin-tools">
+            <router-link to="/voucher-template-config" class="admin-tool-btn">
+              📐 憑證範本座標設定
+              <span class="tool-desc">調整文字欄位位置、蓋章死區與安全區範圍</span>
+            </router-link>
+          </div>
+        </div>
+
         <div class="actions">
           <button @click="saveSettings" :disabled="saving" class="save-btn">
             {{ saving ? 'Saving...' : '💾 Save Settings' }}
@@ -452,6 +464,36 @@ onMounted(() => {
 .loading-small {
   text-align: center;
   padding: 1rem;
+  color: #888;
+}
+
+/* Admin Tools Section */
+.admin-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.admin-tool-btn {
+  display: flex;
+  flex-direction: column;
+  background: #1a1a1a;
+  border: 1px solid #555;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  color: #e0e0e0;
+  text-decoration: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.admin-tool-btn:hover {
+  border-color: #2563eb;
+  background: #1e2d4d;
+}
+
+.admin-tool-btn .tool-desc {
+  margin-top: 0.25rem;
+  font-size: 0.82rem;
   color: #888;
 }
 </style>

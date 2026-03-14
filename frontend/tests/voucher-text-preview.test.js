@@ -13,7 +13,7 @@ import {
 const sampleTextConfig = {
   font: { family: 'VoucherKaiU', url: '/api/voucher/fonts/kaiu.ttf' },
   fields: {
-    voucherNo: { point: [78.5, 255], fontSize: 16, lineStep: 20, preview: { baselineRatio: 0.82 } },
+    voucherNo: { point: [78.5, 255], fontSize: 16, lineStep: 17, maxLines: 5, preview: { baselineRatio: 0.82 } },
     budgetItem: { point: [149, 270], fontSize: 18, maxChars: 3, preview: { baselineRatio: 0.82 } },
     amount: {
       xList: [208, 228, 250.5, 271.5, 291, 312],
@@ -96,4 +96,14 @@ test('buildVoucherTextPreviewEntries guards xList overflow for legacy 7-digit am
   const entries = buildVoucherTextPreviewEntries({ amount: '1234567' }, sampleTextConfig)
   const amountEntries = entries.filter(entry => entry.key.startsWith('amount-'))
   assert.equal(amountEntries.length, 0)
+})
+
+test('buildVoucherTextPreviewEntries caps voucherNo at maxLines', () => {
+  const entries = buildVoucherTextPreviewEntries({
+    voucherNo: 'D-16-01\nD-16-02\nD-16-03\nD-16-04\nD-16-05\nD-16-06',
+  }, sampleTextConfig)
+
+  const voucherNoEntries = entries.filter(entry => entry.key.startsWith('voucherNo-'))
+  assert.equal(voucherNoEntries.length, 5)
+  assert.equal(voucherNoEntries.at(-1)?.text, 'D-16-05')
 })

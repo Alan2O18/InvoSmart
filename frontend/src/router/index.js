@@ -45,6 +45,11 @@ const router = createRouter({
       component: () => import('../views/VoucherEditorView.vue')
     },
     {
+      path: '/voucher-template-config',
+      name: 'voucher-template-config',
+      component: () => import('../views/VoucherTemplateConfigView.vue')
+    },
+    {
       path: '/kanban',
       name: 'kanban',
       component: () => import('../views/KanbanView.vue')

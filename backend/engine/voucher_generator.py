@@ -65,18 +65,83 @@ class VoucherGenerator:
 
     def _insert_named_text(self, page: fitz.Page, field_name: str, text: str):
         config = self.text_field_config[field_name]
+        if config.get("autoScale"):
+            self._insert_autoscale_text(page, field_name, text)
+            return
         safe_text = self._safe_text(text)
         max_chars = int(config.get("maxChars", 0))
         if max_chars > 0:
             safe_text = safe_text[:max_chars]
         self._insert_text(page, tuple(config["point"]), safe_text, fontsize=int(config["fontSize"]))
 
+    def _insert_autoscale_text(self, page: fitz.Page, field_name: str, text: str, point_override: tuple[float, float] = None, fontsize_override: int = None):
+        """Insert single-line text, shrinking font size until it fits within max_width."""
+        config = self.text_field_config[field_name]
+        safe_text = self._safe_text(text)
+        max_chars = int(config.get("maxChars", 0))
+        if max_chars > 0:
+            safe_text = safe_text[:max_chars]
+        if not safe_text.strip():
+            return
+        
+        fontsize = fontsize_override if fontsize_override is not None else int(config["fontSize"])
+        min_fontsize = int(config.get("minFontSize", int(config["fontSize"])))
+        max_width = config.get("maxWidth")
+        if max_width and fontsize > min_fontsize:
+            max_width = float(max_width)
+            with fitz.open() as scratch_doc:
+                scratch_page = scratch_doc.new_page(width=595, height=842)
+                for fs in range(fontsize, min_fontsize - 1, -1):
+                    scratch_page.clean_contents()
+                    scratch_page.insert_text(
+                        (0, fs),
+                        safe_text,
+                        fontsize=fs,
+                        fontname="F0" if self.font_path else "helv",
+                        fontfile=self.font_path if self.font_path else None,
+                    )
+                    blocks = scratch_page.get_text("blocks")
+                    actual_width = max((b[2] - b[0] for b in blocks), default=float("inf"))
+                    if actual_width <= max_width:
+                        fontsize = fs
+                        break
+                else:
+                    fontsize = min_fontsize
+        
+        point_to_use = point_override if point_override is not None else tuple(config["point"])
+        self._insert_text(page, point_to_use, safe_text, fontsize=fontsize)
+
     def _insert_multiline_named_text(self, page: fitz.Page, field_name: str, text: str):
         config = self.text_field_config[field_name]
-        line_step = float(config.get("lineStep", 20))
+        default_line_step = 17 if field_name == "voucherNo" else 20
+        line_step = float(config.get("lineStep", default_line_step))
+        
         x, y = tuple(config["point"])
-        for line_index, line in enumerate(str(text).replace("、", "\n").splitlines()):
-            self._insert_text(page, (x, y + (line_index * line_step)), line, fontsize=int(config["fontSize"]))
+        lines = str(text).replace("、", "\n").splitlines()
+        
+        base_fontsize = int(config["fontSize"])
+        min_fontsize = int(config.get("minFontSize", base_fontsize))
+        override_fontsize = base_fontsize
+        
+        if field_name == "voucherNo":
+            excess = max(0, len(lines) - 4)
+            if excess > 0:
+                reduce_amount = excess * 2
+                override_fontsize = max(min_fontsize, base_fontsize - reduce_amount)
+                # Keep line spacing strictly proportional to the smaller font size
+                line_step = line_step * (override_fontsize / float(base_fontsize)) if base_fontsize > 0 else line_step
+        else:
+            default_max_lines = 0
+            max_lines = int(config.get("maxLines", default_max_lines))
+            if max_lines > 0 and len(lines) > max_lines:
+                lines = lines[:max_lines]
+
+        for line_index, line in enumerate(lines):
+            point = (x, y + (line_index * line_step))
+            if config.get("autoScale"):
+                self._insert_autoscale_text(page, field_name, line, point_override=point, fontsize_override=override_fontsize)
+            else:
+                self._insert_text(page, point, line, fontsize=override_fontsize)
 
     @staticmethod
     def _format_payment_amount(amount: str) -> str:

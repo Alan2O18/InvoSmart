@@ -107,6 +107,15 @@ export default {
   getVoucherTextConfig() {
     return api.get('/api/voucher/text-config')
   },
+  getVoucherTemplateLayout() {
+    return api.get('/api/voucher/config/template-layout')
+  },
+  saveVoucherTemplateLayout(payload) {
+    return api.put('/api/voucher/config/template-layout', payload)
+  },
+  getVoucherTemplatePreview() {
+    return api.get('/api/voucher/config/template-preview')
+  },
   getVoucherTemplate(projectId) {
     return api.get(`/api/voucher/${projectId}/template`)
   },

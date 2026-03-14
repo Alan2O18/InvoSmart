@@ -85,16 +85,21 @@ def test_get_voucher_text_config_returns_shared_field_map(mock_app_client):
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["version"] == "0.0.7"
+    assert payload["version"] == "0.0.9"
     assert payload["font"]["url"] == "/api/voucher/fonts/kaiu.ttf"
     assert payload["fields"]["voucherNo"]["point"] == [78.5, 255]
-    assert payload["fields"]["voucherNo"]["lineStep"] == 20
+    assert payload["fields"]["voucherNo"]["lineStep"] == 17
+    assert payload["fields"]["voucherNo"]["maxLines"] == 5
     assert payload["fields"]["budgetItem"]["maxChars"] == 3
     assert payload["fields"]["amount"]["padLength"] == 6
     assert payload["fields"]["amount"]["digitPolicy"] == 6
     assert len(payload["fields"]["amount"]["xList"]) == 6
     assert payload["fields"]["paymentAmount"]["point"] == [314, 785]
     assert payload["fields"]["purpose"]["type"] == "textbox"
+    # v0.0.9: response includes safeZone and blockedZones
+    assert "safeZone" in payload
+    assert payload["safeZone"]["x0"] == 30
+    assert "blockedZones" in payload
 
 
 def test_get_template_returns_done_invoices_with_result(mock_app_client, mock_engine_for_api, monkeypatch):

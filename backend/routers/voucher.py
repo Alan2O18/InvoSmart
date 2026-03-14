@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import functools
 import io
+import json
 import logging
 import os
 import time
@@ -13,10 +14,15 @@ import fitz
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from PIL import Image
+from pydantic import BaseModel
 
 from backend.dependencies import get_engine
 from backend.engine.core import Engine
-from backend.engine.voucher_text_config import get_voucher_text_config_payload
+from backend.engine.voucher_text_config import (
+    _CONFIG_PATH as _TEMPLATE_CONFIG_PATH,
+    get_full_template_layout,
+    get_voucher_text_config_payload,
+)
 from backend.engine.voucher_generator import VoucherGenerator
 from backend.models.voucher_payload import VoucherLayoutPayloadDraft, VoucherLayoutPayloadStrict
 from backend.repositories.voucher_layout_repo import VoucherLayoutRepository, sanitize_project_id
@@ -35,6 +41,16 @@ DEFAULT_VOUCHER_SETTINGS = {
     "autosave_interval_sec": 30,
     "thumb_max_width": 800,
 }
+
+
+class _TemplateLayoutPayload(BaseModel):
+    """Pydantic model for PUT /config/template-layout."""
+    version: str | None = None
+    font: dict | None = None
+    textFields: dict | None = None
+    safeZone: dict | None = None
+    blockedZones: list | None = None
+    preview: dict | None = None
 
 
 def get_voucher_settings() -> Dict[str, Any]:
@@ -87,6 +103,42 @@ async def get_voucher_text_config():
     return get_voucher_text_config_payload()
 
 
+@router.get("/config/template-layout")
+async def get_template_layout():
+    """Return the full voucher template layout (text field coords + safe zone + blocked zones)."""
+    return get_full_template_layout()
+
+
+@router.put("/config/template-layout")
+async def save_template_layout(payload: _TemplateLayoutPayload):
+    """Persist template layout changes to JSON config file."""
+    config_path = _TEMPLATE_CONFIG_PATH
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    current: dict = {}
+    if config_path.exists():
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                current = json.load(f)
+        except Exception:  # noqa: BLE001
+            pass
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    current.update(update)
+    with open(config_path, "w", encoding="utf-8") as f:
+        json.dump(current, f, ensure_ascii=False, indent=2)
+    return {"status": "saved"}
+
+
+@router.get("/config/template-preview")
+async def get_template_preview():
+    """Return the voucher template PNG as base64 (lightweight, no project data)."""
+    settings = get_voucher_settings()
+    template_path = settings["template_pdf_path"]
+    if not os.path.exists(template_path):
+        raise HTTPException(status_code=500, detail={"error": "INTERNAL_ERROR", "detail": "Voucher template not found"})
+    png_b64 = _template_png_base64(template_path, os.path.getmtime(template_path))
+    return {"templatePng": png_b64}
+
+
 @router.get("/{project_id}/template")
 async def get_template(project_id: str, engine: Engine = Depends(get_engine)):
     settings = get_voucher_settings()
@@ -117,12 +169,16 @@ async def get_template(project_id: str, engine: Engine = Depends(get_engine)):
 
     template_png = _template_png_base64(template_path, os.path.getmtime(template_path))
 
+    metadata = project.get("metadata") or {}
+    budget_item = metadata.get("group") or metadata.get("group_name") or ""
+
     return {
         "templatePng": template_png,
         "projectMeta": {
             "id": project.get("project_id"),
             "name": project.get("name") or project.get("project_id"),
             "createdAt": project.get("created_at"),
+            "budgetItem": budget_item,
         },
         "invoices": invoices,
     }

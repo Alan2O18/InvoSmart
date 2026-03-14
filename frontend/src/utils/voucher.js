@@ -144,6 +144,9 @@ export function buildVoucherTextPreviewEntries(fields = {}, textConfig = {}) {
       left: Number(config.point[0]),
       top: pdfBaselineToCanvasTop(config.point[1], config.fontSize, config.preview?.baselineRatio ?? 0.82),
       fontSize: Number(config.fontSize),
+      minFontSize: Number(config.minFontSize || config.fontSize),
+      maxWidth: Number(config.maxWidth || 0),
+      autoScale: Boolean(config.autoScale),
       fontFamily,
     })
   }
@@ -151,12 +154,33 @@ export function buildVoucherTextPreviewEntries(fields = {}, textConfig = {}) {
   const pushMultilineEntry = (key, rawValue) => {
     const config = configMap[key]
     if (!config) return
-    const lineStep = Number(config.lineStep || 20)
+    const defaultLineStep = key === 'voucherNo' ? 17 : 20
+    let lineStep = Number(config.lineStep || defaultLineStep)
+
     const rawText = String(rawValue || '').replace(/、/g, '\n')
-    const lines = rawText
+    let lines = rawText
       .split(/\r?\n/)
       .map(line => sanitizeVoucherText(line))
       .filter(line => line.trim())
+
+    let baseFontSize = Number(config.fontSize)
+    let minFontSize = Number(config.minFontSize || baseFontSize)
+    let currentFontSize = baseFontSize
+
+    if (key === 'voucherNo') {
+      const excess = Math.max(0, lines.length - 4)
+      if (excess > 0) {
+        const reduceAmount = excess * 2
+        currentFontSize = Math.max(minFontSize, baseFontSize - reduceAmount)
+        lineStep = lineStep * (currentFontSize / baseFontSize)
+      }
+    } else {
+      const defaultMaxLines = 0
+      const maxLines = Number(config.maxLines || defaultMaxLines)
+      if (maxLines > 0 && lines.length > maxLines) {
+        lines = lines.slice(0, maxLines)
+      }
+    }
 
     lines.forEach((line, index) => {
       entries.push({
@@ -164,8 +188,11 @@ export function buildVoucherTextPreviewEntries(fields = {}, textConfig = {}) {
         type: 'text',
         text: line,
         left: Number(config.point[0]),
-        top: pdfBaselineToCanvasTop(Number(config.point[1]) + (index * lineStep), config.fontSize, config.preview?.baselineRatio ?? 0.82),
-        fontSize: Number(config.fontSize),
+        top: pdfBaselineToCanvasTop(Number(config.point[1]) + (index * lineStep), currentFontSize, config.preview?.baselineRatio ?? 0.82),
+        fontSize: currentFontSize,
+        minFontSize: minFontSize,
+        maxWidth: Number(config.maxWidth || 0),
+        autoScale: Boolean(config.autoScale),
         fontFamily,
       })
     })

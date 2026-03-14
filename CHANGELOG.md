@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [V0.0.9] - 2026-03-15
+
+### 🎯 V0.0.9 Completion: Bug Fixes & Visual Settings
+
+**V0.0.9 Focus**: Fix critical UI/UX bugs in the Voucher Editor, address PDF generation font overflows, and introduce a visual settings page for voucher coordinates.
+
+### Added
+- **Visual Settings Page**: 
+  - Added `VoucherTemplateConfigView.vue` for visually adjusting template coordinates, dragging text anchors, and resizing blocked zones (e.g., stamp areas).
+  - Configurable `safeZoneConfig` and `blockedZones` variables implemented to calculate boundary limits.
+  - Persisted JSON configuration to `backend/data/voucher_template_config.json` via new API endpoints.
+
+### Fixed
+- **Invoice Jumping Bug**: Separated events in `VoucherEditorView.vue` and introduced `clampPositionOnly` to prevent images from snapping backwards when dragged.
+- **Font Overflow (`voucherNo` & `budgetItem`)**:
+  - Implemented `fitSingleLineFontSize` on the frontend and `_insert_autoscale_text` on the backend.
+  - Deployed dynamic vertical cascading font-size reduction for `voucherNo` (minus 2 points for every invoice beyond 4) to prevent text spilling into the stamp zone.
+  - Widened `maxWidth` of `budgetItem` to 65.
+- **Missing Budget Item**: Fixed logic in `backend/routers/voucher.py` to correctly inject `project.metadata.group` as `budgetItem`.
+
+---
+
 ## [V0.0.8-Phase3] - 2026-03-09
 
 ### 🎯 P3/P4 Completion: Artifact Cleanup + Focused Tests

@@ -145,7 +145,8 @@ const projectId = route.params.id
 const maxPages = 10
 const CANVAS_WIDTH = 595
 const CANVAS_HEIGHT = 842
-const SAFE_ZONE = { x0: 30, y0: 394, x1: 565, y1: 730 }
+const safeZoneConfig = ref({ x0: 30, y0: 394, x1: 565, y1: 730 })
+const blockedZonesConfig = ref([])
 const PREVIEW_TEXT_COLOR = '#1e3a8a'
 
 const ready = ref(false)
@@ -158,6 +159,7 @@ const renderToken = ref(0)
 const pendingImageLoads = ref(0)
 const globalPrefix = ref('D-16')
 const startIndex = ref(1)
+const defaultBudgetItem = ref('')
 const canvasRef = ref(null)
 let fabricCanvas = null
 let previewDrawTimer = null
@@ -276,10 +278,26 @@ const createPurposePreviewObject = (entry) => {
     fontSize,
   })
 
+  const finalizeTextbox = (textbox) => {
+    textbox.set({
+      height: entry.height,
+      clipPath: new fabric.Rect({
+        left: entry.left,
+        top: entry.top,
+        width: entry.width,
+        height: entry.height,
+        originX: 'left',
+        originY: 'top',
+        absolutePositioned: true,
+      }),
+    })
+    return textbox
+  }
+
   for (let fontSize = entry.fontSize; fontSize >= entry.minFontSize; fontSize -= 1) {
     const textbox = makeTextbox(entry.text, fontSize)
     if (textbox.calcTextHeight() <= entry.height) {
-      return textbox
+      return finalizeTextbox(textbox)
     }
   }
 
@@ -288,12 +306,12 @@ const createPurposePreviewObject = (entry) => {
     const candidate = `${truncated}${entry.truncateSuffix}`
     const textbox = makeTextbox(candidate, entry.minFontSize)
     if (textbox.calcTextHeight() <= entry.height) {
-      return textbox
+      return finalizeTextbox(textbox)
     }
     truncated = truncated.slice(0, -1)
   }
 
-  return makeTextbox(entry.truncateSuffix, entry.minFontSize)
+  return finalizeTextbox(makeTextbox(entry.truncateSuffix, entry.minFontSize))
 }
 
 const createPreviewObject = (entry) => {
@@ -303,10 +321,30 @@ const createPreviewObject = (entry) => {
     return textbox
   }
 
+  const fitSingleLineFontSize = () => {
+    if (!entry.autoScale || !entry.maxWidth) return entry.fontSize
+    for (let fontSize = entry.fontSize; fontSize >= entry.minFontSize; fontSize -= 1) {
+      const probe = new fabric.Text(entry.text, {
+        left: entry.left,
+        top: entry.top,
+        fontSize,
+        fontFamily: entry.fontFamily,
+        originX: 'left',
+        originY: 'top',
+      })
+      if (probe.getScaledWidth() <= entry.maxWidth) {
+        return fontSize
+      }
+    }
+    return entry.minFontSize
+  }
+
+  const fittedFontSize = fitSingleLineFontSize()
+
   const text = new fabric.Text(entry.text, {
     left: entry.left,
     top: entry.top,
-    fontSize: entry.fontSize,
+    fontSize: fittedFontSize,
     fontFamily: entry.fontFamily,
     fill: PREVIEW_TEXT_COLOR,
     selectable: false,
@@ -404,7 +442,7 @@ const addPage = () => {
     pageIndex: pages.value.length,
     fields: {
       voucherNo: '',
-      budgetItem: '',
+      budgetItem: defaultBudgetItem.value,
       amount: '',
       purpose: '',
       receiptCount: '0',
@@ -538,7 +576,7 @@ const _doAddInvoice = (invoice) => {
     y: 400 + (row * 170),
     w: 150,
     h: 150,
-  })
+  }, safeZoneConfig.value)
   activePage.value.images.push(newRect)
   recalculatePageFields(activePage.value)
   recalculateVoucherNumbers()
@@ -627,11 +665,12 @@ const goBack = async () => {
 
 const drawSafeZoneGuides = () => {
   if (!fabricCanvas) return
+  const sz = safeZoneConfig.value
   const rect = new fabric.Rect({
-    left: SAFE_ZONE.x0,
-    top: SAFE_ZONE.y0,
-    width: SAFE_ZONE.x1 - SAFE_ZONE.x0,
-    height: SAFE_ZONE.y1 - SAFE_ZONE.y0,
+    left: sz.x0,
+    top: sz.y0,
+    width: sz.x1 - sz.x0,
+    height: sz.y1 - sz.y0,
     fill: 'rgba(34,197,94,0.05)',
     stroke: '#22c55e',
     strokeDashArray: [8, 6],
@@ -640,24 +679,22 @@ const drawSafeZoneGuides = () => {
     excludeFromExport: true,
   })
   fabricCanvas.add(rect)
-  fabricCanvas.sendObjectToBack(rect)
 }
 
+// applyObjectBounds — used during object:scaling (adjusts both position AND scale)
 const applyObjectBounds = (obj) => {
-  // Guard: only process invoice images, skip background/safeZone/placeholders
   if (obj?.data?.kind !== 'invoice') return
-
+  const sz = safeZoneConfig.value
   const aspectRatio = obj.width && obj.height ? obj.width / obj.height : 1
   let w = obj.getScaledWidth()
   let h = obj.getScaledHeight()
-  const maxW = SAFE_ZONE.x1 - SAFE_ZONE.x0
-  const maxH = SAFE_ZONE.y1 - SAFE_ZONE.y0
+  const maxW = sz.x1 - sz.x0
+  const maxH = sz.y1 - sz.y0
 
-  // Clamp to safe zone while preserving aspect ratio
   if (w > maxW) { w = maxW; h = w / aspectRatio }
   if (h > maxH) { h = maxH; w = h * aspectRatio }
 
-  const clamped = clampImageRect({ x: obj.left, y: obj.top, w, h }, SAFE_ZONE)
+  const clamped = clampImageRect({ x: obj.left, y: obj.top, w, h }, sz)
   const uniformScale = clamped.w / obj.width
 
   obj.set({
@@ -666,6 +703,17 @@ const applyObjectBounds = (obj) => {
     scaleX: uniformScale,
     scaleY: uniformScale,
   })
+  obj.setCoords()
+}
+
+// clampPositionOnly — used during object:moving (adjusts position only, never changes scale)
+const clampPositionOnly = (obj) => {
+  if (obj?.data?.kind !== 'invoice') return
+  const sz = safeZoneConfig.value
+  const w = obj.getScaledWidth()
+  const h = obj.getScaledHeight()
+  const clamped = clampImageRect({ x: obj.left, y: obj.top, w, h }, sz)
+  obj.set({ left: clamped.x, top: clamped.y })
   obj.setCoords()
 }
 
@@ -682,7 +730,7 @@ const syncActivePageFromCanvas = () => {
       y: obj.top,
       w: obj.getScaledWidth(),
       h: obj.getScaledHeight(),
-    }, SAFE_ZONE))
+    }, safeZoneConfig.value))
 
   activePage.value.images = nextImages
   activePage.value.fields.receiptCount = String(nextImages.length)
@@ -831,7 +879,7 @@ const runAutoLayout = () => {
     }
   })
 
-  const layoutResult = autoLayoutImages(items, SAFE_ZONE)
+  const layoutResult = autoLayoutImages(items, safeZoneConfig.value)
   if (!layoutResult) {
     window.alert('發票過多或尺寸過大，自動排版無法在安全區內排下。請手動微調或分頁。')
     return
@@ -936,7 +984,7 @@ const initCanvas = () => {
   fabricCanvas.on('object:moving', (event) => {
     const obj = event.target
     if (!obj || obj?.data?.kind !== 'invoice') return
-    applyObjectBounds(obj)
+    clampPositionOnly(obj)
     throttledOverlapHighlight()
   })
 
@@ -964,37 +1012,35 @@ onMounted(async () => {
       api.getVoucherLayout(projectId),
     ])
 
-    let defaultBudget = ''
-    try {
-      const projectResp = await api.getProjectDetail(projectId)
-      const meta = projectResp.data?.metadata || {}
-      defaultBudget = meta.group || ''
-    } catch (e) {
-      console.warn('getProjectDetail failed, budgetItem stays empty', e)
-    }
+    defaultBudgetItem.value = templateResp.data.projectMeta?.budgetItem || ''
 
     voucherTextConfig.value = textConfigResp.data
+    if (textConfigResp.data.safeZone) safeZoneConfig.value = textConfigResp.data.safeZone
+    if (textConfigResp.data.blockedZones?.length) blockedZonesConfig.value = textConfigResp.data.blockedZones
     templatePng.value = templateResp.data.templatePng || ''
     invoices.value = templateResp.data.invoices || []
 
     if (layoutResp.data?.pages?.length) {
-      pages.value = layoutResp.data.pages.map(p => ({
-        ...p,
-        fields: {
-          voucherNo: '',
-          budgetItem: defaultBudget,
-          amount: '',
-          purpose: '',
-          receiptCount: '0',
-          payDate: '',
-          isManuallyEdited: false,
-          ...(p.fields || {}),
-        },
-      }))
+      pages.value = layoutResp.data.pages.map(p => {
+        const existingFields = p.fields || {}
+        return {
+          ...p,
+          fields: {
+            voucherNo: '',
+            amount: '',
+            purpose: '',
+            receiptCount: '0',
+            payDate: '',
+            isManuallyEdited: false,
+            ...existingFields,
+            budgetItem: String(existingFields.budgetItem || '').trim() || defaultBudgetItem.value,
+          },
+        }
+      })
       globalPrefix.value = layoutResp.data.globalPrefix || globalPrefix.value
       startIndex.value = layoutResp.data.startIndex || startIndex.value
     } else {
-      pages.value[0].fields.budgetItem = defaultBudget
+      pages.value[0].fields.budgetItem = defaultBudgetItem.value
     }
   } catch (error) {
     console.error('voucher init failed', error)
