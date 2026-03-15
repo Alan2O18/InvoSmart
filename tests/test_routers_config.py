@@ -26,3 +26,39 @@ def test_update_config(mock_save, mock_load, mock_app_client, mock_engine_for_ap
     # Should retain the old key because of the mask, but update other fields
     assert args["vision_settings"]["api_key"] == "old_key"
     assert args["vision_settings"]["model"] == "gemini"
+
+
+@patch('backend.routers.config.OpenAI')
+def test_list_vision_models(mock_openai_cls, mock_app_client, mock_engine_for_api):
+    class _Model:
+        def __init__(self, model_id):
+            self.id = model_id
+
+    mock_engine_for_api.config = {
+        "vision_settings": {
+            "api_key": "secret_key",
+            "base_url": "https://openrouter.ai/api/v1",
+        }
+    }
+    mock_openai_cls.return_value.models.list.return_value.data = [
+        _Model("gemini-2.5-flash-lite"),
+        _Model("gpt-4o-mini"),
+    ]
+
+    response = mock_app_client.get('/api/config/vision-models')
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["provider"] == "openrouter"
+    assert payload["count"] == 2
+    assert "gemini-2.5-flash-lite" in payload["models"]
+
+
+def test_list_vision_models_missing_key(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.config = {
+        "vision_settings": {
+            "api_key": "",
+            "base_url": "https://openrouter.ai/api/v1",
+        }
+    }
+    response = mock_app_client.get('/api/config/vision-models')
+    assert response.status_code == 400

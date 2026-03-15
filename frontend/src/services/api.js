@@ -156,8 +156,25 @@ export default {
   upsertGroup(groupName, leaderName) {
     return api.post('/api/projects/groups', { group_name: groupName, leader_name: leaderName })
   },
+  deleteGroupLeader(groupName, leaderName) {
+    return api.delete(`/api/projects/groups/${encodeURIComponent(groupName)}/leaders/${encodeURIComponent(leaderName)}`)
+  },
   deleteGroup(groupName) {
-    return api.delete(`/api/projects/groups/${groupName}`)
+    return api.delete(`/api/projects/groups/${encodeURIComponent(groupName)}`)
+  },
+  uploadLeaderStamps(groupName, leaderName, files) {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('files', file))
+    return api.post(
+      `/api/projects/groups/${encodeURIComponent(groupName)}/leaders/${encodeURIComponent(leaderName)}/stamps`,
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    )
+  },
+  deleteLeaderStamp(groupName, leaderName, filename) {
+    return api.delete(
+      `/api/projects/groups/${encodeURIComponent(groupName)}/leaders/${encodeURIComponent(leaderName)}/stamps/${encodeURIComponent(filename)}`
+    )
   },
 
   // =====================
@@ -178,6 +195,9 @@ export default {
   },
   updateConfig(settings) {
     return api.post('/api/config/', settings)
+  },
+  listVisionModels() {
+    return api.get('/api/config/vision-models')
   },
 
   // =====================

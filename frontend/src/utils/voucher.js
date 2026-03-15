@@ -125,6 +125,10 @@ export function pdfBaselineToCanvasTop(pdfY, fontSize, baselineRatio = 0.82) {
   return round2(Number(pdfY) - (Number(fontSize) * Number(baselineRatio)))
 }
 
+export function canvasTopToPdfBaseline(canvasTop, fontSize, baselineRatio = 0.82) {
+  return round2(Number(canvasTop) + (Number(fontSize) * Number(baselineRatio)))
+}
+
 export function buildVoucherTextPreviewEntries(fields = {}, textConfig = {}) {
   const configMap = textConfig?.fields || {}
   const fontFamily = textConfig?.font?.family || 'sans-serif'

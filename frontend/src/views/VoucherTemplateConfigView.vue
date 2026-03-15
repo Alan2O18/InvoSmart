@@ -38,22 +38,41 @@
           >
             <span class="field-name">{{ fieldLabel(key) }}</span>
             <div class="coord-inputs">
-              <label>X
-                <input
-                  type="number"
-                  :value="fieldPoint(cfg)"
-                  @input="onPointXInput(key, $event)"
-                  @blur="syncCanvasFromState"
-                />
-              </label>
-              <label>Y
-                <input
-                  type="number"
-                  :value="fieldPointY(cfg)"
-                  @input="onPointYInput(key, $event)"
-                  @blur="syncCanvasFromState"
-                />
-              </label>
+              <template v-if="cfg.type === 'amount_cells' && Array.isArray(cfg.xList)">
+                <label v-for="(xVal, i) in cfg.xList" :key="i">X{{i}}
+                  <input
+                    type="number"
+                    v-model.number="cfg.xList[i]"
+                    @blur="syncCanvasFromState"
+                    style="width: 45px"
+                  />
+                </label>
+                <label>Y
+                  <input
+                    type="number"
+                    v-model.number="cfg.y"
+                    @blur="syncCanvasFromState"
+                  />
+                </label>
+              </template>
+              <template v-else>
+                <label>X
+                  <input
+                    type="number"
+                    :value="fieldPoint(cfg)"
+                    @input="onPointXInput(key, $event)"
+                    @blur="syncCanvasFromState"
+                  />
+                </label>
+                <label>Y
+                  <input
+                    type="number"
+                    :value="fieldPointY(cfg)"
+                    @input="onPointYInput(key, $event)"
+                    @blur="syncCanvasFromState"
+                  />
+                </label>
+              </template>
               <label v-if="cfg.fontSize !== undefined">字級
                 <input
                   type="number"
@@ -92,6 +111,7 @@
 
         <section class="inspector-section">
           <h3>🟩 安全區 (Safe Zone)</h3>
+          <div class="safezone-hint">座標語義：x0/y0 = 左上角，x1/y1 = 右下角</div>
           <div class="coord-inputs four-col">
             <label>x0 <input type="number" v-model.number="editableSafeZone.x0" @blur="syncCanvasFromState" /></label>
             <label>y0 <input type="number" v-model.number="editableSafeZone.y0" @blur="syncCanvasFromState" /></label>
@@ -110,6 +130,11 @@
 import { ref, reactive, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import * as fabric from 'fabric'
 import api from '../services/api'
+import {
+  buildVoucherTextPreviewEntries,
+  pdfBaselineToCanvasTop,
+  canvasTopToPdfBaseline,
+} from '../utils/voucher'
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const canvasRef = ref(null)
@@ -124,17 +149,20 @@ const saveError = ref(false)
 
 const selectedKey = ref(null)
 const selectedZoneKey = ref(null)
+const previewFontFamily = ref('sans-serif')
 
 const editableFields = reactive({})       // key → mutable copy of textField config
 const editableBlockedZones = reactive([]) // mutable array of zone objects
 const editableSafeZone = reactive({ x0: 30, y0: 394, x1: 565, y1: 730 })
 
-const CANVAS_W = 595
-const CANVAS_H = 842
+const canvasSize = reactive({ width: 595, height: 842 })
+const previewPixelSize = reactive({ width: 0, height: 0 })
 const FIELD_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#ef4444']
 
 // Per-object references on canvas
-const fieldFabObjs = {}   // key → fabric.Circle or fabric.Rect
+const fieldFabObjs = {}   // key → main draggable object
+const fieldLabelObjs = {} // key → label text
+const fieldSampleObjs = {} // key → sample text for boxed fields
 const zoneFabObjs = {}    // zoneKey → fabric.Rect
 let safeZoneFabObj = null
 
@@ -144,15 +172,140 @@ const FIELD_LABELS = {
   purpose: '摘要文字框', receiptCount: '收據數量', payDate: '付款日',
   paymentAmount: '付款金額',
 }
+const FIELD_SAMPLES = {
+  voucherNo: 'D-16-01',
+  budgetItem: '膳食費',
+  amount: '※12345',
+  purpose: '範例摘要文字\n（可拖曳調整）',
+  receiptCount: '3',
+  // buildVoucherTextPreviewEntries expects ISO input and formats it into ROC date.
+  payDate: '2026-03-15',
+  paymentAmount: '12,345',
+}
 const fieldLabel = (key) => FIELD_LABELS[key] || key
+const fieldSample = (key) => FIELD_SAMPLES[key] || `範例-${key}`
+const getBaselineRatio = (cfg) => {
+  const ratio = Number(cfg?.preview?.baselineRatio)
+  return Number.isFinite(ratio) ? ratio : 0.82
+}
+
+const buildFieldPreviewEntries = (key, cfg) => {
+  const sampleFields = {
+    voucherNo: FIELD_SAMPLES.voucherNo,
+    budgetItem: FIELD_SAMPLES.budgetItem,
+    receiptCount: FIELD_SAMPLES.receiptCount,
+    payDate: FIELD_SAMPLES.payDate,
+    amount: FIELD_SAMPLES.paymentAmount.replace(/,/g, ''),
+    purpose: FIELD_SAMPLES.purpose,
+  }
+  const entries = buildVoucherTextPreviewEntries(sampleFields, {
+    fields: { [key]: cfg },
+    font: { family: previewFontFamily.value },
+  })
+
+  if (key === 'voucherNo') {
+    return entries.filter(entry => String(entry.key).startsWith('voucherNo-'))
+  }
+  if (key === 'purpose') {
+    return entries.filter(entry => entry.key === 'purpose')
+  }
+  return entries.filter(entry => entry.key === key)
+}
+
+const fitPreviewFontSize = (entry) => {
+  if (!entry.autoScale || !entry.maxWidth) return entry.fontSize
+  for (let fontSize = entry.fontSize; fontSize >= entry.minFontSize; fontSize -= 1) {
+    const probe = new fabric.Text(entry.text, {
+      left: entry.left,
+      top: entry.top,
+      fontSize,
+      fontFamily: entry.fontFamily,
+      originX: 'left',
+      originY: 'top',
+    })
+    if (probe.getScaledWidth() <= entry.maxWidth) {
+      return fontSize
+    }
+  }
+  return entry.minFontSize
+}
+
+const createPointFieldPreviewGroup = (key, cfg, color) => {
+  const entries = buildFieldPreviewEntries(key, cfg)
+  if (!entries.length) {
+    return null
+  }
+
+  const minLeft = Math.min(...entries.map(entry => Number(entry.left) || 0))
+  const minTop = Math.min(...entries.map(entry => Number(entry.top) || 0))
+  const objects = entries.map(entry => {
+    const fontSize = fitPreviewFontSize(entry)
+    return new fabric.Text(entry.text, {
+      left: (Number(entry.left) || 0) - minLeft,
+      top: (Number(entry.top) || 0) - minTop,
+      fontSize,
+      fontFamily: entry.fontFamily,
+      fill: color,
+      backgroundColor: `${color}1A`,
+      selectable: false,
+      evented: false,
+      originX: 'left',
+      originY: 'top',
+      excludeFromExport: true,
+    })
+  })
+
+  const group = new fabric.Group(objects, {
+    left: minLeft,
+    top: minTop,
+    originX: 'left',
+    originY: 'top',
+    lockScalingX: true,
+    lockScalingY: true,
+    backgroundColor: undefined,
+  })
+  group.data = {
+    kind: 'field_anchor',
+    key,
+    primaryFontSize: Number(entries[0]?.fontSize) || Number(cfg.fontSize) || 16,
+  }
+  return group
+}
+
+const loadCanvasPreviewFont = async (fontConfig) => {
+  const family = String(fontConfig?.family || '').trim()
+  const url = String(fontConfig?.url || '').trim()
+  if (!family || !url || !window.FontFace) {
+    return
+  }
+
+  previewFontFamily.value = family
+  try {
+    if (document.fonts?.check?.(`12px "${family}"`)) {
+      return
+    }
+    const fontFace = new window.FontFace(family, `url(${api.toAbsoluteUrl(url)})`)
+    const loaded = await fontFace.load()
+    document.fonts?.add(loaded)
+  } catch (error) {
+    console.warn('voucher preview font load failed in config view', error)
+    previewFontFamily.value = 'sans-serif'
+  }
+}
 
 const fieldPoint = (cfg) => {
   if (cfg.point) return cfg.point[0]
+  if (cfg.type === 'amount_cells' && Array.isArray(cfg.xList) && cfg.xList.length > 0) {
+    return Math.min(...cfg.xList)
+  }
   if (cfg.rect) return cfg.rect[0]
   return 0
 }
 const fieldPointY = (cfg) => {
   if (cfg.point) return cfg.point[1]
+  if (cfg.type === 'amount_cells' && Number.isFinite(Number(cfg.y))) {
+    return Number(cfg.y)
+  }
   if (cfg.rect) return cfg.rect[1]
   return 0
 }
@@ -160,15 +313,27 @@ const onPointXInput = (key, e) => {
   const v = parseFloat(e.target.value)
   if (isNaN(v)) return
   const cfg = editableFields[key]
-  if (cfg.point) cfg.point[0] = v
-  else if (cfg.rect) cfg.rect[0] = v
+  if (cfg.point) {
+    cfg.point[0] = v
+  } else if (cfg.type === 'amount_cells' && Array.isArray(cfg.xList) && cfg.xList.length > 0) {
+    const oldMin = Math.min(...cfg.xList)
+    const dx = v - oldMin
+    cfg.xList = cfg.xList.map(x => x + dx)
+  } else if (cfg.rect) {
+    cfg.rect[0] = v
+  }
 }
 const onPointYInput = (key, e) => {
   const v = parseFloat(e.target.value)
   if (isNaN(v)) return
   const cfg = editableFields[key]
-  if (cfg.point) cfg.point[1] = v
-  else if (cfg.rect) cfg.rect[1] = v
+  if (cfg.point) {
+    cfg.point[1] = v
+  } else if (cfg.type === 'amount_cells') {
+    cfg.y = v
+  } else if (cfg.rect) {
+    cfg.rect[1] = v
+  }
 }
 
 // ── Canvas helpers ─────────────────────────────────────────────────────────────
@@ -188,55 +353,216 @@ const selectZone = (key) => {
 // Draw or update a text field anchor on canvas
 const upsertFieldAnchor = (key, cfg, colorIdx) => {
   const color = FIELD_COLORS[colorIdx % FIELD_COLORS.length]
-  let x = 0, y = 0
-  if (cfg.point) { x = cfg.point[0]; y = cfg.point[1] }
-  else if (cfg.rect) { x = cfg.rect[0]; y = cfg.rect[1] }
+  const labelObj = fieldLabelObjs[key]
+  const sampleObj = fieldSampleObjs[key]
 
-  if (fieldFabObjs[key]) {
-    fieldFabObjs[key].set({ left: x, top: y })
-    fieldFabObjs[key].setCoords()
+  const updateLabel = (x, y) => {
+    if (!fieldLabelObjs[key]) return
+    fieldLabelObjs[key].set({ left: x, top: y - 14 })
+    fieldLabelObjs[key].setCoords()
+  }
+
+  const ensureLabel = (x, y) => {
+    if (fieldLabelObjs[key]) {
+      updateLabel(x, y)
+      return
+    }
+    const label = new fabric.Text(fieldLabel(key), {
+      left: x, top: y - 14,
+      fontSize: 10, fill: color, fontFamily: 'sans-serif',
+      selectable: false, evented: false,
+      excludeFromExport: true,
+      originX: 'left', originY: 'top',
+    })
+    fieldLabelObjs[key] = label
+    fabricCanvas.add(label)
+  }
+
+  // 1) Textbox field: draggable rect + sample text inside.
+  if (cfg.type === 'textbox' && cfg.rect) {
+    const [rx, ry, rx2, ry2] = cfg.rect
+    const width = Math.max(10, rx2 - rx)
+    const height = Math.max(10, ry2 - ry)
+
+    if (fieldFabObjs[key]) {
+      fieldFabObjs[key].set({ left: rx, top: ry, width, height })
+      fieldFabObjs[key].setCoords()
+      if (sampleObj) {
+        sampleObj.set({ left: rx + 6, top: ry + 6, width: Math.max(20, width - 12), fontSize: Number(cfg.fontSize) || 16 })
+        sampleObj.setCoords()
+      }
+      ensureLabel(rx, ry)
+      return
+    }
+
+    const rect = new fabric.Rect({
+      left: rx,
+      top: ry,
+      width,
+      height,
+      fill: `${color}22`,
+      stroke: color,
+      strokeWidth: 1.5,
+      strokeDashArray: [5, 3],
+      originX: 'left',
+      originY: 'top',
+      lockScalingFlip: true,
+      cornerColor: color,
+    })
+    const sample = new fabric.Textbox(fieldSample(key), {
+      left: rx + 6,
+      top: ry + 6,
+      width: Math.max(20, width - 12),
+      fontSize: Number(cfg.fontSize) || 16,
+      fill: color,
+      editable: false,
+      selectable: false,
+      evented: false,
+      excludeFromExport: true,
+      fontFamily: previewFontFamily.value,
+      originX: 'left', originY: 'top',
+    })
+
+    rect.data = { kind: 'field_anchor', key }
+    fieldFabObjs[key] = rect
+    fieldSampleObjs[key] = sample
+    ensureLabel(rx, ry)
+
+    rect.on('moving', () => {
+      syncFieldFromFabricObj(key, rect)
+      const [nx, ny] = cfg.rect
+      sample.set({ left: nx + 6, top: ny + 6 })
+      sample.setCoords()
+      updateLabel(nx, ny)
+      selectedKey.value = key
+    })
+    rect.on('scaling', () => {
+      syncFieldFromFabricObj(key, rect)
+      const [nx, ny, nx2, ny2] = cfg.rect
+      sample.set({ left: nx + 6, top: ny + 6, width: Math.max(20, nx2 - nx - 12) })
+      sample.setCoords()
+      updateLabel(nx, ny)
+    })
+
+    fabricCanvas.add(rect)
+    fabricCanvas.add(sample)
     return
   }
 
-  const isBox = cfg.type === 'textbox' || cfg.type === 'amount_cells'
-  let obj
-  if (isBox && cfg.rect) {
-    const [rx, ry, rx2, ry2] = cfg.rect
-    obj = new fabric.Rect({
-      left: rx, top: ry,
-      width: rx2 - rx, height: ry2 - ry,
-      fill: `${color}22`,
-      stroke: color, strokeWidth: 1.5,
-      strokeDashArray: [5, 3],
-      originX: 'left', originY: 'top',
-      lockScalingFlip: true,
+  // 2) Amount cells: draggable box for EACH digit.
+  if (cfg.type === 'amount_cells' && Array.isArray(cfg.xList) && cfg.xList.length > 0) {
+    const fontSize = Number(cfg.fontSize) || 16
+    const rawY = Number(cfg.y) || 0
+    const top = pdfBaselineToCanvasTop(rawY, fontSize, getBaselineRatio(cfg))
+    const width = 16
+    const height = fontSize + 4
+    const digitLabels = ['十萬', '萬', '千', '百', '十', '元']
+
+    cfg.xList.forEach((rawX, idx) => {
+      const subKey = `${key}-${idx}`
+      const renderLeft = rawX - 2
+      const digitName = digitLabels[digitLabels.length - cfg.xList.length + idx] || `${idx}`
+      const myColor = FIELD_COLORS[(colorIdx + idx) % FIELD_COLORS.length]
+      
+      const updateSubLabel = (lx, ly) => {
+        if (fieldLabelObjs[subKey]) {
+          fieldLabelObjs[subKey].set({ left: lx, top: ly - 14 })
+          fieldLabelObjs[subKey].setCoords()
+        }
+      }
+
+      const ensureSubLabel = (lx, ly) => {
+        if (fieldLabelObjs[subKey]) {
+          updateSubLabel(lx, ly)
+          return
+        }
+        const labelText = new fabric.Text(digitName, {
+          left: lx, top: ly - 14,
+          fontSize: 10, fill: myColor, fontFamily: 'sans-serif',
+          selectable: false, evented: false, excludeFromExport: true,
+          originX: 'left', originY: 'top',
+        })
+        fieldLabelObjs[subKey] = labelText
+        fabricCanvas.add(labelText)
+      }
+
+      if (fieldFabObjs[subKey]) {
+        fieldFabObjs[subKey].set({ left: renderLeft, top, width, height })
+        fieldFabObjs[subKey].setCoords()
+        if (fieldSampleObjs[subKey]) {
+          fieldSampleObjs[subKey].set({ left: renderLeft + 2, top: top + 2, fontSize })
+          fieldSampleObjs[subKey].setCoords()
+        }
+        ensureSubLabel(renderLeft, top)
+      } else {
+        const rect = new fabric.Rect({
+          left: renderLeft, top, width, height,
+          fill: `${myColor}1A`, stroke: myColor, strokeWidth: 1.5, strokeDashArray: [4, 4],
+          originX: 'left', originY: 'top', lockScalingFlip: true, lockScalingX: true, lockScalingY: true, cornerColor: myColor,
+        })
+        const sampleText = new fabric.Text('※', {
+          left: renderLeft + 2, top: top + 2, fontSize, fill: myColor,
+          selectable: false, evented: false, excludeFromExport: true, fontFamily: previewFontFamily.value, originX: 'left', originY: 'top',
+        })
+
+        rect.data = { kind: 'field_anchor', key, subKey, idx }
+        fieldFabObjs[subKey] = rect
+        fieldSampleObjs[subKey] = sampleText
+        ensureSubLabel(renderLeft, top)
+
+        rect.on('moving', () => {
+          const newTop = rect.top
+          // Sync state for this specific digit
+          cfg.xList[idx] = Math.round(rect.left + 2)
+          cfg.y = Math.round(canvasTopToPdfBaseline(newTop, fontSize, getBaselineRatio(cfg)))
+
+          sampleText.set({ left: rect.left + 2, top: newTop + 2 })
+          sampleText.setCoords()
+          updateSubLabel(rect.left, newTop)
+          
+          // Force visual sync of Y for siblings
+          cfg.xList.forEach((_, sIdx) => {
+            if (sIdx !== idx) {
+              const sr = fieldFabObjs[`${key}-${sIdx}`]
+              const ss = fieldSampleObjs[`${key}-${sIdx}`]
+              if (sr) { sr.set({ top: newTop }); sr.setCoords(); updateSubLabel(sr.left, newTop) }
+              if (ss) { ss.set({ top: newTop + 2 }); ss.setCoords() }
+            }
+          })
+          selectedKey.value = key
+        })
+
+        fabricCanvas.add(rect)
+        fabricCanvas.add(sampleText)
+      }
     })
-  } else {
-    obj = new fabric.Circle({
-      left: x, top: y, radius: 6,
-      fill: color, stroke: '#fff', strokeWidth: 1.5,
-      originX: 'center', originY: 'center',
-    })
+    return
   }
-  const label = new fabric.Text(fieldLabel(key), {
-    left: x + 8, top: y - 14,
-    fontSize: 10, fill: color, fontFamily: 'sans-serif',
-    selectable: false, evented: false,
-    excludeFromExport: true,
-  })
 
-  obj.data = { kind: 'field_anchor', key }
-  fieldFabObjs[key] = obj
+  // 3) Normal text field: draggable sample text directly.
+  if (fieldFabObjs[key]) {
+    fabricCanvas.remove(fieldFabObjs[key])
+    delete fieldFabObjs[key]
+  }
 
-  obj.on('moving', () => {
-    syncFieldFromFabricObj(key, obj)
-    label.set({ left: obj.left + 8, top: obj.top - 14 })
+  const group = createPointFieldPreviewGroup(key, cfg, color)
+  if (!group) {
+    return
+  }
+
+  fieldFabObjs[key] = group
+  ensureLabel(group.left, group.top)
+
+  group.on('moving', () => {
+    syncFieldFromFabricObj(key, group)
+    updateLabel(group.left, group.top)
     selectedKey.value = key
   })
-  obj.on('scaling', () => { syncFieldFromFabricObj(key, obj) })
 
-  fabricCanvas.add(obj)
-  fabricCanvas.add(label)
+  fabricCanvas.add(group)
+  if (fieldLabelObjs[key]) {
+    fabricCanvas.bringObjectToFront(fieldLabelObjs[key])
+  }
 }
 
 const syncFieldFromFabricObj = (key, obj) => {
@@ -249,7 +575,8 @@ const syncFieldFromFabricObj = (key, obj) => {
     cfg.rect[3] = Math.round(obj.top + obj.getScaledHeight())
   } else if (cfg.point) {
     cfg.point[0] = Math.round(obj.left)
-    cfg.point[1] = Math.round(obj.top)
+    const previewFontSize = Number(obj?.data?.primaryFontSize) || Number(cfg.fontSize) || 16
+    cfg.point[1] = Math.round(canvasTopToPdfBaseline(obj.top, previewFontSize, getBaselineRatio(cfg)))
   }
 }
 
@@ -295,10 +622,30 @@ const upsertZoneRect = (zone) => {
 
 const upsertSafeZoneRect = () => {
   const sz = editableSafeZone
+  const syncSafeZoneFromObj = (obj, normalize = false) => {
+    const left = Number(obj.left) || 0
+    const top = Number(obj.top) || 0
+    const width = Math.max(10, Number(obj.getScaledWidth()) || Number(obj.width) || 10)
+    const height = Math.max(10, Number(obj.getScaledHeight()) || Number(obj.height) || 10)
+
+    if (normalize) {
+      // Normalize transform into width/height so scaling remains linear and predictable.
+      obj.set({ left, top, width, height, scaleX: 1, scaleY: 1 })
+      obj.setCoords()
+    }
+
+    editableSafeZone.x0 = Math.round(left)
+    editableSafeZone.y0 = Math.round(top)
+    editableSafeZone.x1 = Math.round(left + width)
+    editableSafeZone.y1 = Math.round(top + height)
+  }
+
   if (safeZoneFabObj) {
     safeZoneFabObj.set({
       left: sz.x0, top: sz.y0,
       width: sz.x1 - sz.x0, height: sz.y1 - sz.y0,
+      scaleX: 1,
+      scaleY: 1,
     })
     safeZoneFabObj.setCoords()
     return
@@ -306,13 +653,34 @@ const upsertSafeZoneRect = () => {
   const obj = new fabric.Rect({
     left: sz.x0, top: sz.y0,
     width: sz.x1 - sz.x0, height: sz.y1 - sz.y0,
-    fill: 'rgba(34,197,94,0.04)',
+    fill: 'rgba(34,197,94,0.06)',
     stroke: '#22c55e', strokeDashArray: [8, 6],
-    strokeWidth: 1,
-    selectable: false, evented: false,
+    strokeWidth: 2,
+    cornerColor: '#22c55e',
+    transparentCorners: false,
+    originX: 'left',
+    originY: 'top',
+    centeredScaling: false,
+    lockScalingFlip: true,
+    lockRotation: true,
+    selectable: true, evented: true,
     excludeFromExport: true,
   })
   safeZoneFabObj = obj
+  
+  obj.on('moving', () => {
+    syncSafeZoneFromObj(obj, false)
+  })
+  obj.on('scaling', () => {
+    // During drag-resize, only mirror coordinates; don't rewrite transform,
+    // otherwise Fabric side-handle math can drift/jitter.
+    syncSafeZoneFromObj(obj, false)
+  })
+  obj.on('modified', () => {
+    // Normalize once after interaction ends to keep width/height canonical.
+    syncSafeZoneFromObj(obj, true)
+  })
+  
   fabricCanvas.add(obj)
 }
 
@@ -331,9 +699,10 @@ const initCanvas = (templatePng) => {
   if (fabricCanvas) { fabricCanvas.dispose(); fabricCanvas = null }
 
   fabricCanvas = new fabric.Canvas(canvasRef.value, {
-    width: CANVAS_W, height: CANVAS_H,
+    width: canvasSize.width, height: canvasSize.height,
     backgroundColor: '#e5e7eb',
     preserveObjectStacking: true,
+    centeredScaling: false,
   })
 
   // Always render editable controls first, so the left panel is usable immediately.
@@ -341,27 +710,34 @@ const initCanvas = (templatePng) => {
 
   // Background image
   if (templatePng) {
-    const img = new window.Image()
-    img.onload = () => {
+    const imgElement = new window.Image()
+    imgElement.onload = () => {
       if (!fabricCanvas) return
-      const bg = new fabric.Image(img, {
-        left: 0, top: 0,
-        selectable: false, evented: false, excludeFromExport: true,
+      
+      const imgObj = new fabric.Image(imgElement)
+      // Determine real width/height 
+      const naturalW = imgElement.naturalWidth || imgElement.width || 1
+      const naturalH = imgElement.naturalHeight || imgElement.height || 1
+      
+      const scaleX = canvasSize.width / naturalW
+      const scaleY = canvasSize.height / naturalH
+      
+      imgObj.set({
+        scaleX: scaleX,
+        scaleY: scaleY,
+        left: 0,
+        top: 0,
+        originX: 'left',
+        originY: 'top',
+        selectable: false,
+        evented: false,
+        excludeFromExport: true,
       })
-      bg.data = { kind: 'background' }
-      if (bg.width && bg.height) {
-        bg.scaleX = CANVAS_W / bg.width
-        bg.scaleY = CANVAS_H / bg.height
-      }
-      fabricCanvas.add(bg)
-      bg.sendToBack()
+
+      fabricCanvas.backgroundImage = imgObj
       fabricCanvas.requestRenderAll()
     }
-    img.onerror = () => {
-      // Keep interactive objects even when template image fails.
-      fabricCanvas?.requestRenderAll()
-    }
-    img.src = `data:image/png;base64,${templatePng}`
+    imgElement.src = `data:image/png;base64,${templatePng}`
   }
 }
 
@@ -382,12 +758,25 @@ onMounted(async () => {
       api.getVoucherTemplatePreview(),
     ])
     const layout = layoutResp.data
+    const preview = previewResp.data || {}
+
+    // Keep canvas space in sync with the real PDF page dimensions.
+    const pageWidth = Number(preview.pageWidth)
+    const pageHeight = Number(preview.pageHeight)
+    if (pageWidth > 0 && pageHeight > 0) {
+      canvasSize.width = pageWidth
+      canvasSize.height = pageHeight
+    }
+    previewPixelSize.width = Number(preview.previewPixelWidth) || 0
+    previewPixelSize.height = Number(preview.previewPixelHeight) || 0
 
     // Populate editable fields (deep clone)
     const fields = layout.textFields || layout.fields || {}
     Object.keys(fields).forEach(k => {
       editableFields[k] = JSON.parse(JSON.stringify(fields[k]))
     })
+
+    await loadCanvasPreviewFont(layout.font)
 
     // Populate blocked zones
     const zones = layout.blockedZones || []
@@ -401,7 +790,7 @@ onMounted(async () => {
     // Mark loading done so Vue renders the canvas element in the DOM
     loading.value = false
     await nextTick()
-    initCanvas(previewResp.data?.templatePng)
+    initCanvas(preview.templatePng)
   } catch (e) {
     error.value = `載入失敗: ${e.message || e}`
     loading.value = false
@@ -563,6 +952,12 @@ const resetToDefaults = async () => {
   margin: 0 0 0.75rem;
   border-bottom: 1px solid #2a2a2a;
   padding-bottom: 0.4rem;
+}
+
+.safezone-hint {
+  font-size: 0.76rem;
+  color: #9ca3af;
+  margin-bottom: 0.45rem;
 }
 
 .field-row {

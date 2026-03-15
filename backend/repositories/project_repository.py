@@ -10,6 +10,7 @@ ProjectRepository - 專案資料存取層
 import time
 import shutil
 import logging
+import json
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Callable
 
@@ -176,22 +177,108 @@ class ProjectRepository:
     # ===================================================
     # Group Management
     # ===================================================
+    @staticmethod
+    def _decode_leader_names(raw_value: Optional[str]) -> List[str]:
+        if not raw_value:
+            return []
+        text = str(raw_value).strip()
+        if not text:
+            return []
+
+        if text.startswith("["):
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, list):
+                    normalized = []
+                    for item in parsed:
+                        name = str(item).strip()
+                        if name and name not in normalized:
+                            normalized.append(name)
+                    return normalized
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Backward compatibility: previous schema stored a single leader string.
+        if "、" in text:
+            parts = text.split("、")
+        elif "," in text:
+            parts = text.split(",")
+        else:
+            parts = [text]
+
+        normalized = []
+        for part in parts:
+            name = str(part).strip()
+            if name and name not in normalized:
+                normalized.append(name)
+        return normalized
+
+    @staticmethod
+    def _encode_leader_names(leader_names: List[str]) -> str:
+        normalized = []
+        for name in leader_names:
+            text = str(name).strip()
+            if text and text not in normalized:
+                normalized.append(text)
+        return json.dumps(normalized, ensure_ascii=False)
+
     async def list_groups(self) -> List[dict]:
         async with self.session_factory() as session:
             stmt = select(Group).order_by(Group.group_name)
             result = await session.execute(stmt)
             groups = result.scalars().all()
-            return [{"group_name": g.group_name, "leader_name": g.leader_name} for g in groups]
+            payload = []
+            for g in groups:
+                leader_names = self._decode_leader_names(g.leader_name)
+                payload.append({
+                    "group_name": g.group_name,
+                    "leader_name": "、".join(leader_names),
+                    "leader_names": leader_names,
+                })
+            return payload
 
     async def upsert_group(self, group_name: str, leader_name: str):
+        clean_group = (group_name or "").strip()
+        clean_leader = (leader_name or "").strip()
+        if not clean_group:
+            raise ValueError("group_name cannot be empty")
+        if not clean_leader:
+            raise ValueError("leader_name cannot be empty")
+
         async with self.session_factory() as session:
-            stmt = select(Group).where(Group.group_name == group_name)
+            stmt = select(Group).where(Group.group_name == clean_group)
             g = (await session.execute(stmt)).scalar_one_or_none()
             if g:
-                g.leader_name = leader_name
+                leader_names = self._decode_leader_names(g.leader_name)
+                if clean_leader not in leader_names:
+                    leader_names.append(clean_leader)
+                    g.leader_name = self._encode_leader_names(leader_names)
             else:
-                g = Group(group_name=group_name, leader_name=leader_name)
+                g = Group(group_name=clean_group, leader_name=self._encode_leader_names([clean_leader]))
                 session.add(g)
+            await session.commit()
+
+    async def remove_group_leader(self, group_name: str, leader_name: str):
+        clean_group = (group_name or "").strip()
+        clean_leader = (leader_name or "").strip()
+        if not clean_group:
+            raise ValueError("group_name cannot be empty")
+        if not clean_leader:
+            raise ValueError("leader_name cannot be empty")
+
+        async with self.session_factory() as session:
+            stmt = select(Group).where(Group.group_name == clean_group)
+            g = (await session.execute(stmt)).scalar_one_or_none()
+            if not g:
+                return
+
+            leader_names = self._decode_leader_names(g.leader_name)
+            leader_names = [name for name in leader_names if name != clean_leader]
+
+            if not leader_names:
+                await session.delete(g)
+            else:
+                g.leader_name = self._encode_leader_names(leader_names)
             await session.commit()
 
     async def delete_group(self, group_name: str):

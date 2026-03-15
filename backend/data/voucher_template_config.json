@@ -1,0 +1,121 @@
+{
+  "textFields": {
+    "voucherNo": {
+      "type": "text",
+      "point": [
+        78,
+        255
+      ],
+      "fontSize": 16,
+      "minFontSize": 8,
+      "maxWidth": 62,
+      "autoScale": true,
+      "lineStep": 17,
+      "maxLines": 5,
+      "preview": {
+        "baselineRatio": 0.82
+      }
+    },
+    "budgetItem": {
+      "type": "text",
+      "point": [
+        144,
+        270
+      ],
+      "fontSize": 18,
+      "minFontSize": 14,
+      "maxWidth": 65,
+      "autoScale": true,
+      "maxChars": 3,
+      "preview": {
+        "baselineRatio": 0.82
+      }
+    },
+    "amount": {
+      "type": "amount_cells",
+      "y": 270,
+      "xList": [
+        208,
+        228,
+        249,
+        270,
+        290,
+        311
+      ],
+      "fontSize": 16,
+      "padLength": 6,
+      "padChar": "※",
+      "digitPolicy": 6,
+      "legacyMaxDigits": 7,
+      "preview": {
+        "baselineRatio": 0.82
+      }
+    },
+    "purpose": {
+      "type": "textbox",
+      "rect": [
+        333,
+        240,
+        523,
+        328
+      ],
+      "fontSize": 18,
+      "minFontSize": 10,
+      "lineHeight": 1.2,
+      "truncateAt": 80,
+      "truncateSuffix": "...(略)"
+    },
+    "receiptCount": {
+      "type": "text",
+      "point": [
+        473.5,
+        105
+      ],
+      "fontSize": 16,
+      "preview": {
+        "baselineRatio": 0.82
+      }
+    },
+    "payDate": {
+      "type": "text",
+      "point": [
+        206,
+        785
+      ],
+      "fontSize": 20,
+      "preview": {
+        "baselineRatio": 0.82
+      }
+    },
+    "paymentAmount": {
+      "type": "text",
+      "point": [
+        310,
+        785
+      ],
+      "fontSize": 20,
+      "preview": {
+        "baselineRatio": 0.82
+      }
+    }
+  },
+  "safeZone": {
+    "x0": 30,
+    "y0": 410,
+    "x1": 560,
+    "y1": 722
+  },
+  "blockedZones": [
+    {
+      "key": "stamp_top",
+      "rect": [
+        301,
+        368,
+        387,
+        60
+      ],
+      "label": "蓋章區",
+      "visible": true
+    }
+  ]
+}

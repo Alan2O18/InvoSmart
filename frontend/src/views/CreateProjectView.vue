@@ -27,7 +27,10 @@
           </div>
           <div class="form-group">
             <label for="leader">Leader</label>
-            <input type="text" id="leader" v-model="form.leader" />
+            <input type="text" id="leader" v-model="form.leader" :list="form.group ? 'leader-list' : undefined" />
+            <datalist id="leader-list">
+              <option v-for="leader in availableLeaders" :key="leader" :value="leader"></option>
+            </datalist>
           </div>
           <div class="form-group">
             <label for="coordinator">Coordinator (活動總召)</label>
@@ -165,6 +168,7 @@ const form = reactive({
 })
 
 const groups = ref([])
+const availableLeaders = ref([])
 
 onMounted(async () => {
   try {
@@ -177,8 +181,10 @@ onMounted(async () => {
 
 const onGroupChange = () => {
   const selected = groups.value.find(g => g.group_name === form.group)
-  if (selected && !form.leader) {
-    form.leader = selected.leader_name
+  const leaderNames = selected?.leader_names || []
+  availableLeaders.value = leaderNames
+  if (leaderNames.length > 0 && !leaderNames.includes(form.leader)) {
+    form.leader = leaderNames[0]
   }
 }
 

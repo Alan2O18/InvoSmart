@@ -150,11 +150,17 @@ def _resolve_page_fields(page: dict[str, Any], page_results: list[dict[str, Any]
 
 
 @functools.lru_cache(maxsize=8)
-def _template_png_base64(template_path: str, mtime: float) -> str:
+def _template_preview_payload(template_path: str, mtime: float) -> dict:
     with fitz.open(template_path) as doc:
         page = doc[0]
         pix = page.get_pixmap(dpi=144)
-        return base64.b64encode(pix.tobytes("png")).decode("utf-8")
+        return {
+            "templatePng": base64.b64encode(pix.tobytes("png")).decode("utf-8"),
+            "pageWidth": float(page.rect.width),
+            "pageHeight": float(page.rect.height),
+            "previewPixelWidth": int(pix.width),
+            "previewPixelHeight": int(pix.height),
+        }
 
 
 def _load_image_bytes(image_path: str, thumb: bool, max_width: int) -> tuple[bytes, str]:
@@ -219,8 +225,7 @@ async def get_template_preview():
     template_path = settings["template_pdf_path"]
     if not os.path.exists(template_path):
         raise HTTPException(status_code=500, detail={"error": "INTERNAL_ERROR", "detail": "Voucher template not found"})
-    png_b64 = _template_png_base64(template_path, os.path.getmtime(template_path))
-    return {"templatePng": png_b64}
+    return _template_preview_payload(template_path, os.path.getmtime(template_path))
 
 
 @router.get("/{project_id}/template")
@@ -251,13 +256,17 @@ async def get_template(project_id: str, engine: Engine = Depends(get_engine)):
             }
         )
 
-    template_png = _template_png_base64(template_path, os.path.getmtime(template_path))
+    preview_payload = _template_preview_payload(template_path, os.path.getmtime(template_path))
 
     metadata = project.get("metadata") or {}
     budget_item = metadata.get("group") or metadata.get("group_name") or ""
 
     return {
-        "templatePng": template_png,
+        "templatePng": preview_payload["templatePng"],
+        "pageWidth": preview_payload["pageWidth"],
+        "pageHeight": preview_payload["pageHeight"],
+        "previewPixelWidth": preview_payload["previewPixelWidth"],
+        "previewPixelHeight": preview_payload["previewPixelHeight"],
         "projectMeta": {
             "id": project.get("project_id"),
             "name": project.get("name") or project.get("project_id"),
@@ -297,6 +306,7 @@ async def get_voucher_image(
 
     content, content_type = _load_image_bytes(image_path=image_path, thumb=thumb, max_width=max_width)
     return Response(content=content, media_type=content_type)
+
 
 @router.get("/{project_id}/layout")
 async def get_layout(project_id: str):

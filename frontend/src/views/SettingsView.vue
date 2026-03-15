@@ -14,7 +14,30 @@
           
           <div class="form-group">
             <label>Model Name</label>
-            <input type="text" v-model="settings.vision.model_name" placeholder="e.g. gemini-2.5-flash-lite" />
+            <input type="text" v-model="settings.vision.model_name" placeholder="e.g. gemini-2.5-flash-lite" list="provider-model-list" />
+            <datalist id="provider-model-list">
+              <option v-for="name in availableModels" :key="name" :value="name"></option>
+            </datalist>
+          </div>
+
+          <div class="form-group model-fetcher">
+            <button class="secondary-btn" @click="fetchProviderModels" :disabled="loadingModels || !settings.vision.api_key">
+              {{ loadingModels ? '取得中...' : '🔎 自動抓取供應商模型列表' }}
+            </button>
+            <small class="hint" v-if="modelsInfo">{{ modelsInfo }}</small>
+            <small class="hint error-text" v-if="modelsError">{{ modelsError }}</small>
+            <div class="quick-models" v-if="availableModels.length > 0">
+              <span>快速套用：</span>
+              <button
+                v-for="name in availableModels.slice(0, 10)"
+                :key="name"
+                type="button"
+                class="chip-btn"
+                @click="settings.vision.model_name = name"
+              >
+                {{ name }}
+              </button>
+            </div>
           </div>
 
           <div class="form-group">
@@ -63,14 +86,14 @@
         <!-- Group Management Section -->
         <div class="section">
           <h2>👥 群組人員管理 (Group Management)</h2>
-          <p class="section-desc">管理組別與預算編製者(組長)的對應關係。設定後可在建立專案時自動帶入。</p>
+          <p class="section-desc">同一組可維護多位組長。每位組長可上傳多張電子章，供稽核輪替蓋印使用。</p>
           
           <div class="group-management">
             <div class="add-group-form">
               <input type="text" v-model="newGroupName" placeholder="組別名稱 (e.g. 餐食組)" />
               <input type="text" v-model="newLeaderName" placeholder="組長名稱 (e.g. 王大明)" />
-              <button @click="addGroup" :disabled="!newGroupName || !newLeaderName || processingGroup" class="add-btn">
-                {{ processingGroup ? 'Adding...' : '新增群組' }}
+              <button @click="addGroup" :disabled="!newGroupName || !newLeaderName || processingGroup" class="add-btn" type="button">
+                {{ processingGroup ? '處理中...' : '新增組長到群組' }}
               </button>
             </div>
 
@@ -79,20 +102,68 @@
               <thead>
                 <tr>
                   <th>組別名稱</th>
-                  <th>組長名稱</th>
+                  <th>組長 (可多位)</th>
+                  <th>電子章</th>
                   <th>操作</th>
                 </tr>
               </thead>
               <tbody>
                 <tr v-for="g in groups" :key="g.group_name">
                   <td>{{ g.group_name }}</td>
-                  <td>{{ g.leader_name }}</td>
                   <td>
-                    <button @click="deleteGroup(g.group_name)" class="delete-btn" :disabled="processingGroup">刪除</button>
+                    <div class="leader-list" v-if="(g.leader_names || []).length > 0">
+                      <div v-for="leader in g.leader_names" :key="`${g.group_name}:${leader}`" class="leader-item">
+                        <span class="leader-name">{{ leader }}</span>
+                        <button
+                          type="button"
+                          class="mini-delete-btn"
+                          :disabled="processingGroup"
+                          @click="deleteLeader(g.group_name, leader)"
+                        >
+                          移除組長
+                        </button>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <div v-if="(g.leaders || []).length > 0" class="stamp-manage-wrap">
+                      <div v-for="leader in g.leaders" :key="`${g.group_name}:${leader.name}:stamps`" class="stamp-block">
+                        <div class="stamp-header">
+                          <span>{{ leader.name }}</span>
+                          <label class="stamp-upload-label">
+                            上傳電子章
+                            <input
+                              type="file"
+                              accept="image/*"
+                              multiple
+                              :disabled="processingGroup"
+                              @change="onStampFilesSelected(g.group_name, leader.name, $event)"
+                            />
+                          </label>
+                        </div>
+                        <div class="stamp-gallery" v-if="(leader.stamps || []).length > 0">
+                          <div v-for="stamp in leader.stamps" :key="stamp.url" class="stamp-item">
+                            <img :src="toAbsoluteUrl(stamp.url)" :alt="stamp.filename" />
+                            <button
+                              type="button"
+                              class="mini-delete-btn"
+                              :disabled="processingGroup"
+                              @click="deleteStamp(g.group_name, leader.name, stamp.filename)"
+                            >
+                              刪除章
+                            </button>
+                          </div>
+                        </div>
+                        <small v-else class="hint">尚未上傳電子章</small>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <button type="button" @click="deleteGroup(g.group_name)" class="delete-btn" :disabled="processingGroup">刪除整組</button>
                   </td>
                 </tr>
                 <tr v-if="groups.length === 0">
-                  <td colspan="3" class="empty-state">目前還沒有建立任何群組。</td>
+                  <td colspan="4" class="empty-state">目前還沒有建立任何群組。</td>
                 </tr>
               </tbody>
             </table>
@@ -129,6 +200,10 @@ import api from '../services/api'
 const loading = ref(true)
 const saving = ref(false)
 const showApiKey = ref(false)
+const loadingModels = ref(false)
+const modelsInfo = ref('')
+const modelsError = ref('')
+const availableModels = ref([])
 
 // Group state
 const groups = ref([])
@@ -161,6 +236,25 @@ const applyPreset = (key) => {
   }
 }
 
+const toAbsoluteUrl = (path) => api.toAbsoluteUrl(path)
+
+const fetchProviderModels = async () => {
+  loadingModels.value = true
+  modelsError.value = ''
+  modelsInfo.value = ''
+  try {
+    const res = await api.listVisionModels()
+    availableModels.value = res.data.models || []
+    const provider = res.data.provider || 'provider'
+    modelsInfo.value = `已取得 ${res.data.count || availableModels.value.length} 個模型 (${provider})`
+  } catch (e) {
+    const detail = e?.response?.data?.detail || e.message || e
+    modelsError.value = `模型列表抓取失敗：${detail}`
+  } finally {
+    loadingModels.value = false
+  }
+}
+
 const fetchSettings = async () => {
   loading.value = true
   try {
@@ -172,6 +266,9 @@ const fetchSettings = async () => {
       reasoning_effort: vision.reasoning_effort || null,
       base_url: vision.base_url || presets.google,
       api_key: vision.api_key || ''
+    }
+    if (settings.value.vision.api_key) {
+      await fetchProviderModels()
     }
   } catch (e) {
     alert('Failed to load settings: ' + e)
@@ -208,7 +305,7 @@ const fetchGroups = async () => {
   loadingGroups.value = true
   try {
     const res = await api.listGroups()
-    groups.value = res.data
+    groups.value = res.data || []
   } catch (e) {
     console.error('Failed to load groups', e)
   } finally {
@@ -239,6 +336,49 @@ const deleteGroup = async (groupName) => {
     await fetchGroups()
   } catch (e) {
     alert('Failed to delete group: ' + e)
+  } finally {
+    processingGroup.value = false
+  }
+}
+
+const deleteLeader = async (groupName, leaderName) => {
+  if (!confirm(`確定要把組長 "${leaderName}" 從群組 "${groupName}" 移除嗎？`)) return
+  processingGroup.value = true
+  try {
+    await api.deleteGroupLeader(groupName, leaderName)
+    await fetchGroups()
+  } catch (e) {
+    alert('Failed to delete leader: ' + e)
+  } finally {
+    processingGroup.value = false
+  }
+}
+
+const onStampFilesSelected = async (groupName, leaderName, event) => {
+  const selectedFiles = Array.from(event.target?.files || [])
+  if (selectedFiles.length === 0) return
+  processingGroup.value = true
+  try {
+    await api.uploadLeaderStamps(groupName, leaderName, selectedFiles)
+    await fetchGroups()
+  } catch (e) {
+    alert('Failed to upload stamps: ' + e)
+  } finally {
+    processingGroup.value = false
+    if (event?.target) {
+      event.target.value = ''
+    }
+  }
+}
+
+const deleteStamp = async (groupName, leaderName, filename) => {
+  if (!confirm(`確定刪除電子章 "${filename}" 嗎？`)) return
+  processingGroup.value = true
+  try {
+    await api.deleteLeaderStamp(groupName, leaderName, filename)
+    await fetchGroups()
+  } catch (e) {
+    alert('Failed to delete stamp: ' + e)
   } finally {
     processingGroup.value = false
   }
@@ -289,6 +429,54 @@ onMounted(() => {
 
 .form-group {
   margin-bottom: 1.5rem;
+}
+
+.model-fetcher {
+  border: 1px dashed #3b82f6;
+  border-radius: 8px;
+  padding: 0.9rem;
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.secondary-btn {
+  background: #1d4ed8;
+  color: #fff;
+  border: none;
+  padding: 0.55rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.secondary-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quick-models {
+  margin-top: 0.7rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.chip-btn {
+  background: #0f172a;
+  border: 1px solid #334155;
+  color: #93c5fd;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.75rem;
+}
+
+.chip-btn:hover {
+  border-color: #60a5fa;
+}
+
+.error-text {
+  color: #fca5a5;
 }
 
 .form-group label {
@@ -430,6 +618,7 @@ onMounted(() => {
   padding: 1rem;
   text-align: left;
   border-bottom: 1px solid #333;
+  vertical-align: top;
 }
 
 .group-table th {
@@ -465,6 +654,100 @@ onMounted(() => {
   text-align: center;
   padding: 1rem;
   color: #888;
+}
+
+.leader-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.leader-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.leader-name {
+  background: #1e293b;
+  color: #cbd5e1;
+  border: 1px solid #334155;
+  border-radius: 999px;
+  padding: 0.15rem 0.65rem;
+  font-size: 0.78rem;
+}
+
+.mini-delete-btn {
+  border: 1px solid #ef4444;
+  color: #fca5a5;
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.74rem;
+  padding: 0.2rem 0.45rem;
+}
+
+.mini-delete-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.stamp-manage-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.stamp-block {
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 0.5rem;
+  background: #111827;
+}
+
+.stamp-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.stamp-upload-label {
+  font-size: 0.74rem;
+  color: #93c5fd;
+  cursor: pointer;
+}
+
+.stamp-upload-label input {
+  display: block;
+  margin-top: 0.25rem;
+  max-width: 170px;
+  font-size: 0.72rem;
+}
+
+.stamp-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 0.4rem;
+}
+
+.stamp-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: stretch;
+}
+
+.stamp-item img {
+  width: 100%;
+  height: 74px;
+  object-fit: contain;
+  background: #0b1220;
+  border: 1px solid #1e293b;
+  border-radius: 4px;
+  padding: 0.2rem;
 }
 
 /* Admin Tools Section */

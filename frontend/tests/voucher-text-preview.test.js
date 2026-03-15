@@ -98,12 +98,12 @@ test('buildVoucherTextPreviewEntries guards xList overflow for legacy 7-digit am
   assert.equal(amountEntries.length, 0)
 })
 
-test('buildVoucherTextPreviewEntries caps voucherNo at maxLines', () => {
+test('buildVoucherTextPreviewEntries keeps all voucherNo lines for autoscale flow', () => {
   const entries = buildVoucherTextPreviewEntries({
     voucherNo: 'D-16-01\nD-16-02\nD-16-03\nD-16-04\nD-16-05\nD-16-06',
   }, sampleTextConfig)
 
   const voucherNoEntries = entries.filter(entry => entry.key.startsWith('voucherNo-'))
-  assert.equal(voucherNoEntries.length, 5)
-  assert.equal(voucherNoEntries.at(-1)?.text, 'D-16-05')
+  assert.equal(voucherNoEntries.length, 6)
+  assert.equal(voucherNoEntries.at(-1)?.text, 'D-16-06')
 })

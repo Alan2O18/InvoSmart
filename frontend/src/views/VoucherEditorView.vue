@@ -143,8 +143,7 @@ const router = useRouter()
 
 const projectId = route.params.id
 const maxPages = 10
-const CANVAS_WIDTH = 595
-const CANVAS_HEIGHT = 842
+const canvasSize = ref({ width: 595, height: 842 })
 const safeZoneConfig = ref({ x0: 30, y0: 394, x1: 565, y1: 730 })
 const blockedZonesConfig = ref([])
 const PREVIEW_TEXT_COLOR = '#1e3a8a'
@@ -931,8 +930,8 @@ const loadActivePageToCanvas = async () => {
       })
       bg.data = { kind: 'background' }
       if (bg.width && bg.height) {
-        bg.scaleX = CANVAS_WIDTH / bg.width
-        bg.scaleY = CANVAS_HEIGHT / bg.height
+        bg.scaleX = canvasSize.value.width / bg.width
+        bg.scaleY = canvasSize.value.height / bg.height
       }
       fabricCanvas.add(bg)
       bg.sendToBack()
@@ -975,8 +974,8 @@ const initCanvas = () => {
     fabricCanvas = null
   }
   fabricCanvas = new fabric.Canvas(canvasRef.value, {
-    width: CANVAS_WIDTH,
-    height: CANVAS_HEIGHT,
+    width: canvasSize.value.width,
+    height: canvasSize.value.height,
     backgroundColor: '#ffffff',
     preserveObjectStacking: true,
   })
@@ -1018,6 +1017,11 @@ onMounted(async () => {
     if (textConfigResp.data.safeZone) safeZoneConfig.value = textConfigResp.data.safeZone
     if (textConfigResp.data.blockedZones?.length) blockedZonesConfig.value = textConfigResp.data.blockedZones
     templatePng.value = templateResp.data.templatePng || ''
+    const pageWidth = Number(templateResp.data.pageWidth)
+    const pageHeight = Number(templateResp.data.pageHeight)
+    if (pageWidth > 0 && pageHeight > 0) {
+      canvasSize.value = { width: pageWidth, height: pageHeight }
+    }
     invoices.value = templateResp.data.invoices || []
 
     if (layoutResp.data?.pages?.length) {

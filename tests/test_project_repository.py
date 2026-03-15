@@ -61,14 +61,20 @@ async def test_group_crud(repo):
     res = await repo.upsert_group("Group Alpha", "Leader X")
     assert res is None
     
-    # Upsert again (Update)
+    # Upsert again (append leader)
     await repo.upsert_group("Group Alpha", "Leader Y")
     
     # List
     groups = await repo.list_groups()
     assert len(groups) == 1
     assert groups[0]["group_name"] == "Group Alpha"
-    assert groups[0]["leader_name"] == "Leader Y"
+    assert groups[0]["leader_names"] == ["Leader X", "Leader Y"]
+    assert groups[0]["leader_name"] == "Leader X、Leader Y"
+
+    # Remove one leader
+    await repo.remove_group_leader("Group Alpha", "Leader X")
+    groups = await repo.list_groups()
+    assert groups[0]["leader_names"] == ["Leader Y"]
     
     # Delete
     del_res = await repo.delete_group("Group Alpha")
