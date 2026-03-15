@@ -262,4 +262,5 @@ router.include_router(groups.router)
 
 **改進的狀態檢測**：
 - 新增 `pending` 狀態檢測
-- 狀態流程：`NEW` → `INGESTED` → `SPLIT` → `PROCESSING` → `PROCESSED` → `ARCHIVED` → `SEALED`
+- 狀態流程：`NEW` → `INGESTED` → `SPLIT` → `PROCESSING` → `PROCESSED` → `ARCHIVED`
+- `SEALED` 僅保留為舊資料相容狀態，不作為新流程終態。

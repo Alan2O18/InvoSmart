@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from backend.engine.file_ops import FileOps
+from backend.utils import utils
 
 @pytest.fixture
 def mock_dependencies(tmp_path):
@@ -21,6 +22,10 @@ def mock_dependencies(tmp_path):
     
     engine_ref = AsyncMock()
     engine_ref.enqueue_job = AsyncMock()
+    job_repo = AsyncMock()
+    job_repo.list_jobs = AsyncMock(return_value=[])
+    job_repo.update_job = AsyncMock(return_value=True)
+    engine_ref.get_job_repo = MagicMock(return_value=job_repo)
     
     return project_repo, receipt_splitter, engine_ref, project_root
 
@@ -103,11 +108,17 @@ async def test_add_project_files_split_enqueues(file_ops, mock_dependencies, tmp
     engine.enqueue_job.assert_called_once()
     assert "split_upload.jpg" in str(engine.enqueue_job.call_args[0][1])
 
-def test_rotate_image(file_ops, mock_dependencies):
-    _, _, _, root = mock_dependencies
+@pytest.mark.asyncio
+async def test_rotate_image(file_ops, mock_dependencies):
+    _, _, engine, root = mock_dependencies
     split_dir = root / "分割發票"
     split_dir.mkdir()
     (split_dir / "sample.jpg").touch()
+
+    image_abs = str((split_dir / "sample.jpg").resolve())
+    engine.get_job_repo.return_value.list_jobs = AsyncMock(return_value=[
+        {"job_id": "job-1", "image_path": image_abs},
+    ])
     
     dummy_img = np.zeros((10, 20, 3), dtype=np.uint8)
     
@@ -115,8 +126,106 @@ def test_rotate_image(file_ops, mock_dependencies):
          patch("backend.engine.file_ops.cv2.rotate", return_value=dummy_img) as mock_rotate, \
          patch("backend.engine.file_ops.utils.cv_imwrite_chinese") as mock_imwrite:
         
-        result = file_ops.rotate_image("proj1", "sample.jpg", angle=90)
+        result = await file_ops.rotate_image("proj1", "sample.jpg", angle=90)
         
         assert result["status"] == "rotated"
+        assert result["reset_jobs"] == ["job-1"]
         mock_rotate.assert_called_once_with(dummy_img, cv2.ROTATE_90_CLOCKWISE)
         mock_imwrite.assert_called_once()
+        engine.get_job_repo.return_value.update_job.assert_called_once_with(
+            "job-1",
+            status="pending",
+            vlm_result_json=None,
+            manual_json_text=None,
+            validation_json=None,
+            vlm_stats=None,
+            qr_verified=0,
+        )
+
+
+@pytest.mark.asyncio
+async def test_ensure_preview_cache_creates_file(file_ops, mock_dependencies):
+    _, _, engine, root = mock_dependencies
+    engine.config = {
+        "processing_settings": {"preview_formats": ["webp"]},
+        "voucher_settings": {"thumb_max_width": 120},
+    }
+
+    split_dir = root / "分割發票"
+    split_dir.mkdir(exist_ok=True)
+    img_path = split_dir / "preview_test.jpg"
+    image = np.full((80, 160, 3), 200, dtype=np.uint8)
+    utils.cv_imwrite_chinese(str(img_path), image)
+
+    preview = await file_ops.ensure_preview_cache("proj1", str(img_path), max_width=120)
+
+    assert preview is not None
+    assert preview["media_type"] in ("image/webp", "image/avif", "image/jpeg")
+    assert Path(preview["path"]).exists()
+
+
+@pytest.mark.asyncio
+async def test_rotate_image_rebuilds_preview_cache(file_ops, mock_dependencies):
+    _, _, engine, root = mock_dependencies
+    engine.config = {
+        "processing_settings": {"preview_formats": ["webp"]},
+        "voucher_settings": {"thumb_max_width": 120},
+    }
+
+    split_dir = root / "分割發票"
+    split_dir.mkdir(exist_ok=True)
+    img_path = split_dir / "rotate_preview.jpg"
+    utils.cv_imwrite_chinese(str(img_path), np.zeros((40, 40, 3), dtype=np.uint8))
+
+    preview_before = await file_ops.ensure_preview_cache("proj1", str(img_path), max_width=120)
+    assert preview_before is not None
+    assert Path(preview_before["path"]).exists()
+
+    image_abs = str(img_path.resolve())
+    engine.get_job_repo.return_value.list_jobs = AsyncMock(return_value=[
+        {"job_id": "job-1", "image_path": image_abs},
+    ])
+
+    dummy_img = np.zeros((40, 40, 3), dtype=np.uint8)
+    with patch("backend.engine.file_ops.utils.cv_imread_chinese", return_value=dummy_img), \
+         patch("backend.engine.file_ops.cv2.rotate", return_value=dummy_img), \
+         patch("backend.engine.file_ops.utils.cv_imwrite_chinese"):
+        result = await file_ops.rotate_image("proj1", "rotate_preview.jpg", angle=90)
+
+    assert result["status"] == "rotated"
+    preview_after = await file_ops.ensure_preview_cache("proj1", str(img_path), max_width=120)
+    assert preview_after is not None
+    assert Path(preview_after["path"]).exists()
+
+
+@pytest.mark.asyncio
+async def test_split_stores_asset_metadata_on_job(file_ops, mock_dependencies):
+    """_prepare_tasks must call update_job with source_format and preview_cache_path."""
+    repo, splitter, engine, root = mock_dependencies
+    engine.config = {
+        "processing_settings": {"archival_format": "jpg"},
+        "voucher_settings": {"thumb_max_width": 120},
+    }
+    engine.enqueue_job = AsyncMock(return_value="job-meta-1")
+
+    raw_dir = root / "原始輸入"
+    raw_dir.mkdir()
+    (raw_dir / "test.jpg").touch()
+
+    with patch("backend.engine.file_ops.utils.cv_imread_chinese") as mock_imread, \
+         patch("backend.engine.file_ops.utils.cv_imwrite_chinese", return_value=True):
+        mock_imread.return_value = np.zeros((100, 100, 3), dtype=np.uint8)
+        await file_ops.run_splitting("proj1")
+
+    job_repo = engine.get_job_repo.return_value
+    calls = job_repo.update_job.call_args_list
+    # Should have been called for each split image (2 from the fixture splitter)
+    assert len(calls) >= 2
+    for call in calls:
+        kwargs = call.kwargs if call.kwargs else {}
+        positional = call.args
+        # update_job(job_id, source_format=..., preview_cache_path=...)
+        assert "source_format" in kwargs, f"source_format missing in call: {call}"
+        assert "preview_cache_path" in kwargs, f"preview_cache_path missing in call: {call}"
+        assert kwargs["source_format"] in ("jpg", "jpeg", "png", "webp", "jxl")
+

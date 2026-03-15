@@ -8,6 +8,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from backend.dependencies import get_engine
 from backend.engine.core import Engine
+from backend.repositories.project_repository import ProjectArchivedError
 from backend.utils.utils import handle_upload_files
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,8 @@ async def update_project(project_id: str, metadata: dict, engine: Engine = Depen
     try:
         await engine.project_repo.update_project_metadata(project_id, metadata)
         return await engine.project_repo.get_project(project_id)
+    except ProjectArchivedError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.error(f"Error updating project: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -104,6 +107,8 @@ async def update_activity_info(project_id: str, info: dict, engine: Engine = Dep
     try:
         await engine.project_repo.update_activity_info(project_id, info)
         return await engine.project_repo.get_project(project_id)
+    except ProjectArchivedError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.error(f"Error updating activity info: {e}")
         raise HTTPException(status_code=500, detail=str(e))

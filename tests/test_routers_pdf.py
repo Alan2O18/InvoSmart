@@ -1,9 +1,11 @@
 import pytest
 from httpx import AsyncClient, ASGITransport
 import fitz
+from unittest.mock import AsyncMock
 
 from backend.main import app
 from backend.dependencies import get_engine
+from backend.repositories.project_repository import ProjectArchivedError
 
 
 @pytest.fixture
@@ -167,4 +169,18 @@ async def test_download_processed_pdf_falls_back_to_source_pdf(mock_engine, tmp_
     assert response.status_code == 200
     assert response.headers["content-type"] == "application/pdf"
     assert response.headers["content-disposition"].endswith('filename="source.pdf"')
+
+
+@pytest.mark.asyncio
+async def test_execute_pdf_commands_rejects_archived(mock_engine):
+    mock_engine.enqueue_pdf_job = AsyncMock(side_effect=ProjectArchivedError("Project proj1 is archived and read-only"))
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post(
+            "/api/pdf/proj1/job-locked/commands",
+            json={"page_order": [0], "stamps": []},
+        )
+
+    assert response.status_code == 409
 

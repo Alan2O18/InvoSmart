@@ -7,8 +7,10 @@ import pytest
 import os
 import tempfile
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
+
+from backend.repositories.project_repository import ProjectArchivedError
 
 
 # ============================================================================
@@ -283,9 +285,9 @@ class TestEngineFileOps:
         img_path = root / "分割發票" / "test.jpg"
         
         # Mock cv2 imread/imwrite to avoid real image processing
-        engine.file_ops.rotate_image = MagicMock(return_value={"status": "rotated", "path": str(img_path)})
+        engine.file_ops.rotate_image = AsyncMock(return_value={"status": "rotated", "path": str(img_path)})
         
-        res = engine.rotate_image("rotate_proj", "test.jpg", 90)
+        res = await engine.rotate_image("rotate_proj", "test.jpg", 90)
         assert res["status"] == "rotated"
 
     async def test_delete_raw_file(self, real_engine_with_temp_workspace):
@@ -300,7 +302,7 @@ class TestEngineFileOps:
         root = engine.project_repo._project_root("del_raw")
         (root / "原始輸入" / "to_delete.jpg").touch()
         
-        res = engine.delete_raw_file("del_raw", "to_delete.jpg")
+        res = await engine.delete_raw_file("del_raw", "to_delete.jpg")
         assert res["status"] == "deleted"
         assert not (root / "原始輸入" / "to_delete.jpg").exists()
 
@@ -312,7 +314,7 @@ class TestEngineFileOps:
         await engine.project_repo.register_project("del_raw_nf", "Del", str(engine.project_repo.workspace_root / "del_raw_nf"))
         engine.project_repo._ensure_layout(engine.project_repo._project_root("del_raw_nf"))
         
-        res = engine.delete_raw_file("del_raw_nf", "nonexistent.jpg")
+        res = await engine.delete_raw_file("del_raw_nf", "nonexistent.jpg")
         assert res["status"] == "not_found"
 
     async def test_delete_raw_file_exception(self, real_engine_with_temp_workspace):
@@ -322,7 +324,7 @@ class TestEngineFileOps:
             # It needs to hit `path.exists()` first.
             with patch("pathlib.Path.exists", return_value=True):
                 with pytest.raises(PermissionError):
-                    engine.delete_raw_file("some_proj", "file.jpg")
+                    await engine.delete_raw_file("some_proj", "file.jpg")
 
     async def test_run_split_single(self, real_engine_with_temp_workspace):
         """Test run_split_single delegation."""
@@ -332,6 +334,14 @@ class TestEngineFileOps:
         res = await engine.run_split_single("split_proj", "file1.jpg")
         engine.file_ops.run_splitting.assert_called_once_with("split_proj", target_files=["file1.jpg"])
         assert res["status"] == "done"
+
+    async def test_run_splitting_rejects_archived_project(self, real_engine_with_temp_workspace):
+        engine = real_engine_with_temp_workspace
+        await engine.project_repo.register_project("split_locked", "Locked", str(engine.project_repo.workspace_root / "split_locked"))
+        await engine.project_repo.update_project_status("split_locked", "ARCHIVED")
+
+        with pytest.raises(ProjectArchivedError):
+            await engine.run_splitting("split_locked")
 
 
 # ============================================================================
@@ -418,6 +428,14 @@ class TestEngineProcessing:
             with pytest.raises(Exception, match="Queue Err"):
                 await engine.run_processing("proj_1")
 
+    async def test_run_processing_rejects_archived_project(self, real_engine_with_temp_workspace):
+        engine = real_engine_with_temp_workspace
+        await engine.project_repo.register_project("proc_locked", "Locked", str(engine.project_repo.workspace_root / "proc_locked"))
+        await engine.project_repo.update_project_status("proc_locked", "ARCHIVED")
+
+        with pytest.raises(ProjectArchivedError):
+            await engine.run_processing("proc_locked")
+
 
 # ============================================================================
 # Job Management Tests
@@ -495,10 +513,10 @@ class TestEngineExport:
         from unittest.mock import AsyncMock
         engine = real_engine_with_temp_workspace
         
-        engine.export_handler.seal_project = AsyncMock(return_value={"status": "sealed", "path": "archive.zip"})
+        engine.export_handler.seal_project = AsyncMock(return_value={"status": "archived", "path": "archive.zip"})
         
         res = await engine.archive_project("test_proj")
-        assert res["status"] == "sealed"
+        assert res["status"] == "archived"
         engine.export_handler.seal_project.assert_called_once_with("test_proj")
 
     @patch("backend.engine.regeneration_handler.RegenerationHandler.regenerate_from_archive")

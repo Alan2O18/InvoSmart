@@ -1,5 +1,6 @@
+import json
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 from docx import Document
 from backend.engine.word_exporter import WordExporter
 
@@ -91,7 +92,6 @@ def test_format_roc_date(word_exporter):
 
 @pytest.mark.asyncio
 async def test_process_export(word_exporter, tmp_path):
-    from unittest.mock import AsyncMock
     import json
     import os
     
@@ -115,6 +115,12 @@ async def test_process_export(word_exporter, tmp_path):
         }
     ]
     job_repo.list_jobs.return_value = mock_jobs
+    job_repo.get_job = AsyncMock(side_effect=[None, None])
+    job_repo.refresh_flattened_data = AsyncMock(return_value=None)
+    job_repo.get_display_result = AsyncMock(side_effect=[
+        json.loads(mock_jobs[0]["vlm_result_json"]),
+        json.loads(mock_jobs[1]["vlm_result_json"]),
+    ])
     
     word_exporter.project_repo = AsyncMock()
     word_exporter.project_repo.get_project.return_value = {
@@ -157,6 +163,67 @@ async def test_process_export(word_exporter, tmp_path):
     assert "Activity: Test Activity" in full_text
     assert "Coord: Test Coord" in full_text
     assert "Budget: 500" in full_text
+
+
+@pytest.mark.asyncio
+async def test_ensure_flatten_cache_prefers_persisted_payload(tmp_path):
+    project_repo = AsyncMock()
+    project_repo.get_project.return_value = {"metadata": {"group": "教材費"}}
+    project_repo._project_root = MagicMock(return_value=tmp_path)
+    exporter = WordExporter(project_repo)
+
+    persisted_payload = {
+        "version": 1,
+        "jobId": "job1",
+        "categories": ["文具"],
+        "items": [{"category": "文具", "name": "筆", "qty": 1, "price": 25, "total": 25, "voucher_id": "V1"}],
+        "sumTotal": 25,
+    }
+
+    job_repo = AsyncMock()
+    job_repo.project_id = "proj_persisted"
+    job_repo.list_jobs.return_value = [{"job_id": "job1", "updated_at": 10}]
+    job_repo.get_job.return_value = {
+        "job_id": "job1",
+        "flattening_status": "done",
+        "flattened_data": json.dumps(persisted_payload, ensure_ascii=False),
+    }
+    job_repo.refresh_flattened_data = AsyncMock()
+    job_repo.get_display_result = AsyncMock()
+
+    payload = await exporter.ensure_flatten_cache("proj_persisted", job_repo)
+
+    assert payload["sumTotal"] == 25
+    assert payload["payloadSources"]["persisted"] == 1
+    job_repo.refresh_flattened_data.assert_not_awaited()
+    job_repo.get_display_result.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ensure_flatten_cache_refreshes_missing_payload(tmp_path):
+    project_repo = AsyncMock()
+    project_repo.get_project.return_value = {"metadata": {"group": "教材費"}}
+    project_repo._project_root = MagicMock(return_value=tmp_path)
+    exporter = WordExporter(project_repo)
+
+    job_repo = AsyncMock()
+    job_repo.project_id = "proj_refresh"
+    job_repo.list_jobs.return_value = [{"job_id": "job1", "updated_at": 20}]
+    job_repo.get_job.return_value = {"job_id": "job1", "flattening_status": None, "flattened_data": None}
+    job_repo.refresh_flattened_data = AsyncMock(return_value={
+        "version": 1,
+        "jobId": "job1",
+        "categories": ["文具"],
+        "items": [{"category": "文具", "name": "紙", "qty": 1, "price": 12, "total": 12, "voucher_id": "V2"}],
+        "sumTotal": 12,
+    })
+    job_repo.get_display_result = AsyncMock()
+
+    payload = await exporter.ensure_flatten_cache("proj_refresh", job_repo)
+
+    assert payload["sumTotal"] == 12
+    assert payload["payloadSources"]["refreshed"] == 1
+    job_repo.refresh_flattened_data.assert_awaited_once_with("job1", persist=True)
 
 @pytest.mark.asyncio
 async def test_process_export_no_project(word_exporter):

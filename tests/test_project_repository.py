@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 from pathlib import Path
 
 from backend.database.models import Base, Project, Group, Job
-from backend.repositories.project_repository import ProjectRepository
+from backend.repositories.project_repository import ProjectArchivedError, ProjectRepository
 
 @pytest.fixture
 def repo(async_session_factory, tmp_path):
@@ -144,3 +144,28 @@ async def test_sync_status_to_db_all_done(repo, async_session_factory):
     await repo.sync_status_to_db(proj_id)
     p = await repo.get_project(proj_id)
     assert p["status"] == "PROCESSED"
+
+
+@pytest.mark.asyncio
+async def test_sync_status_to_db_preserves_archived(repo, async_session_factory):
+    proj_id = "archived_proj"
+    await repo.setup_project(proj_id, name="Archived")
+    await repo.update_project_status(proj_id, "ARCHIVED")
+
+    async with async_session_factory() as session:
+        session.add(Job(project_id=proj_id, job_id="j1", image_path="f", status="done", vlm_result_json="{}"))
+        await session.commit()
+
+    await repo.sync_status_to_db(proj_id)
+    p = await repo.get_project(proj_id)
+    assert p["status"] == "ARCHIVED"
+
+
+@pytest.mark.asyncio
+async def test_update_project_metadata_rejects_archived(repo):
+    proj_id = "archived_meta"
+    await repo.register_project(proj_id, "Archived", "/pth")
+    await repo.update_project_status(proj_id, "ARCHIVED")
+
+    with pytest.raises(ProjectArchivedError):
+        await repo.update_project_metadata(proj_id, {"name": "blocked"})

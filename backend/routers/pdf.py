@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Body, Depends
 from fastapi.responses import FileResponse
 from backend.dependencies import get_engine
 from backend.engine.core import Engine
+from backend.repositories.project_repository import ProjectArchivedError
 from backend.utils.utils import handle_upload_files
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,9 @@ async def upload_pdf(
             if not pdf_paths:
                 raise ValueError("未找到有效的 PDF 檔案")
                 
-            return await engine.file_ops.add_pdf_files(project_id, pdf_paths)
+            return await engine.add_pdf_files(project_id, pdf_paths)
+    except ProjectArchivedError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except ValueError as e:
         logger.warning(f"Invalid PDF upload for {project_id}: {e}")
         raise HTTPException(status_code=400, detail=str(e))
@@ -62,6 +65,8 @@ async def execute_pdf_commands(
         # Enqueue the job for the dedicated PDF worker
         await engine.enqueue_pdf_job(project_id, job_id, commands)
         return {"status": "processing", "job_id": job_id}
+    except ProjectArchivedError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.error(f"Error executing pdf commands: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to queue PDF commands: {str(e)}")

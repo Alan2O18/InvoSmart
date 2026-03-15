@@ -11,7 +11,7 @@ Engine - 系統核心協調器 (VLM-First 簡化版)
 不再使用 TaskManager / ProjectManager 中間層。
 """
 import os
-import json
+import asyncio
 import queue
 import time
 import uuid
@@ -63,12 +63,16 @@ class Engine:
         self.export_handler = ExportHandler(self.project_repo, self)
         
         # 憑證產生組件
-        template_path = str(Path(__file__).parent.parent.parent / "dev_data" / "憑證黏貼用紙.pdf")
+        template_path = str(Path(__file__).parent.parent / "assets" / "templates" / "憑證黏貼用紙.pdf")
         self.voucher_generator = VoucherGenerator(template_path)
 
         # JobRepository 緩存 (per-project)
         self._job_repos: Dict[str, JobRepository] = {}
         self._repo_lock = threading.Lock()
+
+        processing_settings = self.config.get("processing_settings", {})
+        max_image_concurrency = max(1, int(processing_settings.get("image_conversion_max_concurrency", 3)))
+        self.image_processing_semaphore = asyncio.Semaphore(max_image_concurrency)
         
         # 全局任務佇列 (影像 VLM 專用)
         self.task_queue: queue.Queue = queue.Queue()
@@ -195,6 +199,9 @@ class Engine:
                 self._job_repos[project_id] = JobRepository(project_id, session_factory=factory)
             return self._job_repos[project_id]
 
+    async def _ensure_project_editable(self, project_id: str):
+        await self.project_repo.assert_project_editable(project_id)
+
     # ========================================
     # Job Operations (直接操作 JobRepository)
     # ========================================
@@ -242,6 +249,7 @@ class Engine:
         將已現存的 Job 加入 PDF 處理佇列。
         前端送出蓋章排版指令時呼叫此方法。
         """
+        await self._ensure_project_editable(project_id)
         job_repo = self.get_job_repo(project_id)
         # 更新狀態為準備壓縮
         await job_repo.update_job(job_id, pdf_status="pending_compression")
@@ -274,6 +282,7 @@ class Engine:
 
     async def delete_job(self, project_id: str, job_id: str) -> bool:
         """刪除 Job。"""
+        await self._ensure_project_editable(project_id)
         job_repo = self.get_job_repo(project_id)
         return await job_repo.delete_job(job_id)
 
@@ -285,6 +294,7 @@ class Engine:
         """VLM-First 處理入口 - 將所有待處理任務加入佇列。"""
         logger.info(f"[Processing] 開始處理專案: {project_id}")
         try:
+            await self._ensure_project_editable(project_id)
             job_repo = self.get_job_repo(project_id)
             jobs = await job_repo.list_jobs()
             queued = 0
@@ -306,6 +316,7 @@ class Engine:
     async def run_single_processing(self, project_id: str, job_id: str):
         """將單一 Job 加入處理佇列。"""
         try:
+            await self._ensure_project_editable(project_id)
             job_repo = self.get_job_repo(project_id)
             job = await job_repo.get_job(job_id)
             if not job:
@@ -329,6 +340,7 @@ class Engine:
 
     async def run_splitting(self, project_id: str, target_files: Optional[list[str]] = None):
         logger.info(f"[分割] 開始處理專案: {project_id}, 目標檔案={target_files}")
+        await self._ensure_project_editable(project_id)
         result = await self.file_ops.run_splitting(project_id, target_files)
         logger.info(f"[分割] 完成: {project_id}")
         return result
@@ -344,16 +356,20 @@ class Engine:
         return self.file_ops.get_raw_files(project_id)
 
     async def add_project_files(self, project_id: str, files: list[str], type: str = "raw"):
+        await self._ensure_project_editable(project_id)
         return await self.file_ops.add_project_files(project_id, files, type)
 
     async def add_pdf_files(self, project_id: str, files: list[str]):
+        await self._ensure_project_editable(project_id)
         return await self.file_ops.add_pdf_files(project_id, files)
 
-    def rotate_image(self, project_id: str, filename: str, angle: int = 90):
-        return self.file_ops.rotate_image(project_id, filename, angle)
+    async def rotate_image(self, project_id: str, filename: str, angle: int = 90):
+        await self._ensure_project_editable(project_id)
+        return await self.file_ops.rotate_image(project_id, filename, angle)
 
-    def delete_raw_file(self, project_id: str, filename: str):
+    async def delete_raw_file(self, project_id: str, filename: str):
         try:
+            await self._ensure_project_editable(project_id)
             root = self.project_repo._project_root(project_id)
             path = root / "原始輸入" / filename
             if path.exists():
@@ -363,6 +379,11 @@ class Engine:
         except Exception as e:
             logger.error(f"Error deleting raw file: {e}")
             raise e
+
+    async def save_manual_json(self, project_id: str, job_id: str, json_data: dict) -> bool:
+        await self._ensure_project_editable(project_id)
+        job_repo = self.get_job_repo(project_id)
+        return await job_repo.save_manual_json(job_id, json_data)
 
     async def run_excel(self, project_id: str):
         return await self.export_handler.run_excel(project_id)

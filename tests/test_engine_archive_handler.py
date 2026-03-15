@@ -42,7 +42,7 @@ async def test_seal_project_7z_success(mock_sub_run, mock_which, mock_project_re
     assert result["success"] is True
     assert result["method"] == "7z"
     assert "proj1.7z" in result["archive_path"]
-    mock_project_repo.update_project_status.assert_called_once_with("proj1", "SEALED")
+    mock_project_repo.update_project_status.assert_called_once_with("proj1", "ARCHIVED")
     mock_sub_run.assert_called_once()
 
 @pytest.mark.asyncio

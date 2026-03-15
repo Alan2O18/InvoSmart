@@ -1,8 +1,11 @@
 # Jobs Router - Job 管理端點 (VLM-First)
+import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, Depends
+from pydantic import BaseModel
 from backend.dependencies import get_engine
 from backend.engine.core import Engine
+from backend.repositories.project_repository import ProjectArchivedError
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -41,6 +44,8 @@ async def delete_job(project_id: str, job_id: str, engine: Engine = Depends(get_
     """Delete a job."""
     try:
         return await engine.delete_job(project_id, job_id)
+    except ProjectArchivedError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.error(f"Error deleting job: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -51,12 +56,12 @@ async def run_single_processing(project_id: str, job_id: str, engine: Engine = D
     """Run VLM processing for a single job (VLM-First)."""
     try:
         return await engine.run_single_processing(project_id, job_id)
+    except ProjectArchivedError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         logger.error(f"Error running single processing: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
-from pydantic import BaseModel
 from backend.routers.suggestions import get_suggestion_repo, SuggestionRepository
 
 class ManualJsonRequest(BaseModel):
@@ -73,8 +78,7 @@ async def save_manual_json(
 ):
     """Save user's manual JSON edit and extract knowledge into suggestion DB."""
     try:
-        tm = engine.get_job_repo(project_id)
-        success = await tm.save_manual_json(job_id, request.json_data)
+        success = await engine.save_manual_json(project_id, job_id, request.json_data)
         if not success:
             raise HTTPException(status_code=404, detail="Job not found")
 
@@ -86,7 +90,17 @@ async def save_manual_json(
             # 回饋失敗不影響主業務
             logger.warning(f"[FeedbackLoop] 建議詞萃取失敗（不影響儲存）: {fb_err}")
 
+        async def _precompute_flatten_cache():
+            try:
+                await engine.export_handler.precompute_flatten_cache(project_id)
+            except Exception as precompute_err:  # noqa: BLE001
+                logger.warning(f"[FlattenCache] 預計算失敗（不影響儲存）: {precompute_err}")
+
+        asyncio.create_task(_precompute_flatten_cache())
+
         return {"status": "saved", "job_id": job_id}
+    except ProjectArchivedError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except HTTPException:
         raise
     except Exception as e:

@@ -1,9 +1,12 @@
 import copy
+import asyncio
+import json
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any
 from pathlib import Path
 from docx import Document
 from docx.shared import RGBColor
+from backend.processing.flattening import build_job_flatten_payload, aggregate_flattened_jobs
 from backend.repositories.project_repository import ProjectRepository
 from backend.repositories.job_repository import JobRepository
 
@@ -12,8 +15,104 @@ logger = logging.getLogger(__name__)
 class WordExporter:
     """Word 報表匯出模組 (依品類跨頁分組)"""
 
+    _flatten_locks: dict[str, asyncio.Lock] = {}
+
     def __init__(self, project_repo: ProjectRepository):
         self.project_repo = project_repo
+
+    def _get_flatten_lock(self, project_id: str) -> asyncio.Lock:
+        lock = self._flatten_locks.get(project_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._flatten_locks[project_id] = lock
+        return lock
+
+    def _flatten_cache_path(self, project_id: str) -> Path:
+        return self.project_repo._project_root(project_id) / "cache" / "flattened_items.json"
+
+    async def _build_source_signature(self, job_repo: JobRepository) -> str:
+        jobs = await job_repo.list_jobs(status="done")
+        parts = [f"{job.get('job_id','')}:{job.get('updated_at', 0)}" for job in jobs]
+        parts.sort()
+        return "|".join(parts)
+
+    def _load_persisted_flatten_payload(self, job: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not isinstance(job, dict):
+            return None
+        if job.get("flattening_status") != "done":
+            return None
+        raw_payload = job.get("flattened_data")
+        if not raw_payload:
+            return None
+        try:
+            payload = json.loads(raw_payload)
+        except Exception:
+            logger.warning("Invalid flattened_data payload for job %s", job.get("job_id"))
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    async def _build_flatten_payload(self, job_repo: JobRepository, source_signature: str) -> dict[str, Any]:
+        jobs = await job_repo.list_jobs(status="done")
+        project = await self.project_repo.get_project(job_repo.project_id) or {}
+        project_group = str((project.get("metadata") or {}).get("group") or "")
+        job_payloads: list[dict[str, Any]] = []
+        payload_sources = {"persisted": 0, "refreshed": 0, "runtime_fallback": 0, "skipped": 0}
+
+        for job in jobs:
+            job_id = job.get("job_id", "")
+            if not job_id:
+                continue
+
+            current = await job_repo.get_job(job_id)
+            payload = self._load_persisted_flatten_payload(current)
+            if payload is not None:
+                payload_sources["persisted"] += 1
+                job_payloads.append(payload)
+                continue
+
+            payload = await job_repo.refresh_flattened_data(job_id, persist=True)
+            if payload is not None:
+                payload_sources["refreshed"] += 1
+                job_payloads.append(payload)
+                continue
+
+            result = await job_repo.get_display_result(job_id) or {}
+            if not isinstance(result, dict) or not result:
+                payload_sources["skipped"] += 1
+                continue
+
+            payload_sources["runtime_fallback"] += 1
+            job_payloads.append(
+                build_job_flatten_payload(
+                    result,
+                    project_group=project_group,
+                    source="display_result",
+                    job_id=job_id,
+                )
+            )
+
+        aggregated = aggregate_flattened_jobs(job_payloads, source_signature=source_signature)
+        aggregated["jobCount"] = len(job_payloads)
+        aggregated["payloadSources"] = payload_sources
+        return aggregated
+
+    async def ensure_flatten_cache(self, project_id: str, job_repo: JobRepository, force: bool = False) -> dict[str, Any]:
+        lock = self._get_flatten_lock(project_id)
+        async with lock:
+            source_signature = await self._build_source_signature(job_repo)
+            cache_path = self._flatten_cache_path(project_id)
+            if not force and cache_path.exists():
+                try:
+                    cached = json.loads(cache_path.read_text(encoding="utf-8"))
+                    if cached.get("sourceSignature") == source_signature:
+                        return cached
+                except Exception:
+                    pass
+
+            payload = await self._build_flatten_payload(job_repo, source_signature)
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            return payload
 
     def _replace_text_in_paragraph(self, paragraph, replacements: Dict[str, str], mark_unfilled_red: bool = True):
         """
@@ -208,48 +307,11 @@ class WordExporter:
             
         meta = project.get("metadata", {})
         
-        # 2. 獲取所有 Job，扁平化 Items 並分類
-        jobs = await job_repo.list_jobs()
-        
-        grouped_items = {}
-        import json
-        for job in jobs:
-            # 優先使用使用者手動修正的 manual_json_text，若無才 fallback 到 vlm_result_json
-            vlm_raw = job.get("manual_json_text") or job.get("vlm_result_json")
-            vlm = {}
-            if isinstance(vlm_raw, str) and vlm_raw.strip():
-                try:
-                    vlm = json.loads(vlm_raw)
-                except Exception:
-                    pass
-            elif isinstance(vlm_raw, dict):
-                vlm = vlm_raw
-                
-            items = vlm.get("items", []) if isinstance(vlm, dict) else []
-            header = vlm.get("header", {}) if isinstance(vlm, dict) else {}
-            
-            # 兼容舊版可能不是 dict 的狀況
-            if not isinstance(header, dict):
-                header = {}
-            if not isinstance(items, list):
-                items = []
-                
-            voucher_id = header.get("voucher_id", "") if isinstance(header, dict) else ""
-            
-            for item in items:
-                cat = item.get("category", "未分類") or "未分類"
-                if cat not in grouped_items:
-                    grouped_items[cat] = []
-                    
-                flat_item = {
-                    "voucher_id": voucher_id,
-                    "name": item.get("name") or item.get("description", ""),
-                    "qty": item.get("qty") or item.get("quantity", ""),
-                    "price": item.get("price", ""),
-                    "total": item.get("total", ""),
-                    "purpose": ""  # 預留用途
-                }
-                grouped_items[cat].append(flat_item)
+        # 2. 使用快取扁平化資料（若過期則重建）
+        flatten_payload = await self.ensure_flatten_cache(project_id, job_repo)
+        grouped_items = flatten_payload.get("groupedItems", {})
+        all_flattened_items = flatten_payload.get("allFlattenedItems", [])
+        sum_total = int(flatten_payload.get("sumTotal", 0))
                 
         # 3. 操作 Word
         doc = Document(template_path)
@@ -273,7 +335,6 @@ class WordExporter:
                     current_list = receipt_elements
             body.remove(e)
 
-        categories = list(grouped_items.keys())
         # We will no longer loop over categories to create pages.
         # We just insert budget_elements, then receipt_elements ONCE.
             
@@ -341,36 +402,6 @@ class WordExporter:
 
         t1 = doc.tables[1] if len(doc.tables) > 1 else None
         
-        all_flattened_items = []
-        # 將所有的 category 合併，保持同 voucher 的項目相鄰
-        for cat in categories:
-            cat_items = grouped_items.get(cat, [])
-            
-            voucher_groups = {}
-            no_voucher = []
-            for it in cat_items:
-                vid = it.get("voucher_id", "")
-                if not vid:
-                    no_voucher.append(it)
-                else:
-                    if vid not in voucher_groups:
-                        voucher_groups[vid] = []
-                    voucher_groups[vid].append(it)
-                    
-            for vid in voucher_groups:
-                for it in voucher_groups[vid]:
-                    it["_category"] = cat
-                    all_flattened_items.append(it)
-            for it in no_voucher:
-                it["_category"] = cat
-                all_flattened_items.append(it)
-
-        sum_total = 0
-        for item in all_flattened_items:
-            try: sum_total += float(item.get("total", 0) or 0)
-            except: pass
-        sum_total = int(sum_total)
-
         rep = dict(base_replacements)
         rep["{{決算_支出總計}}"] = str(sum_total)
         balance = income_total_sum - sum_total

@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock
 
+from backend.repositories.project_repository import ProjectArchivedError
+
 def test_get_project_jobs(mock_app_client, mock_engine_for_api):
     mock_engine_for_api.project_repo.sync_status_to_db = AsyncMock()
     mock_job_repo = AsyncMock()
@@ -42,9 +44,7 @@ def test_run_single_processing(mock_app_client, mock_engine_for_api):
     assert response.json() == {"status": "queued"}
 
 def test_save_manual_json_success(mock_app_client, mock_engine_for_api, monkeypatch):
-    mock_job_repo = AsyncMock()
-    mock_job_repo.save_manual_json = AsyncMock(return_value=True)
-    mock_engine_for_api.get_job_repo.return_value = mock_job_repo
+    mock_engine_for_api.save_manual_json = AsyncMock(return_value=True)
     
     import sys
     
@@ -65,9 +65,14 @@ def test_save_manual_json_success(mock_app_client, mock_engine_for_api, monkeypa
         del sys.modules["backend.repositories.suggestion_repository"]
 
 def test_save_manual_json_not_found(mock_app_client, mock_engine_for_api):
-    mock_job_repo = AsyncMock()
-    mock_job_repo.save_manual_json = AsyncMock(return_value=False)
-    mock_engine_for_api.get_job_repo.return_value = mock_job_repo
+    mock_engine_for_api.save_manual_json = AsyncMock(return_value=False)
     
     response = mock_app_client.put("/api/projects/proj1/jobs/j1/json", json={"json_data": {}})
     assert response.status_code == 404
+
+
+def test_save_manual_json_archived(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.save_manual_json = AsyncMock(side_effect=ProjectArchivedError("Project proj1 is archived and read-only"))
+
+    response = mock_app_client.put("/api/projects/proj1/jobs/j1/json", json={"json_data": {}})
+    assert response.status_code == 409

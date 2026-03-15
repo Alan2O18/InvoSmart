@@ -25,9 +25,15 @@ PROJECT_STATUS = {
     "SPLIT": "已切分",
     "PROCESSING": "辨識中",
     "PROCESSED": "辨識完畢",
-    "ARCHIVED": "已匯出 Excel",
-    "SEALED": "已封存",
+    "ARCHIVED": "已封存",
+    "SEALED": "已封存（舊狀態）",
 }
+
+LOCKED_PROJECT_STATUSES = {"ARCHIVED", "SEALED"}
+
+
+class ProjectArchivedError(RuntimeError):
+    """Raised when a write operation targets an archived project."""
 
 class ProjectRepository:
     """專案資料存取層 (SQLAlchemy ORM 版)"""
@@ -131,6 +137,7 @@ class ProjectRepository:
                 logger.info("project %s status -> %s", project_id, status_code)
 
     async def update_project_metadata(self, project_id: str, metadata: Dict):
+        await self.assert_project_editable(project_id)
         async with self.session_factory() as session:
             stmt = select(Project).where(Project.project_id == project_id)
             p = (await session.execute(stmt)).scalar_one_or_none()
@@ -141,6 +148,7 @@ class ProjectRepository:
 
     async def update_activity_info(self, project_id: str, info: Dict[str, Any]):
         """Merge activity fields into project metadata."""
+        await self.assert_project_editable(project_id)
         async with self.session_factory() as session:
             stmt = select(Project).where(Project.project_id == project_id)
             p = (await session.execute(stmt)).scalar_one_or_none()
@@ -242,6 +250,11 @@ class ProjectRepository:
                 "project_status": "NEW",
             }
 
+    async def assert_project_editable(self, project_id: str):
+        project = await self.get_project(project_id)
+        if project and project.get("status") in LOCKED_PROJECT_STATUSES:
+            raise ProjectArchivedError(f"Project {project_id} is archived and read-only")
+
     # ===================================================
     # Project Status Detection
     # ===================================================
@@ -289,10 +302,13 @@ class ProjectRepository:
     async def sync_status_to_db(self, project_id: str):
         """Calculate suggested_status and sync it to the database."""
         try:
+            project = await self.get_project(project_id)
+            if project and project.get("status") in LOCKED_PROJECT_STATUSES:
+                return
+
             status_info = await self.get_project_status(project_id)
             suggested_status = status_info["suggested_status"]
 
-            project = await self.get_project(project_id)
             if project and project.get("status") != suggested_status:
                 await self.update_project_status(project_id, suggested_status)
                 logger.info(f"Auto-synced status for {project_id}: {suggested_status}")

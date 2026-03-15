@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -63,6 +64,89 @@ def get_voucher_settings() -> Dict[str, Any]:
 def get_layout_repo() -> VoucherLayoutRepository:
     settings = get_voucher_settings()
     return VoucherLayoutRepository(layout_root=settings["layout_root"])
+
+
+def _parse_amount_from_result(result: dict[str, Any]) -> int | None:
+    raw = result.get("total_amount")
+    if raw is None:
+        summary = result.get("summary") or {}
+        raw = summary.get("total")
+    if raw is None:
+        raw = result.get("total")
+    try:
+        return int(round(float(raw)))
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_date_to_timestamp(raw: str) -> float | None:
+    if not raw:
+        return None
+    text = str(raw).strip()
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(text, fmt).timestamp()
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return None
+
+
+def _normalize_date_to_iso(raw: str) -> str:
+    if not raw:
+        return ""
+    text = str(raw).strip()
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return datetime.strptime(text, fmt).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(text).strftime("%Y-%m-%d")
+    except ValueError:
+        return ""
+
+
+def _derive_purpose_from_results(results: list[dict[str, Any]]) -> str:
+    descriptions: list[str] = []
+    for result in results:
+        for item in result.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            desc = str(item.get("category") or item.get("description") or item.get("name") or "").strip()
+            if desc and desc not in descriptions:
+                descriptions.append(desc)
+    return "、".join(descriptions)
+
+
+def _resolve_page_fields(page: dict[str, Any], page_results: list[dict[str, Any]]) -> dict[str, Any]:
+    fields = dict(page.get("fields") or {})
+    fields["receiptCount"] = str(len(page.get("images") or []))
+
+    amounts = [amount for amount in (_parse_amount_from_result(result) for result in page_results) if amount is not None]
+    if amounts:
+        fields["amount"] = str(sum(amounts))
+
+    dated_values = []
+    for result in page_results:
+        raw = str(result.get("date") or (result.get("header") or {}).get("date") or "")
+        ts = _parse_date_to_timestamp(raw)
+        if ts is not None:
+            dated_values.append((ts, raw))
+    if dated_values:
+        dated_values.sort(key=lambda item: item[0])
+        normalized = _normalize_date_to_iso(dated_values[0][1])
+        if normalized:
+            fields["payDate"] = normalized
+
+    if not bool(fields.get("isManuallyEdited")):
+        purpose = _derive_purpose_from_results(page_results)
+        if purpose:
+            fields["purpose"] = purpose
+
+    return fields
 
 
 @functools.lru_cache(maxsize=8)
@@ -203,6 +287,14 @@ async def get_voucher_image(
     if not image_path or not os.path.exists(image_path):
         raise HTTPException(status_code=404, detail="Image not found")
 
+    if thumb:
+        try:
+            preview = await engine.file_ops.ensure_preview_cache(project_id, image_path, max_width=max_width)
+            if preview and os.path.exists(preview["path"]):
+                return FileResponse(path=preview["path"], media_type=preview["media_type"])
+        except Exception as preview_err:  # noqa: BLE001
+            logger.warning("Voucher image preview cache fallback triggered: %s", preview_err)
+
     content, content_type = _load_image_bytes(image_path=image_path, thumb=thumb, max_width=max_width)
     return Response(content=content, media_type=content_type)
 
@@ -238,6 +330,7 @@ async def generate_voucher_pdf(
     }
 
     job_image_map: Dict[str, str] = {}
+    job_result_map: Dict[str, Dict[str, Any]] = {}
     for job_id in all_job_ids:
         job = await job_repo.get_job(job_id)
         if not job:
@@ -249,6 +342,31 @@ async def generate_voucher_pdf(
                 },
             )
         job_image_map[job_id] = job.get("image_path", "")
+        display_result = await job_repo.get_display_result(job_id)
+        job_result_map[job_id] = display_result if isinstance(display_result, dict) else {}
+
+    resolved_pages: List[Dict[str, Any]] = []
+    for page in payload.model_dump().get("pages", []):
+        page_images = page.get("images") or []
+        page_results = [job_result_map.get(image.get("jobId", ""), {}) for image in page_images]
+        resolved_fields = _resolve_page_fields(page, page_results)
+
+        payload_fields = page.get("fields") or {}
+        if str(payload_fields.get("amount") or "") != str(resolved_fields.get("amount") or ""):
+            logger.warning(
+                "Voucher amount mismatch (payload->db truth) project=%s page=%s payload=%s resolved=%s",
+                project_id,
+                page.get("pageIndex"),
+                payload_fields.get("amount"),
+                resolved_fields.get("amount"),
+            )
+
+        resolved_pages.append(
+            {
+                **page,
+                "fields": resolved_fields,
+            }
+        )
 
     safe_project_id = sanitize_project_id(project_id)
     output_dir = Path(settings["layout_root"]) / safe_project_id / "outputs"
@@ -258,7 +376,7 @@ async def generate_voucher_pdf(
 
     try:
         generator = VoucherGenerator(template_path=template_path, font_path=settings.get("font_ttf_path", ""))
-        generator.generate_from_layout(payload.model_dump().get("pages", []), job_image_map=job_image_map, output_path=str(output_path))
+        generator.generate_from_layout(resolved_pages, job_image_map=job_image_map, output_path=str(output_path))
     except ValueError as exc:
         raise HTTPException(
             status_code=422,

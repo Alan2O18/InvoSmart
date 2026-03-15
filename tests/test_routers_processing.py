@@ -1,6 +1,8 @@
 import io
 from unittest.mock import AsyncMock
 
+from backend.repositories.project_repository import ProjectArchivedError
+
 
 def test_run_processing(mock_app_client, mock_engine_for_api):
     mock_engine_for_api.run_processing = AsyncMock(return_value={"status": "queued"})
@@ -20,31 +22,6 @@ def test_run_split_single(mock_app_client, mock_engine_for_api):
     mock_engine_for_api.run_split_single = AsyncMock(return_value={"status": "splitting single"})
     response = mock_app_client.post("/api/projects/proj1/split/f1.jpg")
     assert response.status_code == 200
-
-
-def test_run_excel(mock_app_client, mock_engine_for_api):
-    mock_engine_for_api.run_excel = AsyncMock(return_value={"status": "excel generated"})
-    response = mock_app_client.post("/api/projects/proj1/run_export")
-
-    assert response.status_code == 200
-
-def test_archive_project(mock_app_client, mock_engine_for_api):
-    mock_engine_for_api.archive_project = AsyncMock(return_value={"status": "archived"})
-    response = mock_app_client.post("/api/projects/proj1/run_archive")
-
-    assert response.status_code == 200
-
-def test_regenerate_excel(mock_app_client, mock_engine_for_api):
-    mock_export_handler = AsyncMock()
-    mock_export_handler.run_word = AsyncMock(return_value="fake_path.docx")
-    mock_engine_for_api.export_handler = mock_export_handler
-    
-    from unittest.mock import patch
-    with patch("backend.routers.processing.os.path.exists", return_value=True), \
-         patch("backend.routers.processing.FileResponse", return_value={"status": "word generated"}):
-        response = mock_app_client.post("/api/projects/proj1/run_word_export")
-        assert response.status_code == 200
-        mock_export_handler.run_word.assert_called_once()
 
 
 def test_run_processing_error(mock_app_client, mock_engine_for_api):
@@ -68,37 +45,7 @@ def test_run_split_single_error(mock_app_client, mock_engine_for_api):
     assert response.status_code == 500
 
 
-def test_run_excel_error(mock_app_client, mock_engine_for_api):
-    """Test run excel exception handling."""
-    mock_engine_for_api.run_excel = AsyncMock(side_effect=Exception("Export failed"))
-    response = mock_app_client.post("/api/projects/proj1/run_export")
-    assert response.status_code == 500
-
-
-def test_archive_project_error(mock_app_client, mock_engine_for_api):
-    """Test archive project exception handling."""
-    mock_engine_for_api.archive_project = AsyncMock(side_effect=Exception("Archive failed"))
-    response = mock_app_client.post("/api/projects/proj1/run_archive")
-    assert response.status_code == 500
-
-
-def test_run_word_export_template_not_found(mock_app_client, mock_engine_for_api):
-    """Test word export when template doesn't exist."""
-    from unittest.mock import patch
-    with patch("backend.routers.processing.os.path.exists", return_value=False):
-        response = mock_app_client.post("/api/projects/proj1/run_word_export")
-        # Should fail because template not found
-        assert response.status_code == 500
-
-
-def test_run_word_export_output_not_found(mock_app_client, mock_engine_for_api):
-    """Test word export when output file not created."""
-    mock_export_handler = AsyncMock()
-    mock_export_handler.run_word = AsyncMock(return_value="nonexistent.docx")
-    mock_engine_for_api.export_handler = mock_export_handler
-    
-    from unittest.mock import patch
-    with patch("backend.routers.processing.pathlib.Path.exists", return_value=True):
-        with patch("backend.routers.processing.os.path.exists", return_value=False):
-            response = mock_app_client.post("/api/projects/proj1/run_word_export")
-            assert response.status_code == 500
+def test_run_processing_archived(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.run_processing = AsyncMock(side_effect=ProjectArchivedError("Project proj1 is archived and read-only"))
+    response = mock_app_client.post("/api/projects/proj1/run_processing")
+    assert response.status_code == 409

@@ -78,7 +78,7 @@ class ArchiveHandler:
             if temp_target:
                 shutil.rmtree(temp_target, ignore_errors=True)
             if proc.returncode == 0:
-                await self.project_repo.update_project_status(project_id, "SEALED")
+                await self.project_repo.update_project_status(project_id, "ARCHIVED")
                 return {
                     "success": True,
                     "method": "7z",
@@ -113,7 +113,7 @@ class ArchiveHandler:
                         arc = str(Path(project_id) / Path(r).relative_to(root) / f)
                         z.write(str(full), arc)
             os.replace(tmpzip, str(dest_zip))
-            await self.project_repo.update_project_status(project_id, "SEALED")
+            await self.project_repo.update_project_status(project_id, "ARCHIVED")
             return {
                 "success": True,
                 "method": "zip",

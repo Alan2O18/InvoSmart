@@ -41,7 +41,15 @@ class Job(Base):
     qr_verified = Column(Integer, default=0)
     manual_json_text = Column(Text, nullable=True)
     manual_updated_at = Column(Float, nullable=True)
-    
+
+    # Asset metadata — populated after split/ingest and preview cache generation.
+    source_format = Column(String, nullable=True)   # e.g. "jpg", "jxl", "png"
+    preview_cache_path = Column(String, nullable=True)  # abs path to the latest preview cache file
+
+    # Persisted flatten payload for exporters and one-shot migration backfills.
+    flattened_data = Column(Text, nullable=True)
+    flattening_status = Column(String, nullable=True)
+
     created_at = Column(Float, default=lambda: time.time())
     updated_at = Column(Float, default=lambda: time.time(), onupdate=lambda: time.time())
     

@@ -12,12 +12,21 @@ def test_generate_voucher_returns_pdf_file_response(mock_app_client, mock_engine
 
     mock_job_repo = AsyncMock()
     mock_job_repo.get_job = AsyncMock(return_value={"image_path": str(tmp_path / "invoice.jpg")})
+    mock_job_repo.get_display_result = AsyncMock(return_value={
+        "summary": {"total": 456},
+        "date": "2026/03/07",
+        "items": [{"category": "茶水"}],
+    })
     mock_engine_for_api.get_job_repo.return_value = mock_job_repo
 
     generated_output = output_root / "proj1" / "outputs" / "voucher_123.pdf"
 
-    def fake_generate_from_layout(_pages, job_image_map, output_path):
+    def fake_generate_from_layout(pages, job_image_map, output_path):
         assert job_image_map == {"job-1": str(tmp_path / "invoice.jpg")}
+        assert pages[0]["fields"]["amount"] == "456"
+        assert pages[0]["fields"]["payDate"] == "2026-03-07"
+        assert pages[0]["fields"]["receiptCount"] == "1"
+        assert pages[0]["fields"]["purpose"] == "茶水"
         Path(output_path).write_bytes(b"%PDF-1.4\n%generated\n")
 
     payload = {
@@ -64,6 +73,67 @@ def test_generate_voucher_returns_pdf_file_response(mock_app_client, mock_engine
     assert "attachment; filename=\"voucher_123.pdf\"" in response.headers["content-disposition"]
     assert response.content.startswith(b"%PDF-1.4")
     assert generated_output.exists()
+
+
+def test_generate_keeps_manual_purpose_when_marked_edited(mock_app_client, mock_engine_for_api, tmp_path):
+    template_path = tmp_path / "template.pdf"
+    template_path.write_bytes(b"%PDF-1.4\n%mock template\n")
+    output_root = tmp_path / "layouts"
+
+    mock_job_repo = AsyncMock()
+    mock_job_repo.get_job = AsyncMock(return_value={"image_path": str(tmp_path / "invoice.jpg")})
+    mock_job_repo.get_display_result = AsyncMock(return_value={
+        "summary": {"total": 200},
+        "date": "2026-03-08",
+        "items": [{"category": "應被覆蓋的用途"}],
+    })
+    mock_engine_for_api.get_job_repo.return_value = mock_job_repo
+
+    def fake_generate_from_layout(pages, job_image_map, output_path):
+        assert pages[0]["fields"]["purpose"] == "手動用途"
+        assert job_image_map == {"job-1": str(tmp_path / "invoice.jpg")}
+        Path(output_path).write_bytes(b"%PDF-1.4\n%generated\n")
+
+    payload = {
+        "globalPrefix": "D-16",
+        "startIndex": 1,
+        "pages": [
+            {
+                "pageIndex": 0,
+                "fields": {
+                    "voucherNo": "D-16-01",
+                    "budgetItem": "茶水費",
+                    "amount": "123",
+                    "purpose": "手動用途",
+                    "receiptCount": "1",
+                    "payDate": "2026-03-07",
+                    "isManuallyEdited": True,
+                },
+                "images": [
+                    {
+                        "jobId": "job-1",
+                        "x": 40,
+                        "y": 400,
+                        "w": 150,
+                        "h": 150,
+                    }
+                ],
+            }
+        ],
+    }
+
+    with patch("backend.routers.voucher.get_voucher_settings", return_value={
+        "template_pdf_path": str(template_path),
+        "font_ttf_path": str(tmp_path / "kaiu.ttf"),
+        "layout_root": str(output_root),
+        "thumb_max_width": 800,
+    }), patch("backend.routers.voucher.time.time", return_value=456), patch(
+        "backend.routers.voucher.VoucherGenerator.generate_from_layout",
+        side_effect=fake_generate_from_layout,
+    ):
+        response = mock_app_client.post("/api/voucher/proj1/generate", json=payload)
+
+    assert response.status_code == 200
 
 
 def test_get_kaiu_font_returns_ttf_file(mock_app_client, tmp_path):

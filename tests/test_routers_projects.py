@@ -1,6 +1,8 @@
 from unittest.mock import AsyncMock
 import io
 
+from backend.repositories.project_repository import ProjectArchivedError
+
 
 def test_list_projects(mock_app_client, mock_engine_for_api):
     mock_engine_for_api.project_repo.list_projects = AsyncMock(return_value=[{"project_id": "test1"}])
@@ -115,5 +117,12 @@ def test_update_activity_info_error(mock_app_client, mock_engine_for_api):
     
     response = mock_app_client.post("/api/projects/proj1/activity_info", json={"key": "val"})
     assert response.status_code == 500
+
+
+def test_update_project_archived(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.project_repo.update_project_metadata = AsyncMock(side_effect=ProjectArchivedError("Project proj1 is archived and read-only"))
+
+    response = mock_app_client.put("/api/projects/proj1", json={"name": "new_name"})
+    assert response.status_code == 409
 
 

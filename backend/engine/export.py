@@ -7,6 +7,7 @@ Facade 模式整合所有匯出相關功能：
 - archive_handler.py: 專案封存 (7z/zip)
 """
 import logging
+import inspect
 from typing import Optional, Dict, Any
 from backend.engine.excel_exporter import ExcelExporter
 from backend.engine.archive_handler import ArchiveHandler
@@ -44,7 +45,17 @@ class ExportHandler:
         if not self.engine:
             raise ValueError("Engine instance is required for word export.")
         job_repo = self.engine.get_job_repo(project_id)
-        return self._word_exporter.process_export(project_id, template_path, job_repo)
+        result = self._word_exporter.process_export(project_id, template_path, job_repo)
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    async def precompute_flatten_cache(self, project_id: str):
+        """Best-effort flatten cache precompute after job edits."""
+        if not self.engine:
+            return
+        job_repo = self.engine.get_job_repo(project_id)
+        await self._word_exporter.ensure_flatten_cache(project_id, job_repo)
     
     # Archive Methods
     async def seal_project(

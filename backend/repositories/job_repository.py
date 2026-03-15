@@ -7,7 +7,8 @@ from typing import Optional, Dict, Any, List, Callable
 from sqlalchemy import select, delete, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.database.models import Job, Event, InvoiceItem
+from backend.database.models import Job, Event, InvoiceItem, Project
+from backend.processing.flattening import build_job_flatten_payload
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,10 @@ class JobRepository:
                 "qr_verified": job.qr_verified,
                 "manual_json_text": job.manual_json_text,
                 "manual_updated_at": job.manual_updated_at,
+                "source_format": job.source_format,
+                "preview_cache_path": job.preview_cache_path,
+                "flattened_data": job.flattened_data,
+                "flattening_status": job.flattening_status,
                 "created_at": job.created_at,
                 "updated_at": job.updated_at,
             }
@@ -96,9 +101,82 @@ class JobRepository:
             for k, v in fields.items():
                 if hasattr(job, k):
                     setattr(job, k, v)
+
+            if fields.get("status") and fields.get("status") != "done":
+                job.flattened_data = None
+                job.flattening_status = None
+
+            if fields.get("manual_json_text") is None and "manual_json_text" in fields:
+                job.flattened_data = None
+                job.flattening_status = None
+
+            if fields.get("vlm_result_json") is None and "vlm_result_json" in fields:
+                job.flattened_data = None
+                job.flattening_status = None
+
             job.updated_at = time.time()
             await session.commit()
             return True
+
+    async def _get_project_group(self, session: AsyncSession) -> str:
+        stmt = select(Project.meta_data).where(Project.project_id == self.project_id)
+        meta_data = (await session.execute(stmt)).scalar_one_or_none() or {}
+        if isinstance(meta_data, dict):
+            return str(meta_data.get("group") or "")
+        return ""
+
+    async def refresh_flattened_data(
+        self,
+        job_id: str,
+        *,
+        force: bool = False,
+        persist: bool = True,
+    ) -> Optional[Dict[str, Any]]:
+        async with self.session_factory() as session:
+            stmt = select(Job).where(Job.project_id == self.project_id, Job.job_id == job_id)
+            job = (await session.execute(stmt)).scalar_one_or_none()
+            if not job:
+                return None
+
+            if not force and job.flattened_data and job.flattening_status == "done":
+                try:
+                    return json.loads(job.flattened_data)
+                except Exception:
+                    pass
+
+            source_name = "manual" if job.manual_json_text else "vlm"
+            source_json = job.manual_json_text or job.vlm_result_json
+            if not source_json:
+                if persist:
+                    job.flattened_data = None
+                    job.flattening_status = None
+                    job.updated_at = time.time()
+                    await session.commit()
+                return None
+
+            try:
+                payload = json.loads(source_json)
+            except Exception:
+                if persist:
+                    job.flattened_data = None
+                    job.flattening_status = "failed"
+                    job.updated_at = time.time()
+                    await session.commit()
+                return None
+
+            project_group = await self._get_project_group(session)
+            flattened_payload = build_job_flatten_payload(
+                payload,
+                project_group=project_group,
+                source=source_name,
+                job_id=job_id,
+            )
+            if persist:
+                job.flattened_data = json.dumps(flattened_payload, ensure_ascii=False)
+                job.flattening_status = "done"
+                job.updated_at = time.time()
+                await session.commit()
+            return flattened_payload
 
     # ---------------------
     # Database Sync Strategy
@@ -197,6 +275,15 @@ class JobRepository:
             
             # Sync Items
             await self._sync_items_to_db(session, job_id, vlm_result)
+            project_group = await self._get_project_group(session)
+            flattened_payload = build_job_flatten_payload(
+                vlm_result,
+                project_group=project_group,
+                source="vlm",
+                job_id=job_id,
+            )
+            job.flattened_data = json.dumps(flattened_payload, ensure_ascii=False)
+            job.flattening_status = 'done'
             
             # Emit Event
             event = Event(
@@ -228,6 +315,7 @@ class JobRepository:
                     "source_pdf_path": j.source_pdf_path,  # Bug 2 fix: required for PDF filtering in frontend
                     "status": j.status,
                     "pdf_status": j.pdf_status,
+                    "flattening_status": j.flattening_status,
                     "created_at": j.created_at,
                     "updated_at": j.updated_at,
                     # We usually don't need full JSONs in list endpoint (for optimization)
@@ -346,6 +434,8 @@ class JobRepository:
             "vlm_stats": vlm_stats,
             "qr_verified": bool(job.get("qr_verified")),
             "manual_json_text": json.dumps(manual_json, ensure_ascii=False) if manual_json else None,
+            "flattened_data": json.loads(job["flattened_data"]) if job.get("flattened_data") else None,
+            "flattening_status": job.get("flattening_status"),
             "manual_updated_at": job.get("manual_updated_at"),
             "created_at": job["created_at"],
             "updated_at": job["updated_at"],
@@ -365,6 +455,15 @@ class JobRepository:
             
             # Sync to actual relational table
             await self._sync_items_to_db(session, job_id, json_data)
+            project_group = await self._get_project_group(session)
+            flattened_payload = build_job_flatten_payload(
+                json_data,
+                project_group=project_group,
+                source="manual",
+                job_id=job_id,
+            )
+            job.flattened_data = json.dumps(flattened_payload, ensure_ascii=False)
+            job.flattening_status = 'done'
             
             event = Event(
                 job_id=job_id,
