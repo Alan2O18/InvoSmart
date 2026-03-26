@@ -31,12 +31,6 @@ VALID_CATEGORIES = {
     "item_name":       "品項名稱",
     "shop_name":       "店家/章名稱",
     "expense_category":"報帳名目",
-    # 舊版相容 (legacy)
-    "supplier":        "賣方 (舊版相容)",
-    "buyer":           "買方 (舊版相容)",
-    "seller_id":       "賣方統編 (舊版相容)",
-    "buyer_id":        "買方統編 (舊版相容)",
-    "stamp_shop_name": "店章 (舊版相容)",
 }
 
 # RAG Prompt 提供的每個分類最大建議數

@@ -1,0 +1,357 @@
+backend/database/core.py:31: def get_global_db_path() -> Path:
+backend/database/core.py:47: def set_sqlite_pragma(dbapi_connection, connection_record):
+backend/database/models.py:6: class Project(Base):
+backend/database/models.py:23: class Job(Base):
+backend/database/models.py:62: class InvoiceItem(Base):
+backend/database/models.py:78: class Event(Base):
+backend/database/models.py:91: class Group(Base):
+backend/database/models.py:98: class Suggestion(Base):
+backend/engine/archive_handler.py:14: class ArchiveHandler:
+backend/engine/core.py:36: class Engine:
+backend/engine/excel_exporter.py:18: class ExcelExporter:
+backend/engine/export.py:19: class ExportHandler:
+backend/engine/file_ops.py:16: class FileOps:
+backend/engine/pdf_worker.py:14: def pdf_worker_loop(engine):
+backend/engine/regeneration_handler.py:11: class RegenerationHandler:
+backend/engine/voucher_generator.py:16: class VoucherGenerator:
+backend/engine/voucher_text_config.py:98: def _build_defaults() -> dict[str, Any]:
+backend/engine/voucher_text_config.py:109: def get_full_template_layout() -> dict[str, Any]:
+backend/engine/voucher_text_config.py:124: def get_text_field_config() -> dict[str, dict[str, Any]]:
+backend/engine/voucher_text_config.py:128: def get_voucher_text_config_payload() -> dict[str, Any]:
+backend/engine/word_exporter.py:15: class WordExporter:
+backend/engine/workers.py:20: def global_receipt_worker_loop(engine):
+backend/models/voucher_payload.py:9: class VoucherImagePayload(BaseModel):
+backend/models/voucher_payload.py:17: class VoucherFieldsDraft(BaseModel):
+backend/models/voucher_payload.py:27: class VoucherPageDraft(BaseModel):
+backend/models/voucher_payload.py:33: class VoucherLayoutPayloadDraft(BaseModel):
+backend/models/voucher_payload.py:39: class VoucherFieldsStrict(BaseModel):
+backend/models/voucher_payload.py:71: class VoucherImageStrict(BaseModel):
+backend/models/voucher_payload.py:86: class VoucherPageStrict(BaseModel):
+backend/models/voucher_payload.py:92: class VoucherLayoutPayloadStrict(BaseModel):
+backend/processing/contour_validator.py:15: class ContourValidator:
+backend/processing/flattening.py:5: def _as_dict(value: Any) -> dict[str, Any]:
+backend/processing/flattening.py:9: def _as_list(value: Any) -> list[Any]:
+backend/processing/flattening.py:13: def _coerce_amount(value: Any) -> float:
+backend/processing/flattening.py:22: def build_job_flatten_payload(
+backend/processing/flattening.py:77: def aggregate_flattened_jobs(
+backend/processing/image_codec_adapter.py:12: class ImageCodecAdapter:
+backend/processing/image_preprocessor.py:10: class ImagePreprocessor:
+backend/processing/jxl_encoder_backend.py:30: def is_jxl_available() -> bool:
+backend/processing/jxl_encoder_backend.py:63: def encode_to_jxl(source_path: str, output_path: str, quality: int = 85) -> Path:
+backend/processing/keyword_classifier.py:18: class ReceiptType(Enum):
+backend/processing/keyword_classifier.py:27: class ClassificationResult:
+backend/processing/keyword_classifier.py:35: class KeywordClassifier:
+backend/processing/llm_handler.py:27: class LLMHandler:
+backend/processing/pdf_engine.py:17: class PDFEngineError(Exception):
+backend/processing/pdf_engine.py:21: def compress_pdf(input_path: str, output_path: str, quality: int = 90) -> bool:
+backend/processing/pdf_engine.py:41: def reorder_pages(doc: fitz.Document, page_order: List[int]) -> None:
+backend/processing/pdf_engine.py:53: def stamp_image(doc: fitz.Document, page_num: int, image_path: str, rect: Tuple[float, float, float, float]) -> None:
+backend/processing/pdf_engine.py:66: def inject_text_layer(doc: fitz.Document, page_num: int, text: str, rect: Tuple[float, float, float, float]) -> None:
+backend/processing/pdf_engine.py:90: def execute_commands(input_path: str, output_path: str, commands: Dict) -> bool:
+backend/processing/perspective_transform.py:17: def order_points(pts: np.ndarray) -> np.ndarray:
+backend/processing/perspective_transform.py:48: def crop_by_rect(image: np.ndarray, rect) -> np.ndarray:
+backend/processing/perspective_transform.py:107: def fix_orientation(image: np.ndarray) -> np.ndarray:
+backend/processing/python_validator.py:17: class ValidationResult:
+backend/processing/python_validator.py:26: class PythonValidator:
+backend/processing/qr_handler.py:29: class QRHandler:
+backend/processing/rapidocr_handler.py:26: class RapidOCRHandler:
+backend/processing/receipt_processor.py:25: class ReceiptProcessor:
+backend/processing/receipt_splitter.py:29: class ReceiptSplitter:
+backend/processing/vision_handler.py:28: class VisionHandler:
+backend/repositories/job_repository.py:15: class JobRepository:
+backend/repositories/project_repository.py:36: class ProjectArchivedError(RuntimeError):
+backend/repositories/project_repository.py:39: class ProjectRepository:
+backend/repositories/suggestion_repository.py:46: class SuggestionRepository:
+backend/repositories/voucher_layout_repo.py:10: def sanitize_project_id(project_id: str) -> str:
+backend/repositories/voucher_layout_repo.py:17: class VoucherLayoutRepository:
+backend/routers/config.py:16: def _guess_provider(base_url: str) -> str:
+backend/routers/config.py:30: def list_vision_models(engine: Engine = Depends(get_engine)):
+backend/routers/config.py:65: def get_config(engine: Engine = Depends(get_engine)):
+backend/routers/config.py:85: def update_config(
+backend/routers/correction.py:13: class ManualTextRequest(BaseModel):
+backend/routers/groups.py:18: class GroupCreate(BaseModel):
+backend/routers/groups.py:23: def _assert_safe_component(value: str, field_name: str) -> str:
+backend/routers/groups.py:32: def _stamp_root(engine: Engine) -> Path:
+backend/routers/groups.py:38: def _leader_stamp_dir(engine: Engine, group_name: str, leader_name: str, create: bool = False) -> Path:
+backend/routers/groups.py:47: def _build_stamp_payload(group_name: str, leader_name: str, stamp_file: Path) -> dict:
+backend/routers/groups.py:60: def _list_stamps_for_leader(engine: Engine, group_name: str, leader_name: str) -> list[dict]:
+backend/routers/jobs.py:67: class ManualJsonRequest(BaseModel):
+backend/routers/projects.py:18: class ProjectCreate(BaseModel):
+backend/routers/suggestions.py:14: class SuggestionRequest(BaseModel):
+backend/routers/suggestions.py:19: class BulkSuggestionRequest(BaseModel):
+backend/routers/suggestions.py:26: def get_suggestion_repo() -> SuggestionRepository:
+backend/routers/voucher.py:47: class _TemplateLayoutPayload(BaseModel):
+backend/routers/voucher.py:57: def get_voucher_settings() -> Dict[str, Any]:
+backend/routers/voucher.py:64: def get_layout_repo() -> VoucherLayoutRepository:
+backend/routers/voucher.py:69: def _parse_amount_from_result(result: dict[str, Any]) -> int | None:
+backend/routers/voucher.py:82: def _parse_date_to_timestamp(raw: str) -> float | None:
+backend/routers/voucher.py:97: def _normalize_date_to_iso(raw: str) -> str:
+backend/routers/voucher.py:112: def _derive_purpose_from_results(results: list[dict[str, Any]]) -> str:
+backend/routers/voucher.py:124: def _resolve_page_fields(page: dict[str, Any], page_results: list[dict[str, Any]]) -> dict[str, Any]:
+backend/routers/voucher.py:153: def _template_preview_payload(template_path: str, mtime: float) -> dict:
+backend/routers/voucher.py:166: def _load_image_bytes(image_path: str, thumb: bool, max_width: int) -> tuple[bytes, str]:
+backend/utils/config.py:11: def load_config() -> dict:
+backend/utils/config.py:25: def save_config(config: dict) -> bool:
+backend/utils/logger.py:25: def setup_logging(
+backend/utils/logger.py:88: def get_logger(name: str) -> logging.Logger:
+backend/utils/parser.py:5: def extract_structured_data(raw_text_or_json: Optional[str]) -> Dict[str, Any]:
+backend/utils/utils.py:12: def cv_imread_chinese(filepath: str) -> np.ndarray:
+backend/utils/utils.py:23: def cv_imwrite_chinese(filepath: str, image: np.ndarray) -> bool:
+backend/dependencies.py:18: def get_engine():
+backend/dependencies.py:36: def set_engine(engine) -> None:
+backend/dependencies.py:48: def reset_engine() -> None:
+backend/dependencies.py:71: def get_sync_db() -> Generator[Session, None, None]:
+backend/main.py:89: def read_root():
+scripts/archive/legacy_debug/test_extract.py:3: def extract():
+scripts/archive/legacy_debug/test_fitz.py:4: def test():
+scripts/archive/legacy_debug/test_fitz_template.py:3: def test_on_template():
+scripts/archive/legacy_debug/test_rapidocr.py:31: def remove_lines(img):
+scripts/archive/legacy_debug/test_rapidocr.py:70: def draw_debug_image(image: np.ndarray, ocr_result: list, output_path: str):
+scripts/archive/legacy_debug/test_rapidocr.py:133: def test_single_image(handler: RapidOCRHandler, image_path: str):
+scripts/archive/legacy_debug/test_rapidocr.py:213: def main():
+scripts/debug_export.py:7: def test_export():
+scripts/debug_gemini_brain.py:6: def main():
+scripts/fix_jobs_pk.py:4: def fix_schema():
+scripts/migrate_assets_paths.py:43: def _ensure_templates_dir(dry_run: bool) -> None:
+scripts/migrate_assets_paths.py:51: def _copy_assets(dry_run: bool) -> dict[str, list[str]]:
+scripts/migrate_assets_paths.py:71: def _scan_hardcoded_devdata(backend_dir: Path) -> list[str]:
+scripts/migrate_assets_paths.py:92: def main() -> int:
+scripts/migrate_db_flatten_jobs.py:19: def load_checkpoint(path: Path) -> dict:
+scripts/migrate_db_flatten_jobs.py:28: def save_checkpoint(path: Path, processed: set[str]):
+scripts/migrate_db_flatten_jobs.py:34: def build_job_key(project_id: str, job_id: str) -> str:
+scripts/migrate_db_flatten_jobs.py:38: def build_arg_parser() -> argparse.ArgumentParser:
+scripts/migrate_db_flatten_jobs.py:181: def run(args: argparse.Namespace, session_factory=None) -> int:
+scripts/migrate_db_flatten_jobs.py:185: def main() -> int:
+scripts/migrate_images_to_jxl_avif.py:17: def configure_logging(verbose: bool):
+scripts/migrate_images_to_jxl_avif.py:22: def load_checkpoint(path: Path) -> dict:
+scripts/migrate_images_to_jxl_avif.py:31: def save_checkpoint(path: Path, processed: set[str]):
+scripts/migrate_images_to_jxl_avif.py:37: def build_preview_path(project_root: Path, source: Path, max_width: int, ext: str) -> Path:
+scripts/migrate_images_to_jxl_avif.py:45: def generate_preview(source: Path, preview_path: Path, max_width: int, fmt: str):
+scripts/migrate_images_to_jxl_avif.py:60: def iter_project_images(workspace_root: Path):
+scripts/migrate_images_to_jxl_avif.py:75: def run(args) -> int:
+scripts/migrate_images_to_jxl_avif.py:171: def _write_rollback(path: Path, new_files: list[str]):
+scripts/migrate_images_to_jxl_avif.py:181: def _write_report(
+scripts/migrate_images_to_jxl_avif.py:209: def parse_args():
+scripts/test_category_field.py:29: def run_test():
+scripts/test_splitter.py:21: def test_splitter(image_path: str, debug_visual: bool = True):
+scripts/test_splitter.py:133: def main():
+scripts/test_vision.py:11: def cv_imread_chinese(file_path):
+scripts/test_word_export.py:5: def test_word_export():
+tests/conftest.py:14: def _create_lazy_mock(module_name):
+tests/conftest.py:64: def temp_workspace():
+tests/conftest.py:72: def mock_ocr_handler():
+tests/conftest.py:82: def mock_llm_handler():
+tests/conftest.py:93: def mock_receipt_splitter():
+tests/conftest.py:101: def mock_rapidocr():
+tests/conftest.py:109: def mock_vision_handler():
+tests/conftest.py:117: def mock_qr_handler():
+tests/conftest.py:124: def mock_audit_handler():
+tests/conftest.py:183: def mock_engine_for_api():
+tests/conftest.py:204: def client(test_engine):
+tests/conftest.py:211: def mock_app_client(mock_engine_for_api):
+tests/conftest.py:221: def fresh_ollama_mock():
+tests/test_classifier.py:9: class TestKeywordClassifier:
+tests/test_contour_validator.py:6: class TestContourValidator:
+tests/test_database_core.py:10: def test_get_global_db_path_uses_config_value(tmp_path):
+tests/test_database_core.py:20: def test_get_global_db_path_falls_back_when_config_load_fails():
+tests/test_database_core.py:28: def test_set_sqlite_pragma_executes_expected_statements():
+tests/test_engine.py:22: class TestEngineProjectManagement:
+tests/test_engine.py:171: class TestEngineFileOps:
+tests/test_engine.py:353: class TestEngineProcessing:
+tests/test_engine.py:446: class TestEngineJobManagement:
+tests/test_engine.py:497: class TestEngineExport:
+tests/test_engine.py:540: class TestEngineGroups:
+tests/test_engine_archive_handler.py:9: def mock_project_repo(tmp_path):
+tests/test_engine_excel_exporter.py:11: def test_generate_text_from_vlm_result_formats_markdown_summary():
+tests/test_engine_file_ops.py:11: def mock_dependencies(tmp_path):
+tests/test_engine_file_ops.py:33: def file_ops(mock_dependencies):
+tests/test_engine_file_ops.py:65: def test_get_raw_files(file_ops, mock_dependencies):
+tests/test_engine_file_ops.py:82: def test_get_raw_files_missing_folder(file_ops):
+tests/test_engine_regeneration_handler.py:7: def mock_project_repo():
+tests/test_engine_regeneration_handler.py:13: def mock_excel_exporter():
+tests/test_engine_regeneration_handler.py:19: def regeneration_handler(mock_project_repo, mock_excel_exporter):
+tests/test_engine_word_exporter.py:8: def word_exporter():
+tests/test_engine_word_exporter.py:13: def test_replace_text_in_paragraph(word_exporter):
+tests/test_engine_word_exporter.py:23: def test_replace_text_hardcoded_coordinator(word_exporter):
+tests/test_engine_word_exporter.py:33: def test_highlight_unfilled_placeholders(word_exporter):
+tests/test_engine_word_exporter.py:54: def test_replace_text_in_table(word_exporter):
+tests/test_engine_word_exporter.py:64: def test_find_row_with_placeholder(word_exporter):
+tests/test_engine_word_exporter.py:73: def test_find_row_with_placeholder_not_found(word_exporter):
+tests/test_engine_word_exporter.py:81: def test_set_cell_text_formatted(word_exporter):
+tests/test_engine_word_exporter.py:89: def test_format_roc_date(word_exporter):
+tests/test_engine_worker_loops.py:9: class ControlledQueue:
+tests/test_engine_worker_loops.py:21: def test_pdf_worker_loop_marks_job_completed_on_success():
+tests/test_engine_worker_loops.py:49: def test_pdf_worker_loop_marks_job_failed_when_engine_raises():
+tests/test_engine_worker_loops.py:73: def test_global_receipt_worker_loop_skips_missing_jobs():
+tests/test_engine_worker_loops.py:94: def test_global_receipt_worker_loop_completes_successful_jobs():
+tests/test_engine_worker_loops.py:128: def test_global_receipt_worker_loop_fails_when_image_load_breaks():
+tests/test_image_codec_adapter.py:10: def test_codec_adapter_defaults_to_jpg():
+tests/test_image_codec_adapter.py:15: def test_codec_adapter_jxl_falls_back_to_jpg_when_unavailable():
+tests/test_image_codec_adapter.py:23: def test_codec_adapter_jxl_resolves_to_jxl_when_available():
+tests/test_image_codec_adapter.py:31: def test_codec_adapter_write_fallback(tmp_path):
+tests/test_image_codec_adapter.py:43: def test_codec_adapter_write_jxl_invokes_encoder(tmp_path):
+tests/test_image_preprocessor.py:9: def test_preprocess_returns_2d_uint8_image():
+tests/test_image_preprocessor.py:20: def test_preprocess_detects_edges_for_simple_shape():
+tests/test_image_preprocessor.py:31: def test_find_contours_sorted_by_area_desc():
+tests/test_image_preprocessor.py:47: def test_find_contours_empty_image_returns_empty_list():
+tests/test_job_repository.py:15: class TestJobRepository:
+tests/test_jxl_encoder_backend.py:13: def reset_jxl_cache():
+tests/test_jxl_encoder_backend.py:20: def test_is_jxl_available_returns_bool():
+tests/test_jxl_encoder_backend.py:26: def test_is_jxl_available_result_is_cached():
+tests/test_jxl_encoder_backend.py:37: def test_is_jxl_unavailable_when_pyvips_missing():
+tests/test_jxl_encoder_backend.py:45: def test_encode_to_jxl_raises_when_unavailable():
+tests/test_jxl_encoder_backend.py:52: def test_encode_to_jxl_delegates_to_pyvips(tmp_path):
+tests/test_main.py:7: def test_client():
+tests/test_main.py:22: def test_read_root(test_client):
+tests/test_main.py:47: def test_cors_and_static_mounts():
+tests/test_migrate_flatten_jobs_script.py:15: def _make_args(workspace_root: str, **overrides) -> argparse.Namespace:
+tests/test_migrate_images_script.py:18: def _make_jpeg(path: Path):
+tests/test_migrate_images_script.py:24: def _make_args(workspace_root: str, **overrides) -> argparse.Namespace:
+tests/test_migrate_images_script.py:54: def test_run_basic_generates_preview(tmp_path):
+tests/test_migrate_images_script.py:69: def test_canary_limit_stops_early(tmp_path):
+tests/test_migrate_images_script.py:85: def test_report_written_with_correct_keys(tmp_path):
+tests/test_migrate_images_script.py:103: def test_rollback_list_written(tmp_path):
+tests/test_migrate_images_script.py:120: def test_dry_run_writes_no_files(tmp_path):
+tests/test_migrate_images_script.py:134: def test_resume_skips_processed(tmp_path):
+tests/test_migrate_images_script.py:154: def test_jxl_archival_invokes_encoder_when_available(tmp_path):
+tests/test_migrate_images_script.py:176: def test_jxl_archival_skips_when_encoder_unavailable(tmp_path):
+tests/test_pdf_engine.py:10: def create_dummy_pdf(path: str, num_pages: int = 3):
+tests/test_pdf_engine.py:19: def create_dummy_image(path: str):
+tests/test_pdf_engine.py:27: def temp_workspace(tmp_path):
+tests/test_pdf_engine.py:37: def test_compress_pdf(temp_workspace):
+tests/test_pdf_engine.py:50: def test_reorder_pages(temp_workspace):
+tests/test_pdf_engine.py:68: def test_stamp_image(temp_workspace):
+tests/test_pdf_engine.py:88: def test_inject_text_layer(temp_workspace):
+tests/test_pdf_engine.py:107: def test_execute_commands_full_pipeline(temp_workspace):
+tests/test_perspective_transform.py:22: class TestOrderPoints:
+tests/test_perspective_transform.py:64: class TestCropByRect:
+tests/test_perspective_transform.py:138: class TestFixOrientation:
+tests/test_processing.py:15: class MockMessage:
+tests/test_processing.py:22: class MockChunk:
+tests/test_processing.py:29: def create_stream_mock(content: str, thinking: str = "") -> list:
+tests/test_processing.py:51: class TestCorrectTextMethod:
+tests/test_processing.py:96: class TestExtractDataMethod:
+tests/test_processing.py:152: class TestLLMHandlerAdvanced:
+tests/test_processing.py:293: class TestLLMHandler:
+tests/test_processing.py:401: class TestReceiptSplitter:
+tests/test_project_repository.py:12: def repo(async_session_factory, tmp_path):
+tests/test_python_validator.py:14: class TestPythonValidator:
+tests/test_qr_handler.py:11: class TestQRHandler:
+tests/test_rapidocr_handler.py:11: class TestRapidOCRHandler:
+tests/test_receipt_processor.py:13: class TestReceiptProcessor:
+tests/test_receipt_splitter.py:22: def splitter():
+tests/test_receipt_splitter.py:33: def default_config():
+tests/test_receipt_splitter.py:46: class TestResizeForDetection:
+tests/test_receipt_splitter.py:76: class TestMaskIoUDedupe:
+tests/test_receipt_splitter.py:114: class TestSplitEndToEnd:
+tests/test_receipt_splitter.py:181: class TestSplitterInit:
+tests/test_receipt_splitter.py:206: def mock_cv2_gui():
+tests/test_receipt_splitter.py:213: class TestReceiptSplitterDebugHelpers:
+tests/test_routers_config.py:4: def test_get_config(mock_app_client, mock_engine_for_api):
+tests/test_routers_config.py:10: def test_get_config_short_key(mock_app_client, mock_engine_for_api):
+tests/test_routers_config.py:18: def test_update_config(mock_save, mock_load, mock_app_client, mock_engine_for_api):
+tests/test_routers_config.py:32: def test_list_vision_models(mock_openai_cls, mock_app_client, mock_engine_for_api):
+tests/test_routers_config.py:56: def test_list_vision_models_missing_key(mock_app_client, mock_engine_for_api):
+tests/test_routers_correction.py:6: def test_save_manual_text(mock_app_client, mock_engine_for_api):
+tests/test_routers_correction.py:13: def test_save_manual_text_not_found(mock_app_client, mock_engine_for_api):
+tests/test_routers_correction.py:20: def test_save_manual_text_archived(mock_app_client, mock_engine_for_api):
+tests/test_routers_exports.py:6: def test_run_excel(mock_app_client, mock_engine_for_api):
+tests/test_routers_exports.py:13: def test_run_excel_error(mock_app_client, mock_engine_for_api):
+tests/test_routers_exports.py:19: def test_archive_project(mock_app_client, mock_engine_for_api):
+tests/test_routers_exports.py:26: def test_archive_project_error(mock_app_client, mock_engine_for_api):
+tests/test_routers_exports.py:32: def test_run_word_export_success(mock_app_client, mock_engine_for_api):
+tests/test_routers_exports.py:45: def test_run_word_export_template_not_found(mock_app_client, mock_engine_for_api):
+tests/test_routers_exports.py:52: def test_run_word_export_output_not_found(mock_app_client, mock_engine_for_api):
+tests/test_routers_exports.py:64: def test_word_template_path_uses_assets_not_dev_data():
+tests/test_routers_files.py:7: def test_add_files(mock_app_client, mock_engine_for_api):
+tests/test_routers_files.py:17: def test_rotate_image(mock_app_client, mock_engine_for_api):
+tests/test_routers_files.py:22: def test_get_raw_files(mock_app_client, mock_engine_for_api):
+tests/test_routers_files.py:28: def test_delete_raw_file(mock_app_client, mock_engine_for_api):
+tests/test_routers_files.py:34: def test_add_files_archived(mock_app_client, mock_engine_for_api):
+tests/test_routers_groups.py:4: def test_list_groups(mock_app_client, mock_engine_for_api):
+tests/test_routers_groups.py:13: def test_upsert_group(mock_app_client, mock_engine_for_api):
+tests/test_routers_groups.py:18: def test_delete_group(mock_app_client, mock_engine_for_api):
+tests/test_routers_groups.py:23: def test_delete_group_leader(mock_app_client, mock_engine_for_api):
+tests/test_routers_jobs.py:6: def test_get_project_jobs(mock_app_client, mock_engine_for_api):
+tests/test_routers_jobs.py:16: def test_get_job_details(mock_app_client, mock_engine_for_api):
+tests/test_routers_jobs.py:26: def test_get_job_details_not_found(mock_app_client, mock_engine_for_api):
+tests/test_routers_jobs.py:34: def test_delete_job(mock_app_client, mock_engine_for_api):
+tests/test_routers_jobs.py:40: def test_run_single_processing(mock_app_client, mock_engine_for_api):
+tests/test_routers_jobs.py:46: def test_save_manual_json_success(mock_app_client, mock_engine_for_api, monkeypatch):
+tests/test_routers_jobs.py:67: def test_save_manual_json_not_found(mock_app_client, mock_engine_for_api):
+tests/test_routers_jobs.py:74: def test_save_manual_json_archived(mock_app_client, mock_engine_for_api):
+tests/test_routers_pdf.py:12: def mock_engine(tmp_path):
+tests/test_routers_pdf.py:57: def create_test_pdf(path: str):
+tests/test_routers_processing.py:7: def test_run_processing(mock_app_client, mock_engine_for_api):
+tests/test_routers_processing.py:14: def test_run_splitting(mock_app_client, mock_engine_for_api):
+tests/test_routers_processing.py:21: def test_run_split_single(mock_app_client, mock_engine_for_api):
+tests/test_routers_processing.py:27: def test_run_processing_error(mock_app_client, mock_engine_for_api):
+tests/test_routers_processing.py:34: def test_run_splitting_error(mock_app_client, mock_engine_for_api):
+tests/test_routers_processing.py:41: def test_run_split_single_error(mock_app_client, mock_engine_for_api):
+tests/test_routers_processing.py:48: def test_run_processing_archived(mock_app_client, mock_engine_for_api):
+tests/test_routers_projects.py:7: def test_list_projects(mock_app_client, mock_engine_for_api):
+tests/test_routers_projects.py:14: def test_create_project(mock_app_client, mock_engine_for_api):
+tests/test_routers_projects.py:25: def test_update_project(mock_app_client, mock_engine_for_api):
+tests/test_routers_projects.py:34: def test_delete_project(mock_app_client, mock_engine_for_api):
+tests/test_routers_projects.py:41: def test_get_project_status(mock_app_client, mock_engine_for_api):
+tests/test_routers_projects.py:50: def test_get_project_detail(mock_app_client, mock_engine_for_api):
+tests/test_routers_projects.py:62: def test_get_project_detail_not_found(mock_app_client, mock_engine_for_api):
+tests/test_routers_projects.py:70: def test_update_activity_info(mock_app_client, mock_engine_for_api):
+tests/test_routers_projects.py:79: def test_create_project_metadata_parse_error(mock_app_client, mock_engine_for_api):
+tests/test_routers_projects.py:89: def test_update_project_error(mock_app_client, mock_engine_for_api):
+tests/test_routers_projects.py:97: def test_delete_project_error(mock_app_client, mock_engine_for_api):
+tests/test_routers_projects.py:105: def test_get_project_status_not_found(mock_app_client, mock_engine_for_api):
+tests/test_routers_projects.py:114: def test_update_activity_info_error(mock_app_client, mock_engine_for_api):
+tests/test_routers_projects.py:122: def test_update_project_archived(mock_app_client, mock_engine_for_api):
+tests/test_routers_suggestions.py:7: def test_client():
+tests/test_routers_suggestions.py:10: def test_get_suggestions(test_client):
+tests/test_routers_suggestions.py:22: def test_add_suggestion_success(test_client):
+tests/test_routers_suggestions.py:34: def test_add_suggestion_failure(test_client):
+tests/test_routers_suggestions.py:45: def test_bulk_add_suggestions(test_client):
+tests/test_routers_voucher.py:8: def test_generate_voucher_returns_pdf_file_response(mock_app_client, mock_engine_for_api, tmp_path):
+tests/test_routers_voucher.py:78: def test_generate_keeps_manual_purpose_when_marked_edited(mock_app_client, mock_engine_for_api, tmp_path):
+tests/test_routers_voucher.py:139: def test_get_kaiu_font_returns_ttf_file(mock_app_client, tmp_path):
+tests/test_routers_voucher.py:153: def test_get_voucher_text_config_returns_shared_field_map(mock_app_client):
+tests/test_routers_voucher.py:175: def test_get_template_returns_done_invoices_with_result(mock_app_client, mock_engine_for_api, monkeypatch):
+tests/test_routers_voucher.py:207: def test_layout_save_and_load(mock_app_client, monkeypatch, tmp_path):
+tests/test_routers_voucher.py:232: def test_generate_rejects_unauthorized_jobid(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+tests/test_routers_voucher.py:282: def test_generate_strict_amount_validation_422(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+tests/test_routers_voucher.py:331: def test_generate_returns_422_when_generator_rejects_amount_cells(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+tests/test_routers_voucher.py:373: def test_generate_success_returns_pdf_file(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+tests/test_routers_voucher.py:429: def test_generate_missing_image_still_outputs_pdf(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+tests/test_routers_voucher.py:482: def _make_voucher_settings(template_pdf, tmp_path):
+tests/test_routers_voucher.py:493: def _make_template_pdf(tmp_path):
+tests/test_routers_voucher.py:502: def test_layout_draft_accepts_empty_paydate(mock_app_client, monkeypatch, tmp_path):
+tests/test_routers_voucher.py:529: def test_generate_strict_rejects_empty_paydate(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+tests/test_routers_voucher.py:564: def test_generate_strict_rejects_decimal_amount(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+tests/test_routers_voucher.py:599: def test_generate_strict_rejects_non_digit_amount(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+tests/test_routers_voucher.py:627: def test_generate_strict_rejects_zero_width_image(mock_app_client, mock_engine_for_api, monkeypatch, tmp_path):
+tests/test_routers_voucher.py:655: def test_layout_draft_accepts_invalid_date(mock_app_client, monkeypatch, tmp_path):
+tests/test_routers_voucher_image_cache.py:4: def test_voucher_image_thumb_uses_preview_cache(tmp_path, mock_app_client, mock_engine_for_api):
+tests/test_suggestion_repository.py:27: def suggestion_repo(async_session_factory):
+tests/test_utils.py:17: class TestParser:
+tests/test_utils.py:116: class TestUtils:
+tests/test_utils_config.py:6: def test_load_config_returns_empty_dict_when_file_missing(monkeypatch, tmp_path):
+tests/test_utils_config.py:12: def test_save_config_round_trips_through_disk(monkeypatch, tmp_path):
+tests/test_utils_config.py:21: def test_save_config_returns_false_on_write_error(monkeypatch, tmp_path):
+tests/test_vision_handler.py:17: class TestVisionHandler:
+tests/test_voucher_generator.py:18: def template_pdf(tmp_path):
+tests/test_voucher_generator.py:29: def generator(template_pdf):
+tests/test_voucher_generator.py:34: def sample_image(tmp_path):
+tests/test_voucher_generator.py:42: def large_image(tmp_path):
+tests/test_voucher_generator.py:50: def small_image(tmp_path):
+tests/test_voucher_generator.py:59: class TestSafeText:
+tests/test_voucher_generator.py:76: class TestRocDate:
+tests/test_voucher_generator.py:99: class TestPaymentAmountFormatting:
+tests/test_voucher_generator.py:107: def test_invalid_font_path_logs_warning_and_falls_back(template_pdf, caplog):
+tests/test_voucher_generator.py:117: class TestAmountCells:
+tests/test_voucher_generator.py:157: class TestPurposeTruncation:
+tests/test_voucher_generator.py:182: class TestImageStreamAntiInflation:
+tests/test_voucher_generator.py:213: class TestMissingMarker:
+tests/test_voucher_generator.py:227: class TestGenerateFromLayout:
+tests/test_voucher_layout_repo.py:13: class TestSanitizeProjectId:
+tests/test_voucher_layout_repo.py:43: class TestVoucherLayoutRepository:
+tests/test_voucher_payload.py:21: class TestDraftSchema:
+tests/test_voucher_payload.py:55: class TestStrictSchema:
+tests/test_voucher_security.py:6: def test_sanitize_project_id_blocks_path_traversal_chars():
+tests/test_voucher_security.py:11: def test_voucher_image_forbidden_response_shape(mock_app_client, mock_engine_for_api):

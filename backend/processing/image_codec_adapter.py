@@ -44,7 +44,10 @@ class ImageCodecAdapter:
 
     def build_archival_path(self, path_stem: Path) -> Path:
         ext = self.resolve_archival_extension()
-        return path_stem.with_suffix(f".{ext}")
+        # path_stem can include dots from source names (e.g. "foo.1_split_0_...").
+        # Using with_suffix() would treat trailing segments as a suffix and collapse
+        # different split outputs into the same filename.
+        return path_stem.parent / f"{path_stem.name}.{ext}"
 
     def write_archival_image(self, output_path: Path, image) -> Path:
         if output_path.suffix.lower() == ".jxl":

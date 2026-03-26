@@ -2,7 +2,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
-import pytest
 
 from backend.processing.image_codec_adapter import ImageCodecAdapter
 
@@ -58,4 +57,21 @@ def test_codec_adapter_write_jxl_invokes_encoder(tmp_path):
 
     mock_encode.assert_called_once()
     assert result == fake_encoded
+
+
+def test_build_archival_path_preserves_dotted_stem_tokens(tmp_path):
+    adapter = ImageCodecAdapter({"archival_format": "jpg"})
+
+    stem1 = tmp_path / "114-2燕巢小宏遠一.1_split_0_1773989291000_abcd12"
+    stem2 = tmp_path / "114-2燕巢小宏遠一.1_split_1_1773989291001_ef3456"
+
+    p1 = adapter.build_archival_path(stem1)
+    p2 = adapter.build_archival_path(stem2)
+
+    assert p1.name.endswith(".jpg")
+    assert p2.name.endswith(".jpg")
+    assert p1.name != p2.name
+    assert "split_0" in p1.name
+    assert "split_1" in p2.name
+
 

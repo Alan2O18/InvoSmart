@@ -3,6 +3,7 @@ import time
 import shutil
 import logging
 import asyncio
+import uuid
 import cv2
 from pathlib import Path
 from typing import Optional
@@ -90,8 +91,10 @@ class FileOps:
                 cropped_paths = []
                 codec = self._codec_adapter()
                 for i, img in enumerate(cropped_images):
-                    ts = int(time.time())
-                    save_stem = split_output_dir / f"{image_path.stem}_split_{i}_{ts}"
+                    # Use high-resolution timestamp + random suffix to prevent filename collisions
+                    # when multiple sources share the same stem or are split within the same second.
+                    unique_token = f"{time.time_ns()}_{uuid.uuid4().hex[:6]}"
+                    save_stem = split_output_dir / f"{image_path.stem}_split_{i}_{unique_token}"
                     archival_path = codec.build_archival_path(save_stem)
                     saved_path = codec.write_archival_image(archival_path, img)
                     cropped_paths.append(saved_path)
@@ -166,6 +169,12 @@ class FileOps:
 
             for file_path in files:
                 filename = Path(file_path).name
+                if type == "split":
+                    stem = Path(filename).stem
+                    suffix = Path(filename).suffix or ".jpg"
+                    unique_token = f"{time.time_ns()}_{uuid.uuid4().hex[:6]}"
+                    filename = f"{stem}_split_manual_{unique_token}{suffix}"
+
                 dest_path = target_dir / filename
                 shutil.copy(file_path, dest_path)
 
@@ -232,7 +241,9 @@ class FileOps:
                 if job_path_abs == rotated_abs_path or Path(job_path).name == filename:
                     await job_repo.update_job(
                         job["job_id"],
-                        status="pending",
+                        # Rotation invalidates extracted results, but does not enqueue processing.
+                        # Keep status as ready so UI/queue semantics remain consistent.
+                        status="ready",
                         vlm_result_json=None,
                         manual_json_text=None,
                         validation_json=None,

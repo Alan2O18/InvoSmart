@@ -31,3 +31,6 @@ demo_*.py
 # Ignore specific files
 test.py
 testB.py
+
+# Production config (may contain secrets)
+config.prod.json

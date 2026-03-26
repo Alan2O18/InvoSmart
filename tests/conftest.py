@@ -172,13 +172,6 @@ async def test_engine(temp_workspace, mock_ocr_handler, mock_llm_handler, mock_r
     dependencies.reset_engine()
 
 
-# 保持向後兼容的別名
-@pytest_asyncio.fixture
-async def real_engine_with_temp_workspace(test_engine):
-    """Alias for test_engine (backward compatibility)."""
-    return test_engine
-
-
 @pytest.fixture
 def mock_engine_for_api():
     """

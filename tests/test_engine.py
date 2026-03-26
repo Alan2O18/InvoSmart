@@ -1,4 +1,4 @@
-"""
+﻿"""
 Comprehensive Engine Unit Tests
 
 Tests all Engine functions with mocked heavy dependencies (OCR, LLM, Splitter).
@@ -22,9 +22,9 @@ from backend.repositories.project_repository import ProjectArchivedError
 class TestEngineProjectManagement:
     """Tests for project creation and management."""
     
-    async def test_create_project_new(self, real_engine_with_temp_workspace):
+    async def test_create_project_new(self, test_engine):
         """Test creating a brand new project."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
             f.write(b"dummy image content")
@@ -46,9 +46,9 @@ class TestEngineProjectManagement:
             if os.path.exists(f_path):
                 os.remove(f_path)
 
-    async def test_create_project_already_exists(self, real_engine_with_temp_workspace):
+    async def test_create_project_already_exists(self, test_engine):
         """Test creating a project that already exists."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Create first
         await engine.project_repo.register_project("existing_proj", "Existing", str(engine.project_repo.workspace_root / "existing_proj"))
@@ -58,9 +58,9 @@ class TestEngineProjectManagement:
         res = await engine.create_project("existing_proj", [], metadata={})
         assert res["status"] in ["already_registered", "resumed_registered"]
 
-    async def test_get_job_repo_creates_singleton(self, real_engine_with_temp_workspace):
+    async def test_get_job_repo_creates_singleton(self, test_engine):
         """Test that get_job_repo returns the same instance for the same project."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Setup project
         project_id = "tm_proj"
@@ -74,10 +74,10 @@ class TestEngineProjectManagement:
         # Ensure it's cached
         assert project_id in engine._job_repos
 
-    async def test_engine_init_and_workers(self, real_engine_with_temp_workspace):
+    async def test_engine_init_and_workers(self, test_engine):
         """Test Engine initialization with workers, config loading and queue status."""
         from backend.engine.core import Engine
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Test config loading
         with patch("os.path.exists", return_value=True):
@@ -112,18 +112,18 @@ class TestEngineProjectManagement:
             assert status["worker_alive"] is True
             assert status["mode"] == "vlm-first"
 
-    async def test_update_config(self, real_engine_with_temp_workspace):
+    async def test_update_config(self, test_engine):
         """Test runtime configuration updating."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         engine.receipt_processor = MagicMock()
         
         engine.update_config({"new": "val"})
         assert engine.config == {"new": "val"}
         engine.receipt_processor.update_config.assert_called_once_with({"new": "val"})
 
-    async def test_get_job_repo_without_session_factory(self, real_engine_with_temp_workspace):
+    async def test_get_job_repo_without_session_factory(self, test_engine):
         """Test get_job_repo gracefully falls back when session_factory is None."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         engine.session_factory = None
         
         # This will trigger lines 174-175 where it imports AsyncSessionLocal
@@ -131,9 +131,9 @@ class TestEngineProjectManagement:
         assert repo is not None
         assert repo.project_id == "test_null_factory"
 
-    async def test_recover_pending_tasks(self, real_engine_with_temp_workspace):
+    async def test_recover_pending_tasks(self, test_engine):
         """Test recovery of pending tasks on startup."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Setup specific state
         await engine.project_repo.register_project("rec_proj", "Rec", str(engine.project_repo.workspace_root / "rec_proj"))
@@ -153,9 +153,9 @@ class TestEngineProjectManagement:
         item = engine.task_queue.get_nowait()
         assert item == ("rec_proj", "job_pending")
 
-    async def test_recover_pending_tasks_exception(self, real_engine_with_temp_workspace):
+    async def test_recover_pending_tasks_exception(self, test_engine):
         """Test recovery of pending tasks handling exceptions."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         await engine.project_repo.register_project("rec_proj_err", "RecE", str(engine.project_repo.workspace_root / "rec_proj_err"))
         
         with patch.object(engine, 'get_job_repo', side_effect=Exception("DB Error")):
@@ -171,9 +171,9 @@ class TestEngineProjectManagement:
 class TestEngineFileOps:
     """Tests for file operations."""
     
-    async def test_run_splitting(self, real_engine_with_temp_workspace):
+    async def test_run_splitting(self, test_engine):
         """Test running splitting on raw files."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Setup project
         await engine.project_repo.register_project("split_proj", "Split", str(engine.project_repo.workspace_root / "split_proj"))
@@ -196,9 +196,9 @@ class TestEngineFileOps:
         jobs = await tm.list_jobs()
         assert len(jobs) == 1
 
-    async def test_get_raw_files_empty(self, real_engine_with_temp_workspace):
+    async def test_get_raw_files_empty(self, test_engine):
         """Test getting raw files when none exist."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Setup project
         await engine.project_repo.register_project("raw_empty", "Empty", str(engine.project_repo.workspace_root / "raw_empty"))
@@ -207,9 +207,9 @@ class TestEngineFileOps:
         files = await engine.get_raw_files("raw_empty")
         assert files == []
 
-    async def test_get_raw_files_with_files(self, real_engine_with_temp_workspace):
+    async def test_get_raw_files_with_files(self, test_engine):
         """Test getting raw files when files exist."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Setup project
         await engine.project_repo.register_project("raw_files", "Files", str(engine.project_repo.workspace_root / "raw_files"))
@@ -223,9 +223,9 @@ class TestEngineFileOps:
         assert len(files) == 1
         assert files[0]["filename"] == "test.jpg"
 
-    async def test_add_project_files_raw(self, real_engine_with_temp_workspace):
+    async def test_add_project_files_raw(self, test_engine):
         """Test adding raw files to a project."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Setup project
         await engine.project_repo.register_project("add_raw", "Add", str(engine.project_repo.workspace_root / "add_raw"))
@@ -246,9 +246,9 @@ class TestEngineFileOps:
             if os.path.exists(f_path):
                 os.remove(f_path)
 
-    async def test_add_project_files_split(self, real_engine_with_temp_workspace):
+    async def test_add_project_files_split(self, test_engine):
         """Test adding split files (should enqueue jobs)."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Setup project (Phase 2: no per-project jobs.db needed)
         await engine.project_repo.register_project("add_split", "Add", str(engine.project_repo.workspace_root / "add_split"))
@@ -271,9 +271,9 @@ class TestEngineFileOps:
             if os.path.exists(f_path):
                 os.remove(f_path)
 
-    async def test_rotate_image(self, real_engine_with_temp_workspace):
+    async def test_rotate_image(self, test_engine):
         """Test rotating an image."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Setup project
         await engine.project_repo.register_project("rotate_proj", "Rotate", str(engine.project_repo.workspace_root / "rotate_proj"))
@@ -290,9 +290,9 @@ class TestEngineFileOps:
         res = await engine.rotate_image("rotate_proj", "test.jpg", 90)
         assert res["status"] == "rotated"
 
-    async def test_delete_raw_file(self, real_engine_with_temp_workspace):
+    async def test_delete_raw_file(self, test_engine):
         """Test deleting a raw file."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Setup project
         await engine.project_repo.register_project("del_raw", "Del", str(engine.project_repo.workspace_root / "del_raw"))
@@ -306,9 +306,9 @@ class TestEngineFileOps:
         assert res["status"] == "deleted"
         assert not (root / "原始輸入" / "to_delete.jpg").exists()
 
-    async def test_delete_raw_file_not_found(self, real_engine_with_temp_workspace):
+    async def test_delete_raw_file_not_found(self, test_engine):
         """Test deleting a non-existent raw file."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Setup project
         await engine.project_repo.register_project("del_raw_nf", "Del", str(engine.project_repo.workspace_root / "del_raw_nf"))
@@ -317,26 +317,26 @@ class TestEngineFileOps:
         res = await engine.delete_raw_file("del_raw_nf", "nonexistent.jpg")
         assert res["status"] == "not_found"
 
-    async def test_delete_raw_file_exception(self, real_engine_with_temp_workspace):
+    async def test_delete_raw_file_exception(self, test_engine):
         """Test exception catching in delete raw file."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         with patch("os.remove", side_effect=PermissionError("Locked")):
             # It needs to hit `path.exists()` first.
             with patch("pathlib.Path.exists", return_value=True):
                 with pytest.raises(PermissionError):
                     await engine.delete_raw_file("some_proj", "file.jpg")
 
-    async def test_run_split_single(self, real_engine_with_temp_workspace):
+    async def test_run_split_single(self, test_engine):
         """Test run_split_single delegation."""
         from unittest.mock import AsyncMock
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         engine.file_ops.run_splitting = AsyncMock(return_value={"status": "done"})
         res = await engine.run_split_single("split_proj", "file1.jpg")
         engine.file_ops.run_splitting.assert_called_once_with("split_proj", target_files=["file1.jpg"])
         assert res["status"] == "done"
 
-    async def test_run_splitting_rejects_archived_project(self, real_engine_with_temp_workspace):
-        engine = real_engine_with_temp_workspace
+    async def test_run_splitting_rejects_archived_project(self, test_engine):
+        engine = test_engine
         await engine.project_repo.register_project("split_locked", "Locked", str(engine.project_repo.workspace_root / "split_locked"))
         await engine.project_repo.update_project_status("split_locked", "ARCHIVED")
 
@@ -353,9 +353,9 @@ class TestEngineFileOps:
 class TestEngineProcessing:
     """Tests for VLM-First processing."""
     
-    async def test_run_processing_queues_jobs(self, real_engine_with_temp_workspace):
+    async def test_run_processing_queues_jobs(self, test_engine):
         """Test that run_processing queues ready jobs to the task queue."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Setup project with job
         await engine.project_repo.register_project("proc_proj", "Proc", str(engine.project_repo.workspace_root / "proc_proj"))
@@ -376,9 +376,9 @@ class TestEngineProcessing:
         job = await tm.get_job("job1")
         assert job["status"] == "pending"
 
-    async def test_run_processing_skips_done_jobs(self, real_engine_with_temp_workspace):
+    async def test_run_processing_skips_done_jobs(self, test_engine):
         """Test that run_processing skips already done jobs."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         await engine.project_repo.register_project("done_proj", "Done", str(engine.project_repo.workspace_root / "done_proj"))
         engine.project_repo._ensure_layout(engine.project_repo._project_root("done_proj"))
@@ -390,9 +390,9 @@ class TestEngineProcessing:
         res = await engine.run_processing("done_proj")
         assert res["queued_count"] == 0
 
-    async def test_run_single_processing(self, real_engine_with_temp_workspace):
+    async def test_run_single_processing(self, test_engine):
         """Test single-job processing queues to task queue."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         await engine.project_repo.register_project("single_proc", "Single", str(engine.project_repo.workspace_root / "single_proc"))
         engine.project_repo._ensure_layout(engine.project_repo._project_root("single_proc"))
@@ -411,9 +411,9 @@ class TestEngineProcessing:
         job = await tm.get_job("single_job")
         assert job["status"] == "pending"
 
-    async def test_run_single_processing_not_found(self, real_engine_with_temp_workspace):
+    async def test_run_single_processing_not_found(self, test_engine):
         """Test that run_single_processing raises on unknown job."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         await engine.project_repo.register_project("nf_proj", "NF", str(engine.project_repo.workspace_root / "nf_proj"))
         engine.project_repo._ensure_layout(engine.project_repo._project_root("nf_proj"))
@@ -421,15 +421,15 @@ class TestEngineProcessing:
         with pytest.raises(ValueError):
             await engine.run_single_processing("nf_proj", "nonexistent")
 
-    async def test_run_processing_exception(self, real_engine_with_temp_workspace):
+    async def test_run_processing_exception(self, test_engine):
         """Test exception thrown from inside processing initiator."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         with patch.object(engine, "get_job_repo", side_effect=Exception("Queue Err")):
             with pytest.raises(Exception, match="Queue Err"):
                 await engine.run_processing("proj_1")
 
-    async def test_run_processing_rejects_archived_project(self, real_engine_with_temp_workspace):
-        engine = real_engine_with_temp_workspace
+    async def test_run_processing_rejects_archived_project(self, test_engine):
+        engine = test_engine
         await engine.project_repo.register_project("proc_locked", "Locked", str(engine.project_repo.workspace_root / "proc_locked"))
         await engine.project_repo.update_project_status("proc_locked", "ARCHIVED")
 
@@ -446,9 +446,9 @@ class TestEngineProcessing:
 class TestEngineJobManagement:
     """Tests for job management."""
     
-    async def test_delete_job(self, real_engine_with_temp_workspace):
+    async def test_delete_job(self, test_engine):
         """Test deleting a job."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Setup
         await engine.project_repo.register_project("del_job", "Del", str(engine.project_repo.workspace_root / "del_job"))
@@ -461,9 +461,9 @@ class TestEngineJobManagement:
         
         assert await tm.get_job("to_delete") is None
 
-    async def test_job_state_transitions(self, real_engine_with_temp_workspace):
+    async def test_job_state_transitions(self, test_engine):
         """Test claim, complete, and fail transitions."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         await engine.project_repo.register_project("state_proj", "State", str(engine.project_repo.workspace_root / "state_proj"))
         engine.project_repo._ensure_layout(engine.project_repo._project_root("state_proj"))
@@ -497,10 +497,10 @@ class TestEngineJobManagement:
 class TestEngineExport:
     """Tests for export functionality."""
     
-    async def test_run_excel(self, real_engine_with_temp_workspace):
+    async def test_run_excel(self, test_engine):
         """Test Excel export."""
         from unittest.mock import AsyncMock
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         engine.export_handler.run_excel = AsyncMock(return_value="path/to/excel.xlsx")
         
@@ -508,10 +508,10 @@ class TestEngineExport:
         assert res == "path/to/excel.xlsx"
         engine.export_handler.run_excel.assert_called_once_with("test_proj")
 
-    async def test_archive_project(self, real_engine_with_temp_workspace):
+    async def test_archive_project(self, test_engine):
         """Test project archiving."""
         from unittest.mock import AsyncMock
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         engine.export_handler.seal_project = AsyncMock(return_value={"status": "archived", "path": "archive.zip"})
         
@@ -520,12 +520,12 @@ class TestEngineExport:
         engine.export_handler.seal_project.assert_called_once_with("test_proj")
 
     @patch("backend.engine.regeneration_handler.RegenerationHandler.regenerate_from_archive")
-    async def test_regenerate_project(self, mock_regenerate, real_engine_with_temp_workspace):
+    async def test_regenerate_project(self, mock_regenerate, test_engine):
         """Test project regeneration from archive."""
         from unittest.mock import AsyncMock
         mock_regenerate.side_effect = AsyncMock(return_value="path/to/new.zip")
         
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         res = await engine.regenerate_project("test_proj", "path/to/excel.xlsx")
         assert res == "path/to/new.zip"
@@ -540,18 +540,18 @@ class TestEngineExport:
 class TestEngineGroups:
     """Tests for group management."""
     
-    async def test_upsert_group(self, real_engine_with_temp_workspace):
+    async def test_upsert_group(self, test_engine):
         """Test creating/updating a group."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         await engine.project_repo.upsert_group("TestGroup", "TestLeader")
         
         groups = await engine.project_repo.list_groups()
         assert any(g["group_name"] == "TestGroup" for g in groups)
 
-    async def test_list_groups(self, real_engine_with_temp_workspace):
+    async def test_list_groups(self, test_engine):
         """Test listing groups."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         await engine.project_repo.upsert_group("G1", "L1")
         await engine.project_repo.upsert_group("G2", "L2")
@@ -559,9 +559,9 @@ class TestEngineGroups:
         groups = await engine.project_repo.list_groups()
         assert len(groups) >= 2
 
-    async def test_delete_group(self, real_engine_with_temp_workspace):
+    async def test_delete_group(self, test_engine):
         """Test deleting a group."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         await engine.project_repo.upsert_group("ToDelete", "Leader")
         await engine.project_repo.delete_group("ToDelete")
@@ -569,9 +569,9 @@ class TestEngineGroups:
         groups = await engine.project_repo.list_groups()
         assert not any(g["group_name"] == "ToDelete" for g in groups)
 
-    async def test_update_activity_info(self, real_engine_with_temp_workspace):
+    async def test_update_activity_info(self, test_engine):
         """Test updating activity info on a project."""
-        engine = real_engine_with_temp_workspace
+        engine = test_engine
         
         # Setup project
         await engine.project_repo.register_project("activity_proj", "Activity", str(engine.project_repo.workspace_root / "activity_proj"))

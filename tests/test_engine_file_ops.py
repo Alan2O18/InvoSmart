@@ -106,7 +106,9 @@ async def test_add_project_files_split_enqueues(file_ops, mock_dependencies, tmp
         
     assert result["status"] == "added"
     engine.enqueue_job.assert_called_once()
-    assert "split_upload.jpg" in str(engine.enqueue_job.call_args[0][1])
+    enqueued_path = str(engine.enqueue_job.call_args[0][1])
+    assert "split_upload" in enqueued_path
+    assert "_split_manual_" in enqueued_path
 
 @pytest.mark.asyncio
 async def test_rotate_image(file_ops, mock_dependencies):
@@ -134,7 +136,7 @@ async def test_rotate_image(file_ops, mock_dependencies):
         mock_imwrite.assert_called_once()
         engine.get_job_repo.return_value.update_job.assert_called_once_with(
             "job-1",
-            status="pending",
+            status="ready",
             vlm_result_json=None,
             manual_json_text=None,
             validation_json=None,
@@ -228,4 +230,37 @@ async def test_split_stores_asset_metadata_on_job(file_ops, mock_dependencies):
         assert "source_format" in kwargs, f"source_format missing in call: {call}"
         assert "preview_cache_path" in kwargs, f"preview_cache_path missing in call: {call}"
         assert kwargs["source_format"] in ("jpg", "jpeg", "png", "webp", "jxl")
+
+
+@pytest.mark.asyncio
+async def test_run_splitting_uses_unique_output_names_for_same_stem(file_ops, mock_dependencies):
+    """Ensure split output names do not collide when raw files share the same stem."""
+    _, splitter, engine, root = mock_dependencies
+    splitter.split.return_value = [np.zeros((10, 10, 3), dtype=np.uint8)]
+
+    raw_dir = root / "原始輸入"
+    raw_dir.mkdir()
+    (raw_dir / "dup.jpg").touch()
+    (raw_dir / "dup.png").touch()
+
+    written_paths = []
+
+    def _capture_write(path, _image):
+        written_paths.append(Path(path).name)
+        return True
+
+    with patch("backend.engine.file_ops.utils.cv_imread_chinese", return_value=np.zeros((50, 50, 3), dtype=np.uint8)), \
+         patch("backend.engine.file_ops.utils.cv_imwrite_chinese", side_effect=_capture_write), \
+         patch("backend.engine.file_ops.time.time_ns", return_value=1234567890), \
+         patch("backend.engine.file_ops.uuid.uuid4") as mock_uuid4:
+        mock_uuid4.side_effect = [
+            MagicMock(hex="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            MagicMock(hex="bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+        ]
+        await file_ops.run_splitting("proj1")
+
+    # One archival write for each raw file. Paths must remain unique even with fixed timestamp.
+    archival_writes = [name for name in written_paths if "_split_" in name]
+    assert len(archival_writes) == 2
+    assert len(set(archival_writes)) == 2
 

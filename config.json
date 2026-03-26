@@ -1,47 +1,5 @@
 {
     "project_manager_settings": {
-        "global_db_path": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB/backend/data/global.db",
-        "workspace_root": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB/backend/data"
-    },
-    "voucher_settings": {
-        "template_pdf_path": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB/backend/assets/templates/憑證黏貼用紙.pdf",
-        "font_ttf_path": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB/backend/assets/fonts/kaiu.ttf",
-        "layout_root": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB/backend/data/projects",
-        "max_pages": 10,
-        "autosave_interval_sec": 30,
-        "thumb_max_width": 800
-    },
-    "vision_settings": {
-        "api_key": "AIzaSyA3H3NTq42dzu1YORmIPl-rgEgMXZndJCE",
-        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
-        "model_name": "models/gemini-3.1-flash-lite-preview",
-        "temperature": 0.0,
-        "debug": true,
-        "timeout": 120,
-        "max_retries": 3,
-        "reasoning_effort": "low",
-        "model": "gemini"
-    },
-    "ocr_settings": {
-        "engine": "rapidocr",
-        "language": "chinese_cht",
-        "use_angle_cls": true
-    },
-    "text_processing": {
-        "enable_traditional_conversion": true,
-        "opencc_config": "s2twp"
-    },
-    "llm_settings": {
-        "model_name": "qwen3:1.7b",
-        "temperature": 0.0,
-        "think_mode": true,
-        "num_predict": 2048
-    },
-    "excel_settings": {
-        "main_sheet_name": "主要",
-        "details_sheet_name": "細節品項"
-    },
-    "task_manager_settings": {
-        "db_name": "jobs.db"
+        "workspace_root": "workspace"
     }
 }

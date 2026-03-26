@@ -29,7 +29,7 @@ def get_suggestion_repo() -> SuggestionRepository:
     return SuggestionRepository(session_factory=lambda: core.AsyncSessionLocal())
 @router.get("/suggestions")
 async def get_suggestions(
-    category: str = Query(..., description="分類: supplier, item_name, buyer, seller_id, buyer_id, stamp_shop_name"),
+    category: str = Query(..., description="分類: supplier_name, buyer_name, supplier_tax_id, buyer_tax_id, item_name, shop_name, expense_category"),
     q: str = Query("", description="搜尋關鍵字"),
     limit: int = Query(20, description="回傳數量上限"),
     repo: SuggestionRepository = Depends(get_suggestion_repo)
