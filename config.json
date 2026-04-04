@@ -1,6 +1,26 @@
 {
     "project_manager_settings": {
-        "workspace_root": "workspace"
+        "workspace_root": "workspace",
+        "global_db_path": "workspace/global.db"
+    },
+    "voucher_settings": {
+        "template_pdf_path": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB/backend/assets/templates/憑證黏貼用紙.pdf",
+        "font_ttf_path": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB/backend/assets/fonts/kaiu.ttf",
+        "layout_root": "c:/Users/tange/Desktop/all_project/py for NKNU GA/AI_AGENT_LAB/backend/data/projects",
+        "max_pages": 10,
+        "autosave_interval_sec": 30,
+        "thumb_max_width": 800
+    },
+    "vision_settings": {
+        "api_key": "AIzaSyA3H3NTq42dzu1YORmIPl-rgEgMXZndJCE",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "model_name": "models/gemini-3.1-flash-lite-preview",
+        "temperature": 0.0,
+        "debug": true,
+        "timeout": 120,
+        "max_retries": 3,
+        "reasoning_effort": "low",
+        "model": "gemini"
     },
     "processing_settings": {
         "archival_format": "jxl"

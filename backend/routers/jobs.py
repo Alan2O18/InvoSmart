@@ -1,6 +1,7 @@
 # Jobs Router - Job 管理端點 (VLM-First)
 import asyncio
 import logging
+from typing import List
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from backend.dependencies import get_engine
@@ -68,6 +69,14 @@ class ManualJsonRequest(BaseModel):
     json_data: dict
 
 
+class SubRect(BaseModel):
+    points: List[List[float]]
+
+
+class ApplyResplitRequest(BaseModel):
+    sub_rects: List[SubRect]
+
+
 @router.put("/{project_id}/jobs/{job_id}/json")
 async def save_manual_json(
     project_id: str, 
@@ -105,5 +114,46 @@ async def save_manual_json(
         raise
     except Exception as e:
         logger.error(f"Error saving manual JSON: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{project_id}/jobs/{job_id}/detect-sub-rects")
+async def detect_sub_rects(project_id: str, job_id: str, engine: Engine = Depends(get_engine)):
+    """Detect potential sub-rectangles for manual second-stage splitting."""
+    try:
+        rects = await engine.detect_job_sub_rects(project_id, job_id)
+        return {
+            "status": "ok",
+            "job_id": job_id,
+            "rects": rects,
+        }
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error detecting sub-rects for job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{project_id}/jobs/{job_id}/apply-resplit")
+async def apply_resplit(
+    project_id: str,
+    job_id: str,
+    request: ApplyResplitRequest,
+    engine: Engine = Depends(get_engine),
+):
+    """Apply manual sub-rectangles and replace the old job with re-split jobs."""
+    try:
+        payload = [rect.model_dump() if hasattr(rect, "model_dump") else rect.dict() for rect in request.sub_rects]
+        return await engine.apply_job_resplit(project_id, job_id, payload)
+    except ProjectArchivedError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error applying resplit for job {job_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

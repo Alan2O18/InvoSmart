@@ -68,6 +68,31 @@ class ImageCodecAdapter:
         # different split outputs into the same filename.
         return path_stem.parent / f"{path_stem.name}.{ext}"
 
+    def _jxl_encode_options(self) -> dict[str, Any]:
+        block = self.processing_settings.get("jxl_encode", {})
+        if not isinstance(block, dict):
+            block = {}
+
+        lossless_raw = block.get(
+            "lossless",
+            self.processing_settings.get("jxl_lossless", False),
+        )
+        effort_raw = block.get(
+            "effort",
+            self.processing_settings.get("jxl_effort", 1),
+        )
+
+        try:
+            effort = int(effort_raw)
+        except (TypeError, ValueError):
+            effort = 1
+        effort = max(1, min(9, effort))
+
+        return {
+            "lossless": bool(lossless_raw),
+            "effort": effort,
+        }
+
     def write_archival_image(
         self,
         output_path: Path,
@@ -79,11 +104,17 @@ class ImageCodecAdapter:
             from backend.processing.jxl_encoder_backend import encode_image_to_jxl, is_jxl_available
 
             if is_jxl_available():
+                jxl_options = self._jxl_encode_options()
                 last_err: Exception | None = None
                 for attempt in range(1, max_retries + 1):
                     try:
                         # Use direct numpy-to-jxl encoding (no intermediate PNG)
-                        result = encode_image_to_jxl(image, str(output_path))
+                        result = encode_image_to_jxl(
+                            image,
+                            str(output_path),
+                            lossless=jxl_options["lossless"],
+                            effort=jxl_options["effort"],
+                        )
                         return result
                     except Exception as exc:
                         last_err = exc

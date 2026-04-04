@@ -95,6 +95,14 @@ export default {
   runSingleProcessing(projectId, jobId) {
     return api.post(`/api/projects/${projectId}/jobs/${jobId}/process`)
   },
+  detectJobSubRects(projectId, jobId) {
+    return api.post(`/api/projects/${projectId}/jobs/${jobId}/detect-sub-rects`)
+  },
+  applyJobResplit(projectId, jobId, subRects) {
+    return api.post(`/api/projects/${projectId}/jobs/${jobId}/apply-resplit`, {
+      sub_rects: subRects,
+    })
+  },
 
   // =====================
   // Export & Archive

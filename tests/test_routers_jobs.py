@@ -76,3 +76,42 @@ def test_save_manual_json_archived(mock_app_client, mock_engine_for_api):
 
     response = mock_app_client.put("/api/projects/proj1/jobs/j1/json", json={"json_data": {}})
     assert response.status_code == 409
+
+
+def test_detect_sub_rects_success(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.detect_job_sub_rects = AsyncMock(return_value=[{"points": [[0, 0], [10, 0], [10, 10], [0, 10]], "area": 100.0}])
+
+    response = mock_app_client.post("/api/projects/proj1/jobs/j1/detect-sub-rects")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert len(payload["rects"]) == 1
+
+
+def test_apply_resplit_success(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.apply_job_resplit = AsyncMock(return_value={"status": "resplit_applied", "new_job_ids": ["n1"]})
+
+    response = mock_app_client.post(
+        "/api/projects/proj1/jobs/j1/apply-resplit",
+        json={
+            "sub_rects": [
+                {"points": [[0, 0], [10, 0], [10, 10], [0, 10]]}
+            ]
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "resplit_applied"
+
+
+def test_apply_resplit_archived(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.apply_job_resplit = AsyncMock(side_effect=ProjectArchivedError("locked"))
+
+    response = mock_app_client.post(
+        "/api/projects/proj1/jobs/j1/apply-resplit",
+        json={
+            "sub_rects": [
+                {"points": [[0, 0], [10, 0], [10, 10], [0, 10]]}
+            ]
+        },
+    )
+    assert response.status_code == 409

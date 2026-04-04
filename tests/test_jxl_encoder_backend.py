@@ -63,9 +63,11 @@ def test_encode_image_to_jxl_delegates_to_imagecodecs(tmp_path):
 
     with patch("backend.processing.jxl_encoder_backend.is_jxl_available", return_value=True), \
          patch.dict("sys.modules", {"imagecodecs": fake_imagecodecs}):
-        result = jxl_mod.encode_image_to_jxl(img, str(output))
+        result = jxl_mod.encode_image_to_jxl(img, str(output), lossless=True, effort=7)
 
     fake_imagecodecs.jpegxl_encode.assert_called_once()
+    assert fake_imagecodecs.jpegxl_encode.call_args.kwargs.get("lossless") is True
+    assert fake_imagecodecs.jpegxl_encode.call_args.kwargs.get("effort") == 7
     assert str(result) == str(output)
     assert output.exists()
     assert output.read_bytes() == b"fakejxl"

@@ -1,4 +1,5 @@
 import pytest
+import asyncio
 from unittest.mock import AsyncMock, patch, MagicMock
 from fastapi.testclient import TestClient
 from backend.main import app, lifespan
@@ -33,6 +34,8 @@ async def test_lifespan_events():
         
         mock_engine = MagicMock()
         mock_engine.recover_pending_tasks = AsyncMock()
+        mock_engine.cleanup_preview_cache = AsyncMock(return_value={"projects": 1, "deleted_files": 0})
+        mock_engine.optimize_jxl_storage_all_projects = AsyncMock(return_value={"optimized_jobs": 0, "failed_jobs": 0})
         mock_get_engine.return_value = mock_engine
         
         async with lifespan(app):
@@ -40,6 +43,9 @@ async def test_lifespan_events():
             mock_init_db.assert_called_once()
             mock_get_engine.assert_called_once()
             mock_engine.recover_pending_tasks.assert_called_once()
+            await asyncio.sleep(0)
+            mock_engine.cleanup_preview_cache.assert_called_once()
+            mock_engine.optimize_jxl_storage_all_projects.assert_called_once()
             
         # Assertions after context exit (Shutdown)
         mock_reset_engine.assert_called_once()

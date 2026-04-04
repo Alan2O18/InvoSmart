@@ -106,10 +106,9 @@ def crop_by_rect(image: np.ndarray, rect) -> np.ndarray:
 
 def fix_orientation(image: np.ndarray) -> np.ndarray:
     """
-    使用二值化投影輪廓 (Binarized Projection Profile) 校正文字方向。
+    V0.0.14: 停用自動方向校正，避免投影啟發式造成誤轉。
 
-    若偵測到文字行是垂直排列的 (var_v > var_h * 1.5)，則旋轉 90 度。
-    無法偵測 180 度倒置 (已知限制)。
+    仍保留函式入口以維持相容性，實際上直接回傳原圖。
 
     Args:
         image: 裁切後的圖像 (BGR 或灰階)。
@@ -117,33 +116,6 @@ def fix_orientation(image: np.ndarray) -> np.ndarray:
     Returns:
         方向校正後的圖像。
     """
-    if image.size == 0:
+    if image is None:
         return image
-
-    # 灰階
-    if len(image.shape) == 3:
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    else:
-        gray = image.copy()
-
-    # Otsu 二值化
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-
-    # 計算黑色像素的水平/垂直投影變異數
-    # 水平投影: 每行黑色像素數量的變異數 (文字水平排列時，行間留白大，變異數大)
-    h_proj = np.sum(binary == 0, axis=1).astype(float)
-    v_proj = np.sum(binary == 0, axis=0).astype(float)
-
-    var_h = np.var(h_proj) if len(h_proj) > 0 else 0
-    var_v = np.var(v_proj) if len(v_proj) > 0 else 0
-
-    logger.debug(f"方向校正: var_h={var_h:.1f}, var_v={var_v:.1f}, "
-                 f"ratio={var_v/var_h:.2f}" if var_h > 0 else
-                 f"方向校正: var_h={var_h:.1f}, var_v={var_v:.1f}")
-
-    # 若垂直投影變異數顯著大於水平，表示文字行是垂直排列的
-    if var_h > 0 and var_v > var_h * 1.5:
-        logger.info("偵測到文字垂直排列，旋轉 90 度")
-        image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
-
     return image

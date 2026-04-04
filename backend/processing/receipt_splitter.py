@@ -18,7 +18,7 @@ import numpy as np
 from typing import List, Dict, Tuple
 
 from backend.processing.image_preprocessor import ImagePreprocessor
-from backend.processing.perspective_transform import crop_by_rect, fix_orientation
+from backend.processing.perspective_transform import crop_by_rect, fix_orientation, order_points
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +73,68 @@ class ReceiptSplitter:
         if image is None:
             return []
 
+        final_rects, dilated, scale_factor = self._detect_rects(image)
+
+        logger.debug(f"IoU 去重後剩 {len(final_rects)} 個有效輪廓")
+
+        # ── Step 4 & 5: 除錯顯示 ──
+        if debug:
+            self._show_debug(image, dilated, final_rects, scale_factor, headless)
+
+        # ── Step 4: Direct Warp 裁切 + Step 5: 方向校正 ──
+        final_receipts = []
+
+        for i, item in enumerate(final_rects):
+            rect = item["rect"]
+
+            # Direct Warp 裁切 (含長邊校正)
+            crop = crop_by_rect(image, rect)
+
+            if crop.size == 0:
+                logger.warning(f"[發票 {i+1}] Direct Warp 裁切失敗")
+                continue
+
+            # 方向校正 (投影輪廓)
+            crop = fix_orientation(crop)
+
+            final_receipts.append(crop)
+            logger.info(f"[發票 {i+1}] 裁切完成: {crop.shape[1]}x{crop.shape[0]}")
+
+            if debug and not headless:
+                self._show_preview(crop, i, len(final_rects))
+
+        if debug and not headless:
+            cv2.destroyAllWindows()
+
+        return final_receipts
+
+    def detect_only(self, image: np.ndarray) -> List[Dict]:
+        """
+        僅偵測可切割的子區域，不執行裁切。
+
+        Returns:
+            每個候選區域包含：
+            - points: [TL, TR, BR, BL] 四點座標
+            - area: 輪廓面積
+        """
+        if image is None:
+            return []
+
+        final_rects, _, _ = self._detect_rects(image)
+        payload = []
+        for item in final_rects:
+            box = cv2.boxPoints(item["rect"])
+            ordered = order_points(box)
+            payload.append(
+                {
+                    "points": [[float(x), float(y)] for x, y in ordered],
+                    "area": float(item["area"]),
+                }
+            )
+        return payload
+
+    def _detect_rects(self, image: np.ndarray) -> Tuple[List[Dict], np.ndarray, float]:
+        """共用偵測流程：回傳去重後矩形、dilated 圖與縮放比例。"""
         img_h, img_w = image.shape[:2]
         total_area = img_h * img_w
 
@@ -117,51 +179,20 @@ class ReceiptSplitter:
                 continue
 
             rect = cv2.minAreaRect(hull)
-            candidate_rects.append({
-                "rect": rect,
-                "area": area,
-            })
+            candidate_rects.append(
+                {
+                    "rect": rect,
+                    "area": area,
+                }
+            )
 
         logger.debug(f"面積過濾後剩 {len(candidate_rects)} 個候選")
 
         # ── Step 3: Mask IoU 去重 ──
-        # 在縮圖尺寸的 Mask 上操作（提升速度）
         final_rects = self._mask_iou_dedupe(
             candidate_rects, scale_factor, (rh, rw)
         )
-
-        logger.debug(f"IoU 去重後剩 {len(final_rects)} 個有效輪廓")
-
-        # ── Step 4 & 5: 除錯顯示 ──
-        if debug:
-            self._show_debug(image, dilated, final_rects, scale_factor, headless)
-
-        # ── Step 4: Direct Warp 裁切 + Step 5: 方向校正 ──
-        final_receipts = []
-
-        for i, item in enumerate(final_rects):
-            rect = item["rect"]
-
-            # Direct Warp 裁切 (含長邊校正)
-            crop = crop_by_rect(image, rect)
-
-            if crop.size == 0:
-                logger.warning(f"[發票 {i+1}] Direct Warp 裁切失敗")
-                continue
-
-            # 方向校正 (投影輪廓)
-            crop = fix_orientation(crop)
-
-            final_receipts.append(crop)
-            logger.info(f"[發票 {i+1}] 裁切完成: {crop.shape[1]}x{crop.shape[0]}")
-
-            if debug and not headless:
-                self._show_preview(crop, i, len(final_rects))
-
-        if debug and not headless:
-            cv2.destroyAllWindows()
-
-        return final_receipts
+        return final_rects, dilated, scale_factor
 
     def _resize_for_detection(
         self, image: np.ndarray

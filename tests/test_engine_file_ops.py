@@ -1,6 +1,7 @@
 import pytest
 import cv2
 import numpy as np
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from PIL import Image
@@ -14,6 +15,7 @@ def mock_dependencies(tmp_path):
     project_root.mkdir()
     project_repo._project_root.return_value = project_root
     project_repo.update_project_status = AsyncMock()
+    project_repo.list_projects = AsyncMock(return_value=[{"project_id": "proj1"}])
     
     receipt_splitter = MagicMock()
     # Mock splitting returns two dummy image arrays
@@ -22,6 +24,7 @@ def mock_dependencies(tmp_path):
     
     engine_ref = AsyncMock()
     engine_ref.enqueue_job = AsyncMock()
+    engine_ref.delete_job = AsyncMock(return_value={"status": "deleted"})
     job_repo = AsyncMock()
     job_repo.list_jobs = AsyncMock(return_value=[])
     job_repo.update_job = AsyncMock(return_value=True)
@@ -319,4 +322,119 @@ def test_render_preview_uses_codec_adapter_for_jxl(tmp_path):
 
     mock_read.assert_called_once_with(str(source))
     assert cache.exists()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_project_cache_removes_stale_files(file_ops, mock_dependencies):
+    _, _, _, root = mock_dependencies
+    cache_file = root / "快取影像" / "voucher_preview" / "stale.webp"
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_file.write_bytes(b"old")
+
+    stale_ts = 1
+    os.utime(cache_file, (stale_ts, stale_ts))
+
+    result = await file_ops.cleanup_project_cache("proj1", max_age_hours=24)
+
+    assert result["deleted_files"] == 1
+    assert not cache_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_job_files_removes_assets(file_ops, mock_dependencies):
+    _, _, engine, root = mock_dependencies
+    split_file = root / "分割發票" / "to_delete.jpg"
+    split_file.parent.mkdir(parents=True, exist_ok=True)
+    split_file.write_bytes(b"img")
+
+    preview_file = root / "快取影像" / "voucher_preview" / "to_delete_cache.jpg"
+    preview_file.parent.mkdir(parents=True, exist_ok=True)
+    preview_file.write_bytes(b"preview")
+
+    engine.get_job_repo.return_value.get_job = AsyncMock(
+        return_value={
+            "job_id": "job-1",
+            "image_path": str(split_file),
+            "preview_cache_path": str(preview_file),
+            "source_pdf_path": None,
+            "compressed_pdf_path": None,
+        }
+    )
+
+    result = await file_ops.delete_job_files("proj1", "job-1")
+
+    assert result["job_found"] is True
+    assert not split_file.exists()
+    assert not preview_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_detect_job_sub_rects_delegates_to_splitter(file_ops, mock_dependencies):
+    _, splitter, engine, root = mock_dependencies
+    img_path = root / "分割發票" / "target.jpg"
+    img_path.parent.mkdir(parents=True, exist_ok=True)
+    img_path.write_bytes(b"dummy")
+
+    splitter.detect_only.return_value = [{"points": [[0, 0], [10, 0], [10, 10], [0, 10]], "area": 100.0}]
+    engine.get_job_repo.return_value.get_job = AsyncMock(return_value={"job_id": "job-1", "image_path": str(img_path)})
+
+    with patch("backend.engine.file_ops.utils.cv_imread_chinese", return_value=np.zeros((20, 20, 3), dtype=np.uint8)):
+        result = await file_ops.detect_job_sub_rects("proj1", "job-1")
+
+    assert len(result) == 1
+    splitter.detect_only.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_apply_job_resplit_creates_new_jobs(file_ops, mock_dependencies):
+    _, _, engine, root = mock_dependencies
+    src_path = root / "分割發票" / "source.jpg"
+    src_path.parent.mkdir(parents=True, exist_ok=True)
+    utils.cv_imwrite_chinese(str(src_path), np.full((240, 160, 3), 200, dtype=np.uint8))
+
+    engine.get_job_repo.return_value.get_job = AsyncMock(return_value={"job_id": "old-job", "image_path": str(src_path)})
+    engine.enqueue_job = AsyncMock(side_effect=["new-job-1", "new-job-2"])
+
+    with patch.object(file_ops, "ensure_preview_cache", AsyncMock(return_value=None)):
+        result = await file_ops.apply_job_resplit(
+            "proj1",
+            "old-job",
+            [
+                {"points": [[10, 10], [150, 10], [150, 110], [10, 110]]},
+                {"points": [[10, 120], [150, 120], [150, 220], [10, 220]]},
+            ],
+        )
+
+    assert result["status"] == "resplit_applied"
+    assert len(result["new_job_ids"]) == 2
+    engine.delete_job.assert_called_once_with("proj1", "old-job")
+
+
+@pytest.mark.asyncio
+async def test_optimize_jxl_storage_updates_job_path(file_ops, mock_dependencies):
+    _, _, engine, root = mock_dependencies
+    src_path = root / "分割發票" / "legacy.jpg"
+    src_path.parent.mkdir(parents=True, exist_ok=True)
+    utils.cv_imwrite_chinese(str(src_path), np.full((80, 80, 3), 128, dtype=np.uint8))
+
+    engine.get_job_repo.return_value.list_jobs = AsyncMock(return_value=[
+        {"job_id": "legacy-job", "image_path": str(src_path)},
+    ])
+
+    def fake_write(output_path, _image, *_args, **_kwargs):
+        output = Path(output_path)
+        output.write_bytes(b"fake-jxl")
+        return output
+
+    with patch("backend.engine.file_ops.utils.cv_imread_chinese", return_value=np.zeros((80, 80, 3), dtype=np.uint8)), \
+         patch("backend.engine.file_ops.ImageCodecAdapter.resolve_archival_extension", return_value="jxl"), \
+         patch("backend.engine.file_ops.ImageCodecAdapter.write_archival_image", side_effect=fake_write), \
+         patch.object(file_ops, "ensure_preview_cache", AsyncMock(return_value={"path": "cache.jpg"})):
+        summary = await file_ops.optimize_jxl_storage("proj1", force=False)
+
+    assert summary["optimized_jobs"] == 1
+    assert summary["failed_jobs"] == 0
+    update_kwargs = engine.get_job_repo.return_value.update_job.call_args.kwargs
+    assert update_kwargs["source_format"] == "jxl"
+    assert update_kwargs["image_path"].endswith(".jxl")
 

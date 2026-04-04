@@ -16,3 +16,4 @@
 - `v0_0_11.md`: Settings 前端修復、多組長與電子章管理上線；模型列表自動抓取。另記錄「圖片問題尚未完全修復」
 - `v0_0_12.md`: JXL 編碼器切換（pyvips -> imagecodecs）與預覽 API 修復，解決 JXL 前端預覽斷鏈
 - `v0_0_13.md`: JXL 全鏈路相容性收尾（Adapter 讀取端、FileOps/Voucher/Router 統一路徑、pytest 補強）
+- `v0_0_14.md`: 儲存空間清理與手動二切上線（啟動清理、JXL 優化、detect/apply-resplit、前端 ResplitModal）

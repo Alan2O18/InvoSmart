@@ -26,11 +26,8 @@ def cv_imread_chinese(filepath: str) -> np.ndarray:
             raw = source.read_bytes()
             # imagecodecs 回傳通常是 RGB，轉換為 BGR 以符合 OpenCV 慣例
             arr = imagecodecs.jpegxl_decode(raw)
-            if len(arr.shape) == 3:
-                if arr.shape[2] == 3:
-                    return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
-                elif arr.shape[2] == 4:
-                    return cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR)
+            if len(arr.shape) == 3 and arr.shape[2] == 3:
+                return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
             return arr
 
         cv_img = cv2.imdecode(np.fromfile(filepath, dtype=np.uint8), -1)
@@ -44,13 +41,7 @@ def cv_imread_chinese(filepath: str) -> np.ndarray:
 def cv_imwrite_chinese(filepath: str, image: np.ndarray) -> bool:
     """支援中文路徑的 OpenCV 圖像寫入。"""
     try:
-        ext = os.path.splitext(filepath)[1].lower()
-        if ext == ".jxl":
-            from backend.processing.jxl_encoder_backend import encode_image_to_jxl
-            encode_image_to_jxl(image, filepath)
-            return True
-
-        is_success, im_buf_arr = cv2.imencode(ext, image)
+        is_success, im_buf_arr = cv2.imencode(os.path.splitext(filepath)[1], image)
         if is_success:
             im_buf_arr.tofile(filepath)
             return True

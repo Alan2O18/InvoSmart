@@ -1,6 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
+from contextlib import suppress
+import asyncio
+import logging
 import sys
 import os
 
@@ -13,6 +16,8 @@ sys.path.append(PROJECT_ROOT)
 # Initialize logging BEFORE other imports
 from backend.utils.logger import setup_logging
 setup_logging()
+
+logger = logging.getLogger(__name__)
 
 from backend.routers import router as projects_router, websocket
 from backend.routers.suggestions import router as suggestions_router
@@ -57,8 +62,52 @@ async def lifespan(app: FastAPI):
     
     # 3. Recover pending tasks that might have crashed previously
     await engine.recover_pending_tasks()
+
+    startup_tasks: list[asyncio.Task] = []
+
+    async def _startup_housekeeping():
+        processing_settings = config.get("processing_settings", {})
+        cleanup_max_age = int(processing_settings.get("preview_cache_cleanup_max_age_hours", 24))
+        optimize_on_startup = bool(processing_settings.get("optimize_jxl_on_startup", True))
+
+        try:
+            cache_summary = await engine.cleanup_preview_cache(max_age_hours=cleanup_max_age)
+            cache_projects = cache_summary.get("projects") if isinstance(cache_summary, dict) else None
+            cache_deleted = cache_summary.get("deleted_files") if isinstance(cache_summary, dict) else None
+            logger.info(
+                "[Startup] Preview cache cleanup done: projects=%s deleted_files=%s",
+                cache_projects,
+                cache_deleted,
+            )
+        except Exception as cache_err:  # noqa: BLE001
+            logger.warning(f"[Startup] Preview cache cleanup failed: {cache_err}")
+
+        if optimize_on_startup:
+            try:
+                optimize_summary = await engine.optimize_jxl_storage_all_projects(force=False)
+                optimize_count = optimize_summary.get("optimized_jobs") if isinstance(optimize_summary, dict) else None
+                optimize_failed = optimize_summary.get("failed_jobs") if isinstance(optimize_summary, dict) else None
+                logger.info(
+                    "[Startup] JXL optimization done: optimized_jobs=%s failed_jobs=%s",
+                    optimize_count,
+                    optimize_failed,
+                )
+            except Exception as optimize_err:  # noqa: BLE001
+                logger.warning(f"[Startup] JXL optimization failed: {optimize_err}")
+
+    startup_tasks.append(asyncio.create_task(_startup_housekeeping()))
     
     yield
+
+    for task in startup_tasks:
+        if task.done():
+            with suppress(Exception):
+                task.result()
+            continue
+        task.cancel()
+        with suppress(asyncio.CancelledError):
+            await task
+
     # Shutdown: Stop worker threads gracefully
     reset_engine()
 

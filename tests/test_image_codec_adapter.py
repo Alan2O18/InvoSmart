@@ -51,10 +51,18 @@ def test_codec_adapter_write_jxl_invokes_encoder(tmp_path):
     with patch.object(jxl_mod, "is_jxl_available", return_value=True), \
          patch.object(jxl_mod, "encode_image_to_jxl", return_value=fake_encoded) as mock_encode:
 
-        adapter = ImageCodecAdapter({"archival_format": "jxl"})
+        adapter = ImageCodecAdapter({
+            "archival_format": "jxl",
+            "jxl_encode": {"lossless": True, "effort": 6},
+        })
         result = adapter.write_archival_image(output, image)
 
-    mock_encode.assert_called_once()
+    mock_encode.assert_called_once_with(
+        image,
+        str(output),
+        lossless=True,
+        effort=6,
+    )
     assert result == fake_encoded
 
 

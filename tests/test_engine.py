@@ -460,10 +460,39 @@ class TestEngineJobManagement:
         
         tm = engine.get_job_repo("del_job")
         await tm.insert_job("to_delete", "test.jpg")
-        
-        await engine.delete_job("del_job", "to_delete")
+
+        with patch.object(engine.file_ops, "delete_job_files", AsyncMock(return_value={"job_found": True})) as mock_cleanup:
+            result = await engine.delete_job("del_job", "to_delete")
+
+        mock_cleanup.assert_called_once_with("del_job", "to_delete")
+        assert result["status"] == "deleted"
         
         assert await tm.get_job("to_delete") is None
+
+    async def test_cleanup_preview_cache_delegate(self, test_engine):
+        engine = test_engine
+        with patch.object(engine.file_ops, "cleanup_all_projects_cache", AsyncMock(return_value={"deleted_files": 3})) as mock_cleanup:
+            result = await engine.cleanup_preview_cache(max_age_hours=12)
+
+        mock_cleanup.assert_called_once_with(max_age_hours=12)
+        assert result["deleted_files"] == 3
+
+    async def test_detect_and_apply_resplit_delegates(self, test_engine):
+        engine = test_engine
+        await engine.project_repo.register_project("resplit_proj", "Resplit", str(engine.project_repo.workspace_root / "resplit_proj"))
+        engine.project_repo._ensure_layout(engine.project_repo._project_root("resplit_proj"))
+
+        with patch.object(engine.file_ops, "detect_job_sub_rects", AsyncMock(return_value=[{"points": [], "area": 1.0}])) as mock_detect:
+            detected = await engine.detect_job_sub_rects("resplit_proj", "job-1")
+
+        assert len(detected) == 1
+        mock_detect.assert_called_once_with("resplit_proj", "job-1")
+
+        with patch.object(engine.file_ops, "apply_job_resplit", AsyncMock(return_value={"status": "resplit_applied"})) as mock_apply:
+            result = await engine.apply_job_resplit("resplit_proj", "job-1", [{"points": [[0, 0], [1, 0], [1, 1], [0, 1]]}])
+
+        mock_apply.assert_called_once()
+        assert result["status"] == "resplit_applied"
 
     async def test_job_state_transitions(self, test_engine):
         """Test claim, complete, and fail transitions."""

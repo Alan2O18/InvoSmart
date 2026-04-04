@@ -149,16 +149,15 @@ class TestFixOrientation:
         # 不應旋轉，尺寸不變
         assert result.shape == img.shape
 
-    def test_vertical_text_rotates(self):
-        """垂直文字行 → 應旋轉 90 度"""
+    def test_vertical_text_no_auto_rotate(self):
+        """v0.0.14: 垂直文字行也不應自動旋轉"""
         # 建立有垂直線條的圖片 (模擬垂直排列的文字行)
         img = np.ones((200, 300, 3), dtype=np.uint8) * 255
         for x in range(30, 270, 20):  # 垂直黑色條紋
             cv2.line(img, (x, 20), (x, 180), (0, 0, 0), 2)
 
         result = fix_orientation(img)
-        # 旋轉 90 度後，寬高交換
-        assert result.shape[0] == img.shape[1] or result.shape[1] == img.shape[0]
+        assert result.shape == img.shape
 
     def test_empty_image(self):
         """空圖片不崩潰"""

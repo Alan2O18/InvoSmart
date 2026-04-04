@@ -17,8 +17,8 @@ Usage::
 """
 
 import logging
-import os
 from pathlib import Path
+from typing import Any
 
 import cv2
 import numpy as np
@@ -51,7 +51,28 @@ def is_jxl_available() -> bool:
     return _JXL_AVAILABLE
 
 
-def encode_image_to_jxl(image: np.ndarray, output_path: str, quality: int = 85) -> Path:
+def _clamp_effort(value: Any) -> int:
+    try:
+        effort = int(value)
+    except (TypeError, ValueError):
+        effort = 1
+    return max(1, min(9, effort))
+
+
+def _quality_to_distance(quality: int) -> float:
+    # Map quality [1, 100] to a practical JPEG-XL distance range [0, 15].
+    q = max(1, min(100, int(quality)))
+    return (100 - q) * 0.15
+
+
+def encode_image_to_jxl(
+    image: np.ndarray,
+    output_path: str,
+    quality: int = 85,
+    *,
+    lossless: bool = False,
+    effort: int = 1,
+) -> Path:
     """
     Encode a numpy image array (BGR) to JPEG-XL at *output_path*.
 
@@ -71,11 +92,27 @@ def encode_image_to_jxl(image: np.ndarray, output_path: str, quality: int = 85) 
     else:
         image_rgb = image
 
-    # Quality in imagecodecs is level (0-100) or effort (default)
-    # imagecodecs.jpegxl_encode doesn't have a direct 'quality' param like pyvips's 'Q'
-    # but we can pass level=quality.
-    # Note: imagecodecs API might vary slightly, but jpegxl_encode(image) works.
-    encoded = imagecodecs.jpegxl_encode(image_rgb, effort=1)
+    effort = _clamp_effort(effort)
+
+    primary_kwargs = {"effort": effort}
+    if lossless:
+        primary_kwargs["lossless"] = True
+    else:
+        primary_kwargs["distance"] = _quality_to_distance(quality)
+
+    try:
+        encoded = imagecodecs.jpegxl_encode(image_rgb, **primary_kwargs)
+    except TypeError:
+        # Keep compatibility across imagecodecs variants with narrower signatures.
+        fallback_kwargs = {"effort": effort}
+        if lossless:
+            fallback_kwargs["level"] = 100
+        else:
+            fallback_kwargs["level"] = max(1, min(100, int(quality)))
+        try:
+            encoded = imagecodecs.jpegxl_encode(image_rgb, **fallback_kwargs)
+        except TypeError:
+            encoded = imagecodecs.jpegxl_encode(image_rgb)
 
     with open(output_path, "wb") as f:
         f.write(encoded)
@@ -83,7 +120,14 @@ def encode_image_to_jxl(image: np.ndarray, output_path: str, quality: int = 85) 
     return Path(output_path)
 
 
-def encode_to_jxl(source_path: str, output_path: str, quality: int = 85) -> Path:
+def encode_to_jxl(
+    source_path: str,
+    output_path: str,
+    quality: int = 85,
+    *,
+    lossless: bool = False,
+    effort: int = 1,
+) -> Path:
     """
     Encode *source_path* image (file) to JPEG-XL at *output_path*.
     Legacy wrapper for compatibility with older file-based logic.
@@ -94,5 +138,11 @@ def encode_to_jxl(source_path: str, output_path: str, quality: int = 85) -> Path
     if image is None:
         raise ValueError(f"Could not read source image for JXL encoding: {source_path}")
 
-    return encode_image_to_jxl(image, output_path, quality)
+    return encode_image_to_jxl(
+        image,
+        output_path,
+        quality,
+        lossless=lossless,
+        effort=effort,
+    )
 

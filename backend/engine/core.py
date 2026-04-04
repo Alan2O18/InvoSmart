@@ -280,11 +280,17 @@ class Engine:
         await job_repo.update_job(job_id, status="failed")
         await job_repo.emit_event(job_id, "failed", {"reason": reason})
 
-    async def delete_job(self, project_id: str, job_id: str) -> bool:
-        """刪除 Job。"""
+    async def delete_job(self, project_id: str, job_id: str) -> dict:
+        """刪除 Job，並同步清除對應檔案與快取。"""
         await self._ensure_project_editable(project_id)
         job_repo = self.get_job_repo(project_id)
-        return await job_repo.delete_job(job_id)
+        file_cleanup = await self.file_ops.delete_job_files(project_id, job_id)
+        deleted = await job_repo.delete_job(job_id)
+        return {
+            "status": "deleted" if deleted else "not_found",
+            "deleted": deleted,
+            "file_cleanup": file_cleanup,
+        }
 
     # ========================================
     # Processing Queue
@@ -384,6 +390,38 @@ class Engine:
         await self._ensure_project_editable(project_id)
         job_repo = self.get_job_repo(project_id)
         return await job_repo.save_manual_json(job_id, json_data)
+
+    async def cleanup_preview_cache(self, max_age_hours: int = 24):
+        return await self.file_ops.cleanup_all_projects_cache(max_age_hours=max_age_hours)
+
+    async def optimize_jxl_storage_all_projects(self, force: bool = False):
+        projects = await self.project_repo.list_projects()
+        details = []
+        total_optimized = 0
+        total_failed = 0
+        for project in projects:
+            project_id = project.get("project_id") or project.get("id")
+            if not project_id:
+                continue
+            summary = await self.file_ops.optimize_jxl_storage(project_id, force=force)
+            details.append(summary)
+            total_optimized += int(summary.get("optimized_jobs", 0))
+            total_failed += int(summary.get("failed_jobs", 0))
+
+        return {
+            "status": "completed",
+            "projects": len(details),
+            "optimized_jobs": total_optimized,
+            "failed_jobs": total_failed,
+            "details": details,
+        }
+
+    async def detect_job_sub_rects(self, project_id: str, job_id: str):
+        return await self.file_ops.detect_job_sub_rects(project_id, job_id)
+
+    async def apply_job_resplit(self, project_id: str, job_id: str, sub_rects: list[dict]):
+        await self._ensure_project_editable(project_id)
+        return await self.file_ops.apply_job_resplit(project_id, job_id, sub_rects)
 
     async def run_excel(self, project_id: str):
         return await self.export_handler.run_excel(project_id)

@@ -174,6 +174,27 @@ class TestSplitEndToEnd:
         assert k == 3
 
 
+class TestDetectOnly:
+    """測試 detect_only 幾何輸出格式。"""
+
+    def test_detect_only_none_image(self, splitter):
+        assert splitter.detect_only(None) == []
+
+    def test_detect_only_returns_points_and_area(self, splitter):
+        img = np.ones((800, 600, 3), dtype=np.uint8) * 180
+        cv2.rectangle(img, (50, 50), (550, 750), (255, 255, 255), -1)
+        for y in range(100, 700, 40):
+            cv2.line(img, (100, y), (500, y), (0, 0, 0), 2)
+
+        rects = splitter.detect_only(img)
+        assert len(rects) >= 1
+        first = rects[0]
+        assert "points" in first
+        assert "area" in first
+        assert len(first["points"]) == 4
+        assert first["area"] > 0
+
+
 # ============================================================================
 # 初始化測試
 # ============================================================================

@@ -149,6 +149,7 @@
               <td>
                 <div class="actions-cell">
                   <button @click="editJob(job)" class="mini-btn edit">核對資料</button>
+                  <button @click="openResplitModal(job)" class="mini-btn split-btn">手動二切</button>
                   <button @click="rotateImage(job, 90)" class="icon-btn" title="Rotate Right">↻</button>
                   <button @click="rotateImage(job, -90)" class="icon-btn" title="Rotate Left">↺</button>
                   <button @click="deleteJob(job)" class="mini-btn danger">Delete</button>
@@ -208,6 +209,13 @@
         </table>
       </div>
     </div>
+
+    <ResplitModal
+      v-model="showResplitModal"
+      :project-id="projectId"
+      :job="selectedResplitJob"
+      @applied="handleResplitApplied"
+    />
   </div>
   <div v-else class="loading">Loading...</div>
 </template>
@@ -216,6 +224,7 @@
 import { ref, onMounted, computed, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../services/api'
+import ResplitModal from '../components/ResplitModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -230,6 +239,8 @@ const loading = ref(false)
 const uploadProgress = ref(0)
 const conversionProgress = ref(null)
 const showProgressOverlay = ref(false)
+const showResplitModal = ref(false)
+const selectedResplitJob = ref(null)
 const conversionPercent = computed(() => {
   if (!conversionProgress.value || conversionProgress.value.total === 0) return 0
   return Math.round((conversionProgress.value.current / conversionProgress.value.total) * 100)
@@ -510,6 +521,16 @@ const editPdfJob = (job) => {
   router.push(`/project/${projectId}/pdf-editor?jobId=${job.job_id}`)
 }
 
+const openResplitModal = (job) => {
+  selectedResplitJob.value = job
+  showResplitModal.value = true
+}
+
+const handleResplitApplied = async () => {
+  selectedResplitJob.value = null
+  await fetchProjectData()
+}
+
 </script>
 
 <style scoped>
@@ -721,6 +742,10 @@ th {
 
 .mini-btn.pdf-btn {
     background: #0ea5e9;
+}
+
+.mini-btn.split-btn {
+  background: #14b8a6;
 }
 
 .mt-2 {
