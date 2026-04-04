@@ -26,6 +26,7 @@ from backend.engine.voucher_text_config import (
 )
 from backend.engine.voucher_generator import VoucherGenerator
 from backend.models.voucher_payload import VoucherLayoutPayloadDraft, VoucherLayoutPayloadStrict
+from backend.processing.image_codec_adapter import ImageCodecAdapter
 from backend.repositories.voucher_layout_repo import VoucherLayoutRepository, sanitize_project_id
 from backend.utils.config import load_config
 
@@ -164,17 +165,16 @@ def _template_preview_payload(template_path: str, mtime: float) -> dict:
 
 
 def _load_image_bytes(image_path: str, thumb: bool, max_width: int) -> tuple[bytes, str]:
-    with Image.open(image_path) as image:
-        image = image.convert("RGB")
-        if thumb and image.width > max_width:
-            new_height = int((max_width / image.width) * image.height)
-            image = image.resize((max_width, max(1, new_height)), Image.Resampling.LANCZOS)
-        buffer = io.BytesIO()
-        if thumb:
-            image.save(buffer, format="WEBP", quality=85)
-            return buffer.getvalue(), "image/webp"
-        image.save(buffer, format="JPEG", quality=95)
-        return buffer.getvalue(), "image/jpeg"
+    image = ImageCodecAdapter().read_image_pil(image_path)
+    if thumb and image.width > max_width:
+        new_height = int((max_width / image.width) * image.height)
+        image = image.resize((max_width, max(1, new_height)), Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    if thumb:
+        image.save(buffer, format="WEBP", quality=85)
+        return buffer.getvalue(), "image/webp"
+    image.save(buffer, format="JPEG", quality=95)
+    return buffer.getvalue(), "image/jpeg"
 
 
 @router.get("/fonts/kaiu.ttf")

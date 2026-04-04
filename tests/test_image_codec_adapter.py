@@ -40,7 +40,7 @@ def test_codec_adapter_write_fallback(tmp_path):
 
 
 def test_codec_adapter_write_jxl_invokes_encoder(tmp_path):
-    """When JXL encoder is available, write_archival_image calls encode_to_jxl."""
+    """When JXL encoder is available, write_archival_image calls encode_image_to_jxl."""
     import backend.processing.jxl_encoder_backend as jxl_mod
 
     image = np.zeros((10, 10, 3), dtype=np.uint8)
@@ -49,8 +49,7 @@ def test_codec_adapter_write_jxl_invokes_encoder(tmp_path):
     fake_encoded.touch()
 
     with patch.object(jxl_mod, "is_jxl_available", return_value=True), \
-         patch.object(jxl_mod, "encode_to_jxl", return_value=fake_encoded) as mock_encode, \
-         patch("backend.processing.image_codec_adapter.utils.cv_imwrite_chinese", return_value=True):
+         patch.object(jxl_mod, "encode_image_to_jxl", return_value=fake_encoded) as mock_encode:
 
         adapter = ImageCodecAdapter({"archival_format": "jxl"})
         result = adapter.write_archival_image(output, image)

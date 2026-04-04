@@ -3,15 +3,36 @@ import cv2
 import numpy as np
 import os
 import logging
+from pathlib import Path
+import shutil
+import tempfile
+from typing import List, AsyncGenerator
+from contextlib import asynccontextmanager
+
+from fastapi import UploadFile
 
 logger = logging.getLogger(__name__)
-import numpy as np
-import os
 
 
 def cv_imread_chinese(filepath: str) -> np.ndarray:
-    """支援中文路徑的 OpenCV 圖像讀取。"""
+    """支援中文路徑的 OpenCV 圖像讀取，並擴充 JXL 支援。"""
     try:
+        source = Path(filepath)
+
+        # 針對 JXL 案件進行特別處理 (因為 cv2.imdecode 不支援 JXL)
+        if source.suffix.lower() == ".jxl":
+            import imagecodecs
+
+            raw = source.read_bytes()
+            # imagecodecs 回傳通常是 RGB，轉換為 BGR 以符合 OpenCV 慣例
+            arr = imagecodecs.jpegxl_decode(raw)
+            if len(arr.shape) == 3:
+                if arr.shape[2] == 3:
+                    return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
+                elif arr.shape[2] == 4:
+                    return cv2.cvtColor(arr, cv2.COLOR_RGBA2BGR)
+            return arr
+
         cv_img = cv2.imdecode(np.fromfile(filepath, dtype=np.uint8), -1)
         if cv_img is None:
             raise ValueError("cv2.imdecode returned None")
@@ -23,7 +44,13 @@ def cv_imread_chinese(filepath: str) -> np.ndarray:
 def cv_imwrite_chinese(filepath: str, image: np.ndarray) -> bool:
     """支援中文路徑的 OpenCV 圖像寫入。"""
     try:
-        is_success, im_buf_arr = cv2.imencode(os.path.splitext(filepath)[1], image)
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext == ".jxl":
+            from backend.processing.jxl_encoder_backend import encode_image_to_jxl
+            encode_image_to_jxl(image, filepath)
+            return True
+
+        is_success, im_buf_arr = cv2.imencode(ext, image)
         if is_success:
             im_buf_arr.tofile(filepath)
             return True
@@ -31,12 +58,6 @@ def cv_imwrite_chinese(filepath: str, image: np.ndarray) -> bool:
     except Exception as e:
         logger.error(f"寫入圖片失敗: {filepath}. 錯誤: {e}")
         return False
-
-import tempfile
-import shutil
-from typing import List, AsyncGenerator
-from contextlib import asynccontextmanager
-from fastapi import UploadFile
 
 @asynccontextmanager
 async def handle_upload_files(files: List[UploadFile]) -> AsyncGenerator[List[str], None]:

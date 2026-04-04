@@ -157,7 +157,7 @@ const getFilename = (path) => path ? path.split('\\').pop().split('/').pop() : '
 const getImageUrl = (path) => {
   if (!path) return ''
   const filename = getFilename(path)
-  return `http://localhost:8000/static/${encodeURIComponent(selectedProjectId.value)}/分割發票/${encodeURIComponent(filename)}`
+  return `http://localhost:8000/api/projects/${encodeURIComponent(selectedProjectId.value)}/preview/split/${encodeURIComponent(filename)}`
 }
 
 const editPdf = (job) => {

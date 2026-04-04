@@ -11,6 +11,7 @@ import time
 import shutil
 import logging
 import json
+import threading
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Callable
 
@@ -43,6 +44,9 @@ class ProjectRepository:
         self.workspace_root = Path(config["workspace_root"]).expanduser().resolve()
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         self.session_factory = session_factory
+        # In-memory conversion progress tracker (thread-safe)
+        self._conversion_status: Dict[str, Dict[str, int]] = {}
+        self._conversion_lock = threading.Lock()
 
     # ===================================================
     # File System Layout Helpers
@@ -384,6 +388,7 @@ class ProjectRepository:
             "processing": processing,
             "processed": processed,
             "suggested_status": suggested,
+            "conversion_progress": self.get_conversion_progress(project_id),
         }
 
     async def sync_status_to_db(self, project_id: str):
@@ -401,3 +406,28 @@ class ProjectRepository:
                 logger.info(f"Auto-synced status for {project_id}: {suggested_status}")
         except Exception as e:
             logger.error(f"Error syncing status for {project_id}: {e}")
+
+    # ===================================================
+    # Conversion Progress Tracking
+    # ===================================================
+    def set_conversion_total(self, project_id: str, total: int):
+        """Initialize conversion progress for a project upload batch."""
+        with self._conversion_lock:
+            self._conversion_status[project_id] = {"current": 0, "total": total}
+
+    def inc_conversion_progress(self, project_id: str):
+        """Increment conversion progress by 1."""
+        with self._conversion_lock:
+            entry = self._conversion_status.get(project_id)
+            if entry:
+                entry["current"] = min(entry["current"] + 1, entry["total"])
+
+    def get_conversion_progress(self, project_id: str) -> Optional[Dict[str, int]]:
+        """Return current conversion progress or None if not active."""
+        with self._conversion_lock:
+            return self._conversion_status.get(project_id)
+
+    def clear_conversion_progress(self, project_id: str):
+        """Remove conversion progress entry."""
+        with self._conversion_lock:
+            self._conversion_status.pop(project_id, None)

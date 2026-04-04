@@ -583,13 +583,20 @@ class VisionHandler:
 # 測試用
 if __name__ == "__main__":
     import sys
+    from backend.utils import utils
     logging.basicConfig(level=logging.DEBUG)
 
     if len(sys.argv) < 2:
         print("Usage: python vision_handler.py <image_path>")
         sys.exit(1)
 
-    image = cv2.imread(sys.argv[1])
+    try:
+        image = utils.cv_imread_chinese(sys.argv[1])
+    except Exception:
+        image = None
+    if image is None:
+        print(f"無法讀取圖片: {sys.argv[1]}")
+        sys.exit(1)
     handler = VisionHandler({"vision_settings": {"debug": True, "reasoning_effort": "medium"}})
     result, stats = handler.image_to_markdown(image)
     print(f"Result: {result}\nStats: {stats}")

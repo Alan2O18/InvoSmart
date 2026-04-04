@@ -14,9 +14,10 @@ export default {
   getProjects() {
     return api.get('/api/projects/')
   },
-  createProject(formData) {
+  createProject(formData, onProgress) {
     return api.post('/api/projects/', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: onProgress,
     })
   },
   getProject(projectId) {
@@ -45,9 +46,10 @@ export default {
   // =====================
   // Files & Processing
   // =====================
-  addFiles(projectId, formData) {
+  addFiles(projectId, formData, onProgress) {
     return api.post(`/api/projects/${projectId}/add_files`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: onProgress,
     })
   },
   getRawFiles(projectId) {
@@ -63,9 +65,10 @@ export default {
   // =====================
   // PDF Processing
   // =====================
-  uploadPdf(projectId, formData) {
+  uploadPdf(projectId, formData, onProgress) {
     return api.post(`/api/pdf/${projectId}/pdf`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: onProgress,
     })
   },
   executePdfCommands(projectId, jobId, commands) {

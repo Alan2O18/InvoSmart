@@ -1,4 +1,4 @@
-﻿import os
+import os
 import time
 import shutil
 import logging
@@ -70,7 +70,7 @@ class FileOps:
                     logger.warning(f"File not found: {image_path}")
                     continue
 
-                if not image_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+                if not image_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.jxl')):
                     continue
 
                 semaphore = getattr(self.engine, "image_processing_semaphore", None)
@@ -135,7 +135,7 @@ class FileOps:
 
             raw_files = []
             for f in os.listdir(raw_dir):
-                if not f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+                if not f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.jxl')):
                     continue
 
                 base_name = os.path.splitext(f)[0]
@@ -167,20 +167,71 @@ class FileOps:
 
             target_dir.mkdir(parents=True, exist_ok=True)
 
-            for file_path in files:
-                filename = Path(file_path).name
-                if type == "split":
-                    stem = Path(filename).stem
-                    suffix = Path(filename).suffix or ".jpg"
-                    unique_token = f"{time.time_ns()}_{uuid.uuid4().hex[:6]}"
-                    filename = f"{stem}_split_manual_{unique_token}{suffix}"
+            # Initialize conversion progress
+            image_files = [
+                f for f in files
+                if Path(f).suffix.lower() in ('.png', '.jpg', '.jpeg', '.bmp', '.jxl')
+            ]
+            self.project_repo.set_conversion_total(project_id, len(image_files))
 
-                dest_path = target_dir / filename
-                shutil.copy(file_path, dest_path)
+            codec = self._codec_adapter()
+
+            for file_path in files:
+                src = Path(file_path)
+                original_suffix = src.suffix.lower() or ".jpg"
+
+                if type == "split":
+                    stem = src.stem
+                    unique_token = f"{time.time_ns()}_{uuid.uuid4().hex[:6]}"
+                    base_stem = f"{stem}_split_manual_{unique_token}"
+                else:
+                    base_stem = src.stem
+
+                # Only convert image files through codec
+                if original_suffix in ('.png', '.jpg', '.jpeg', '.bmp', '.jxl'):
+                    try:
+                        image = await asyncio.to_thread(
+                            utils.cv_imread_chinese, str(file_path)
+                        )
+                    except Exception as read_err:
+                        logger.warning(
+                            f"[FileOps] Failed to read {file_path} for conversion, "
+                            f"falling back to copy: {read_err}"
+                        )
+                        dest_path = target_dir / f"{base_stem}{original_suffix}"
+                        shutil.copy(file_path, dest_path)
+                        self.project_repo.inc_conversion_progress(project_id)
+                        continue
+
+                    archival_stem = target_dir / base_stem
+                    archival_path = codec.build_archival_path(archival_stem)
+
+                    semaphore = self._image_semaphore()
+                    if semaphore is not None:
+                        async with semaphore:
+                            dest_path = await asyncio.to_thread(
+                                codec.write_archival_image,
+                                archival_path,
+                                image,
+                                original_suffix,
+                            )
+                    else:
+                        dest_path = await asyncio.to_thread(
+                            codec.write_archival_image,
+                            archival_path,
+                            image,
+                            original_suffix,
+                        )
+
+                    self.project_repo.inc_conversion_progress(project_id)
+                else:
+                    # Non-image file: just copy
+                    dest_path = target_dir / f"{base_stem}{original_suffix}"
+                    shutil.copy(file_path, dest_path)
 
                 if type == "split":
                     # Enqueue with ABSOLUTE path
-                    abs_path = str(dest_path.resolve())
+                    abs_path = str(Path(dest_path).resolve())
                     preview = None
                     try:
                         max_width = self._thumb_max_width()
@@ -191,7 +242,7 @@ class FileOps:
                     try:
                         await self.engine.get_job_repo(project_id).update_job(
                             job_id,
-                            source_format=dest_path.suffix.lstrip(".") or "jpg",
+                            source_format=Path(dest_path).suffix.lstrip(".") or "jpg",
                             preview_cache_path=preview["path"] if preview else None,
                         )
                     except Exception as meta_err:
@@ -295,21 +346,20 @@ class FileOps:
 
     @staticmethod
     def _render_preview(source_path: str, cache_path: str, pil_format: str, max_width: int):
-        with Image.open(source_path) as image:
-            image = image.convert("RGB")
-            if image.width > max_width:
-                new_height = int((max_width / image.width) * image.height)
-                image = image.resize((max_width, max(1, new_height)), Image.Resampling.LANCZOS)
+        image = ImageCodecAdapter().read_image_pil(source_path)
+        if image.width > max_width:
+            new_height = int((max_width / image.width) * image.height)
+            image = image.resize((max_width, max(1, new_height)), Image.Resampling.LANCZOS)
 
-            save_kwargs = {}
-            if pil_format == "AVIF":
-                save_kwargs = {"quality": 60}
-            elif pil_format == "WEBP":
-                save_kwargs = {"quality": 85}
-            elif pil_format == "JPEG":
-                save_kwargs = {"quality": 90}
+        save_kwargs = {}
+        if pil_format == "AVIF":
+            save_kwargs = {"quality": 60}
+        elif pil_format == "WEBP":
+            save_kwargs = {"quality": 85}
+        elif pil_format == "JPEG":
+            save_kwargs = {"quality": 90}
 
-            image.save(cache_path, format=pil_format, **save_kwargs)
+        image.save(cache_path, format=pil_format, **save_kwargs)
 
     async def ensure_preview_cache(self, project_id: str, image_path: str, max_width: int = 800) -> Optional[dict]:
         source = Path(image_path)
@@ -353,12 +403,12 @@ class FileOps:
 
     async def add_pdf_files(self, project_id: str, files: list[str]):
         """
-        ??銝??PDF 瑼???
-        撠?PDF 摮??憪撓?乓?銝血?蝚砌??葡?? JPG 摮???脩蟡具?
-        ?箏?撱箇? Job ??蝬? source_pdf_path ??PDF ??頝臬???
+        處理 PDF 檔案上傳。
+        將 PDF 第一頁渲染為圖片，透過 ImageCodecAdapter 轉檔後建立 Job。
         """
         try:
             import fitz
+            import numpy as np
             root = self.project_repo._project_root(project_id)
             raw_dir = root / "原始輸入"
             split_dir = root / "分割發票"
@@ -366,39 +416,68 @@ class FileOps:
             raw_dir.mkdir(parents=True, exist_ok=True)
             split_dir.mkdir(parents=True, exist_ok=True)
 
+            # Initialize conversion progress
+            self.project_repo.set_conversion_total(project_id, len(files))
+
+            codec = self._codec_adapter()
+
             for file_path in files:
-                # 1. 撠??喟? PDF 摮?
+                # 1. 複製原始 PDF 檔案
                 filename = Path(file_path).name
                 dest_pdf_path = raw_dir / filename
                 shutil.copy(file_path, dest_pdf_path)
 
-                # 2. ?瑕?蝚砌??? VLM (Gemini) 霅??
+                # 2. 渲染首頁並透過 codec 轉檔
                 try:
                     doc = fitz.open(str(dest_pdf_path))
                     page = doc[0]
-                    # 閫??摨血???(matrix), 1.0 => 72 DPI, 2.0 => 144 DPI (?踹?摮云蝟?
                     zoom_matrix = fitz.Matrix(2.0, 2.0)
                     pix = page.get_pixmap(matrix=zoom_matrix)
 
-                    ts = int(time.time())
-                    # ?踹??舀???銴?撠?.pdf ?? _page0_xxx.jpg
-                    stem = Path(filename).stem
-                    jpg_filename = f"{stem}_page0_{ts}.jpg"
-                    dest_jpg_path = split_dir / jpg_filename
-
-                    pix.save(str(dest_jpg_path))
+                    # Convert pixmap to numpy BGR array
+                    img_data = pix.samples
+                    if pix.n == 4:  # RGBA
+                        img_array = np.frombuffer(img_data, dtype=np.uint8).reshape(pix.h, pix.w, 4)
+                        img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGBA2BGR)
+                    else:  # RGB
+                        img_array = np.frombuffer(img_data, dtype=np.uint8).reshape(pix.h, pix.w, 3)
+                        img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
                     doc.close()
 
-                    # 3. 撠?PDF ?洵銝???臬????Job 銝?
+                    ts = int(time.time())
+                    stem = Path(filename).stem
+                    save_stem = split_dir / f"{stem}_page0_{ts}"
+                    archival_path = codec.build_archival_path(save_stem)
+
+                    semaphore = self._image_semaphore()
+                    if semaphore is not None:
+                        async with semaphore:
+                            dest_img_path = await asyncio.to_thread(
+                                codec.write_archival_image,
+                                archival_path,
+                                img_bgr,
+                                ".png",  # fallback to PNG for PDF renders
+                            )
+                    else:
+                        dest_img_path = await asyncio.to_thread(
+                            codec.write_archival_image,
+                            archival_path,
+                            img_bgr,
+                            ".png",
+                        )
+
+                    self.project_repo.inc_conversion_progress(project_id)
+
+                    # 3. 建立 Job
                     await self.engine.enqueue_pdf_upload(
                         project_id,
                         str(dest_pdf_path.resolve()),
-                        str(dest_jpg_path.resolve())
+                        str(Path(dest_img_path).resolve())
                     )
-                    logger.debug(f"[FileOps] ???? PDF {filename} ??閬賢? {jpg_filename}")
+                    logger.debug(f"[FileOps] 處理 PDF {filename} 並轉存為 {dest_img_path}")
                 except Exception as ex:
-                    logger.error(f"[FileOps] 頧? PDF 蝚砌??仃?? {ex}")
-                    # 憒?憭望?撠曹?撱箇? Job
+                    logger.error(f"[FileOps] 處理 PDF 渲染/轉檔失敗: {ex}")
+                    self.project_repo.inc_conversion_progress(project_id)
 
             return {"status": "added"}
         except Exception as e:

@@ -30,22 +30,26 @@ async def list_projects(engine: Engine = Depends(get_engine)):
 async def create_project(
     project_id: str = Form(...),
     metadata: str = Form(None),  # JSON string
-    files: List[UploadFile] = File(...),
+    files: Optional[List[UploadFile]] = File(None),
     engine: Engine = Depends(get_engine)
 ):
-    """Create a new project with uploaded files."""
+    """Create a new project, optionally with uploaded files."""
     try:
-        async with handle_upload_files(files) as saved_file_paths:
-            meta_dict = {}
-            activity_name = None
-            if metadata:
-                try:
-                    meta_dict = json.loads(metadata)
-                    activity_name = meta_dict.get('name') or meta_dict.get('projectName')
-                except Exception:
-                    pass
+        meta_dict = {}
+        activity_name = None
+        if metadata:
+            try:
+                meta_dict = json.loads(metadata)
+                activity_name = meta_dict.get('name') or meta_dict.get('projectName')
+            except Exception:
+                pass
 
-            result = await engine.create_project(project_id, saved_file_paths, name=activity_name, metadata=meta_dict)
+        if files:
+            async with handle_upload_files(files) as saved_file_paths:
+                result = await engine.create_project(project_id, saved_file_paths, name=activity_name, metadata=meta_dict)
+                return result
+        else:
+            result = await engine.create_project(project_id, [], name=activity_name, metadata=meta_dict)
             return result
     except Exception as e:
         logger.error(f"Error creating project: {e}")

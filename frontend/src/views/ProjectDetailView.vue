@@ -58,6 +58,24 @@
         <label style="color: #60a5fa; font-weight: bold;">上傳 PDF 檔案:</label>
         <input type="file" multiple accept="application/pdf" @change="(e) => handlePdfUpload(e)" />
       </div>
+
+      <!-- Progress Bars -->
+      <div v-if="showProgressOverlay" class="progress-overlay">
+        <div class="progress-item">
+          <label>📤 上傳進度 (A):</label>
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill upload" :style="{ width: uploadProgress + '%' }"></div>
+          </div>
+          <span class="progress-text">{{ uploadProgress }}%</span>
+        </div>
+        <div v-if="conversionProgress" class="progress-item">
+          <label>🔄 轉檔進度 (B):</label>
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill conversion" :style="{ width: conversionPercent + '%' }"></div>
+          </div>
+          <span class="progress-text">{{ conversionProgress.current }} / {{ conversionProgress.total }}</span>
+        </div>
+      </div>
     </div>
 
     <div class="jobs-section">
@@ -209,6 +227,13 @@ const receiptJobs = computed(() => jobs.value.filter(j => !j.source_pdf_path))
 const pdfJobs = computed(() => jobs.value.filter(j => j.source_pdf_path))
 const rawFiles = ref([])
 const loading = ref(false)
+const uploadProgress = ref(0)
+const conversionProgress = ref(null)
+const showProgressOverlay = ref(false)
+const conversionPercent = computed(() => {
+  if (!conversionProgress.value || conversionProgress.value.total === 0) return 0
+  return Math.round((conversionProgress.value.current / conversionProgress.value.total) * 100)
+})
 let pollInterval = null
 
 const fetchProjectData = async () => {
@@ -230,6 +255,21 @@ const fetchProjectData = async () => {
 
     const rawRes = await api.getRawFiles(projectId)
     rawFiles.value = rawRes.data
+
+    // Update conversion progress from backend
+    if (statusRes.data?.conversion_progress) {
+      conversionProgress.value = statusRes.data.conversion_progress
+      const cp = statusRes.data.conversion_progress
+      if (cp.current >= cp.total && showProgressOverlay.value && uploadProgress.value >= 100) {
+        // Conversion done — hide overlay after a short delay
+        setTimeout(() => {
+          showProgressOverlay.value = false
+          conversionProgress.value = null
+        }, 1500)
+      }
+    } else if (uploadProgress.value >= 100) {
+      conversionProgress.value = null
+    }
   } catch (error) {
     console.error('Error fetching project data:', error)
   }
@@ -257,12 +297,12 @@ const getImageUrl = (path) => {
   if (!path) return '';
   const filename = path.split('\\').pop().split('/').pop();
   const v = imageVersions.value[filename] || 0;
-  return `http://localhost:8000/static/${encodeURIComponent(projectId)}/分割發票/${encodeURIComponent(filename)}?v=${v}`;
+  return `http://localhost:8000/api/projects/${encodeURIComponent(projectId)}/preview/split/${encodeURIComponent(filename)}?v=${v}`;
 }
 
 const getRawImageUrl = (filename) => {
   if (!filename) return '';
-  return `http://localhost:8000/static/${encodeURIComponent(projectId)}/原始輸入/${encodeURIComponent(filename)}`;
+  return `http://localhost:8000/api/projects/${encodeURIComponent(projectId)}/preview/raw/${encodeURIComponent(filename)}`;
 }
 
 const getFilename = (path) => {
@@ -390,9 +430,16 @@ const handleFileUpload = async (event, type) => {
   }
 
   loading.value = true;
+  uploadProgress.value = 0;
+  conversionProgress.value = null;
+  showProgressOverlay.value = true;
+
   try {
-    await api.addFiles(projectId, formData);
-    alert('Files added successfully');
+    await api.addFiles(projectId, formData, (progressEvent) => {
+      if (progressEvent.total) {
+        uploadProgress.value = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+      }
+    });
     await fetchProjectData();
   } catch (e) {
     alert('Error adding files: ' + e);
@@ -412,9 +459,16 @@ const handlePdfUpload = async (event) => {
   }
 
   loading.value = true;
+  uploadProgress.value = 0;
+  conversionProgress.value = null;
+  showProgressOverlay.value = true;
+
   try {
-    await api.uploadPdf(projectId, formData);
-    alert('PDF Files added successfully');
+    await api.uploadPdf(projectId, formData, (progressEvent) => {
+      if (progressEvent.total) {
+        uploadProgress.value = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+      }
+    });
     await fetchProjectData();
   } catch (e) {
     alert('Error adding PDF files: ' + e);
@@ -704,5 +758,59 @@ th {
     text-align: center;
     color: #666;
     padding: 2rem;
+}
+
+.progress-overlay {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: #1a1a2e;
+    border-radius: 8px;
+    border: 1px solid #333;
+}
+
+.progress-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+}
+
+.progress-item:last-child {
+    margin-bottom: 0;
+}
+
+.progress-item label {
+    min-width: 140px;
+    font-size: 0.85rem;
+    color: #ccc;
+}
+
+.progress-bar-track {
+    flex: 1;
+    height: 12px;
+    background: #333;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    transition: width 0.3s ease;
+}
+
+.progress-bar-fill.upload {
+    background: linear-gradient(90deg, #3b82f6, #60a5fa);
+}
+
+.progress-bar-fill.conversion {
+    background: linear-gradient(90deg, #10b981, #34d399);
+}
+
+.progress-text {
+    min-width: 60px;
+    font-size: 0.8rem;
+    color: #aaa;
+    text-align: right;
 }
 </style>

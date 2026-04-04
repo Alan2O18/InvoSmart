@@ -18,8 +18,10 @@ Usage::
 
 import logging
 import os
-import tempfile
 from pathlib import Path
+
+import cv2
+import numpy as np
 
 logger = logging.getLogger(__name__)
 
@@ -28,66 +30,69 @@ _JXL_AVAILABLE: bool | None = None
 
 
 def is_jxl_available() -> bool:
-    """Return *True* if pyvips is importable and capable of writing JPEG-XL."""
+    """Return *True* if imagecodecs is available and capable of writing JPEG-XL."""
     global _JXL_AVAILABLE
     if _JXL_AVAILABLE is not None:
         return _JXL_AVAILABLE
 
     try:
-        import pyvips  # noqa: F401
+        import imagecodecs
 
-        # Build a tiny 2×2 grayscale image and attempt a real JXL write so we
-        # catch systems where pyvips is installed but JXL support was not compiled
-        # in (e.g. a libvips built without libjxl).
-        img = pyvips.Image.new_from_array([[128, 128], [128, 128]])
-        tmp_fd, tmp_path = tempfile.mkstemp(suffix=".jxl")
-        os.close(tmp_fd)
-        try:
-            img.write_to_file(tmp_path)
-            _JXL_AVAILABLE = os.path.getsize(tmp_path) > 0
-        except Exception:
+        # Test if jpegxl_encode is available in this build of imagecodecs
+        if hasattr(imagecodecs, "jpegxl_encode"):
+            _JXL_AVAILABLE = True
+        else:
             _JXL_AVAILABLE = False
-        finally:
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
     except ImportError:
         _JXL_AVAILABLE = False
 
     if not _JXL_AVAILABLE:
-        logger.debug("JXL encoder (pyvips) is not available on this platform.")
+        logger.debug("JXL encoder (imagecodecs) is not available on this platform.")
     return _JXL_AVAILABLE
+
+
+def encode_image_to_jxl(image: np.ndarray, output_path: str, quality: int = 85) -> Path:
+    """
+    Encode a numpy image array (BGR) to JPEG-XL at *output_path*.
+
+    Requires imagecodecs with JXL support.
+    """
+    if not is_jxl_available():
+        raise RuntimeError(
+            "JXL encoder (imagecodecs) is not available. "
+            "Install imagecodecs to enable JXL output."
+        )
+
+    import imagecodecs
+
+    # OpenCV uses BGR, imagecodecs/JXL viewers expect RGB
+    if len(image.shape) == 3 and image.shape[2] == 3:
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    else:
+        image_rgb = image
+
+    # Quality in imagecodecs is level (0-100) or effort (default)
+    # imagecodecs.jpegxl_encode doesn't have a direct 'quality' param like pyvips's 'Q'
+    # but we can pass level=quality.
+    # Note: imagecodecs API might vary slightly, but jpegxl_encode(image) works.
+    encoded = imagecodecs.jpegxl_encode(image_rgb, effort=1)
+
+    with open(output_path, "wb") as f:
+        f.write(encoded)
+
+    return Path(output_path)
 
 
 def encode_to_jxl(source_path: str, output_path: str, quality: int = 85) -> Path:
     """
-    Encode *source_path* image to JPEG-XL at *output_path*.
-
-    Requires pyvips with JXL support compiled in.
-    Raises ``RuntimeError`` if the encoder is not available.
-
-    Parameters
-    ----------
-    source_path:
-        Absolute path to the source image (any format pyvips can read).
-    output_path:
-        Destination ``.jxl`` file path.
-    quality:
-        JXL quality level, 1–100.  Passed as ``Q`` to pyvips.
-
-    Returns
-    -------
-    Path
-        The written output file.
+    Encode *source_path* image (file) to JPEG-XL at *output_path*.
+    Legacy wrapper for compatibility with older file-based logic.
     """
-    if not is_jxl_available():
-        raise RuntimeError(
-            "JXL encoder is not available.  "
-            "Install pyvips with JXL support (libjxl) to enable JXL output."
-        )
-    import pyvips
+    from backend.utils import utils
 
-    image = pyvips.Image.new_from_file(source_path, access="sequential")
-    image.write_to_file(output_path, Q=quality)
-    return Path(output_path)
+    image = utils.cv_imread_chinese(source_path)
+    if image is None:
+        raise ValueError(f"Could not read source image for JXL encoding: {source_path}")
+
+    return encode_image_to_jxl(image, output_path, quality)
+

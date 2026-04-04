@@ -14,3 +14,5 @@
 - `v0_0_9.md`: 憑證編輯器 Bug 修補、字型溢位修正與視覺化設定頁面
 - `v0_0_10.md`: 全生命週期工作流架構升級（影像管線、非同步強化、資料品質防護），並完成 Windows JXL 啟用收尾（465 tests + JXL migration closeout）
 - `v0_0_11.md`: Settings 前端修復、多組長與電子章管理上線；模型列表自動抓取。另記錄「圖片問題尚未完全修復」
+- `v0_0_12.md`: JXL 編碼器切換（pyvips -> imagecodecs）與預覽 API 修復，解決 JXL 前端預覽斷鏈
+- `v0_0_13.md`: JXL 全鏈路相容性收尾（Adapter 讀取端、FileOps/Voucher/Router 統一路徑、pytest 補強）

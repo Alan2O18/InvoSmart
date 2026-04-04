@@ -258,6 +258,7 @@ class QRHandler:
 # 測試用
 if __name__ == "__main__":
     import sys
+    from backend.utils import utils
     
     # 設定 logger
     logging.basicConfig(level=logging.INFO)
@@ -267,7 +268,10 @@ if __name__ == "__main__":
         sys.exit(1)
     
     image_path = sys.argv[1]
-    image = cv2.imread(image_path)
+    try:
+        image = utils.cv_imread_chinese(image_path)
+    except Exception:
+        image = None
     
     if image is None:
         print(f"無法讀取圖片: {image_path}")

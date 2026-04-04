@@ -260,14 +260,17 @@ class RapidOCRHandler:
 # 測試用
 if __name__ == "__main__":
     import sys
-    import cv2
+    from backend.utils import utils
 
     if len(sys.argv) < 2:
         print("Usage: python rapidocr_handler.py <image_path>")
         sys.exit(1)
 
     image_path = sys.argv[1]
-    image = cv2.imread(image_path)
+    try:
+        image = utils.cv_imread_chinese(image_path)
+    except Exception:
+        image = None
 
     if image is None:
         print(f"無法讀取圖片: {image_path}")

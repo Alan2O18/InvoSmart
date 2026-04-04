@@ -9,6 +9,7 @@ from typing import List
 from PIL import Image
 
 from backend.engine.voucher_text_config import get_text_field_config
+from backend.processing.image_codec_adapter import ImageCodecAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -213,18 +214,22 @@ class VoucherGenerator:
             self._insert_text(page, (x_list[idx], y), char, fontsize=font_size)
 
     @staticmethod
-    def _image_stream_for_rect(image_path: str, target_width_pts: float) -> bytes:
-        with Image.open(image_path) as image:
-            image = image.convert("RGB")
-            target_px = int((target_width_pts / 72.0) * 300)
-            target_px = max(1, min(target_px, image.width))
-            if target_px < image.width:
-                target_h = max(1, int((target_px / image.width) * image.height))
-                image = image.resize((target_px, target_h), Image.Resampling.LANCZOS)
+    def _image_stream_from_pil(image: Image.Image, target_width_pts: float) -> bytes:
+        image = image.convert("RGB")
+        target_px = int((target_width_pts / 72.0) * 300)
+        target_px = max(1, min(target_px, image.width))
+        if target_px < image.width:
+            target_h = max(1, int((target_px / image.width) * image.height))
+            image = image.resize((target_px, target_h), Image.Resampling.LANCZOS)
 
-            buffer = BytesIO()
-            image.save(buffer, format="JPEG", quality=90)
-            return buffer.getvalue()
+        buffer = BytesIO()
+        image.save(buffer, format="JPEG", quality=90)
+        return buffer.getvalue()
+
+    @staticmethod
+    def _image_stream_for_rect(image_path: str, target_width_pts: float) -> bytes:
+        image = ImageCodecAdapter().read_image_pil(image_path)
+        return VoucherGenerator._image_stream_from_pil(image, target_width_pts)
 
     @staticmethod
     def _render_missing_marker(page: fitz.Page, rect: fitz.Rect):
@@ -294,6 +299,7 @@ class VoucherGenerator:
             
         try:
             doc = fitz.open(self.template_path)
+            codec = ImageCodecAdapter()
             
             # 定義可黏貼的區域 (A4 大小約 595 x 842 pts)
             # 根據範本，下半部是發票黏貼處，大約從 y=350 到 y=800
@@ -315,8 +321,8 @@ class VoucherGenerator:
                 current_page = out_doc[-1]
                 
                 # 算出圖片本身的比例來決定 fitz.Rect，避免圖片變形
-                img = fitz.Pixmap(img_path)
-                img_w, img_h = img.width, img.height
+                image = codec.read_image_pil(img_path)
+                img_w, img_h = image.width, image.height
                 
                 # 依寬度或高度做縮放，保持比例
                 scale = min(paste_area.width / img_w, paste_area.height / img_h)
@@ -339,7 +345,8 @@ class VoucherGenerator:
                 )
                 
                 # 把圖片貼上這頁
-                current_page.insert_image(img_rect, filename=img_path)
+                image_stream = self._image_stream_from_pil(image, final_w)
+                current_page.insert_image(img_rect, stream=image_stream)
             
             # 壓縮儲存
             out_doc.save(output_path, garbage=4, deflate=True)

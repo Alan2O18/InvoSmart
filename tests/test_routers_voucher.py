@@ -1,3 +1,4 @@
+import io
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -157,19 +158,35 @@ def test_get_voucher_text_config_returns_shared_field_map(mock_app_client):
     payload = response.json()
     assert payload["version"] == "0.0.9"
     assert payload["font"]["url"] == "/api/voucher/fonts/kaiu.ttf"
-    assert payload["fields"]["voucherNo"]["point"] == [78, 255]
+    assert payload["fields"]["voucherNo"]["point"] == [78.5, 255]
     assert payload["fields"]["voucherNo"]["lineStep"] == 17
     assert payload["fields"]["voucherNo"]["maxLines"] == 5
     assert payload["fields"]["budgetItem"]["maxChars"] == 3
     assert payload["fields"]["amount"]["padLength"] == 6
     assert payload["fields"]["amount"]["digitPolicy"] == 6
     assert len(payload["fields"]["amount"]["xList"]) == 6
-    assert payload["fields"]["paymentAmount"]["point"] == [310, 785]
+    assert payload["fields"]["paymentAmount"]["point"] == [314, 785]
     assert payload["fields"]["purpose"]["type"] == "textbox"
     # v0.0.9: response includes safeZone and blockedZones
     assert "safeZone" in payload
     assert payload["safeZone"]["x0"] == 30
     assert "blockedZones" in payload
+
+
+def test_load_image_bytes_uses_codec_adapter_for_jxl():
+    from backend.routers import voucher as voucher_router
+
+    source = Image.new("RGB", (300, 120), color=(120, 120, 120))
+    with patch(
+        "backend.routers.voucher.ImageCodecAdapter.read_image_pil",
+        return_value=source,
+    ) as mock_read:
+        content, content_type = voucher_router._load_image_bytes("sample.jxl", thumb=True, max_width=100)
+
+    mock_read.assert_called_once_with("sample.jxl")
+    assert content_type == "image/webp"
+    with Image.open(io.BytesIO(content)) as rendered:
+        assert rendered.width == 100
 
 
 def test_get_template_returns_done_invoices_with_result(mock_app_client, mock_engine_for_api, monkeypatch):

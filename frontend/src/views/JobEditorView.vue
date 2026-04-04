@@ -119,7 +119,7 @@ const focusedPanel = ref(2) // Default focus Form
 const imageUrl = computed(() => {
   if (!job.value?.image_path) return ''
   const filename = getFilename(job.value.image_path)
-  return `http://localhost:8000/static/${encodeURIComponent(projectId)}/分割發票/${encodeURIComponent(filename)}`
+  return `http://localhost:8000/api/projects/${encodeURIComponent(projectId)}/preview/split/${encodeURIComponent(filename)}`
 })
 
 const currentIndex = computed(() => jobList.value.findIndex(j => j.job_id === route.query.jobId))
@@ -195,7 +195,7 @@ const fetchJobDetails = async (targetJobId = null) => {
 const preloadImage = (jobMeta) => {
     if (!jobMeta || !jobMeta.image_path) return
     const filename = getFilename(jobMeta.image_path)
-    const url = `http://localhost:8000/static/${encodeURIComponent(projectId)}/分割發票/${encodeURIComponent(filename)}`
+    const url = `http://localhost:8000/api/projects/${encodeURIComponent(projectId)}/preview/split/${encodeURIComponent(filename)}`
     const img = new Image()
     img.src = url
 }

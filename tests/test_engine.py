@@ -1,4 +1,4 @@
-﻿"""
+"""
 Comprehensive Engine Unit Tests
 
 Tests all Engine functions with mocked heavy dependencies (OCR, LLM, Splitter).
@@ -231,10 +231,12 @@ class TestEngineFileOps:
         await engine.project_repo.register_project("add_raw", "Add", str(engine.project_repo.workspace_root / "add_raw"))
         engine.project_repo._ensure_layout(engine.project_repo._project_root("add_raw"))
         
-        # Create temp file
+        # Create temp valid image
+        import numpy as np
+        import cv2
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-            f.write(b"test")
             f_path = f.name
+        cv2.imwrite(f_path, np.zeros((1, 1, 3), dtype=np.uint8))
         
         try:
             res = await engine.add_project_files("add_raw", [f_path], type="raw")
@@ -254,10 +256,12 @@ class TestEngineFileOps:
         await engine.project_repo.register_project("add_split", "Add", str(engine.project_repo.workspace_root / "add_split"))
         engine.project_repo._ensure_layout(engine.project_repo._project_root("add_split"))
         
-        # Create temp file
+        # Create temp valid image
+        import numpy as np
+        import cv2
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-            f.write(b"test")
             f_path = f.name
+        cv2.imwrite(f_path, np.zeros((1, 1, 3), dtype=np.uint8))
         
         try:
             res = await engine.add_project_files("add_split", [f_path], type="split")

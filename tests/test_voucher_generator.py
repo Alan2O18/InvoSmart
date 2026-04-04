@@ -2,8 +2,10 @@
 Unit tests for VoucherGenerator — covers v29 §10.1 items 5, 7
 and Defense #4, #5, #8, #16, #17, #18, #24, #37, #43, #44
 """
+import io
 import logging
 import os
+from unittest.mock import patch
 
 import fitz
 import pytest
@@ -207,6 +209,20 @@ class TestImageStreamAntiInflation:
         img = Image.open(__import__("io").BytesIO(stream))
         assert img.width == 500
 
+    def test_jxl_path_uses_codec_adapter(self, tmp_path):
+        path = tmp_path / "sample.jxl"
+        path.write_bytes(b"fake-jxl")
+
+        with patch(
+            "backend.engine.voucher_generator.ImageCodecAdapter.read_image_pil",
+            return_value=Image.new("RGB", (900, 600), color=(90, 90, 90)),
+        ) as mock_read:
+            stream = VoucherGenerator._image_stream_for_rect(str(path), 90.0)
+
+        mock_read.assert_called_once_with(str(path))
+        rendered = Image.open(io.BytesIO(stream))
+        assert rendered.width <= 376
+
 
 # ── _render_missing_marker (Defense #8) ────────────────────────────────────
 
@@ -310,3 +326,22 @@ class TestGenerateFromLayout:
         )
         # Just verify the file was created and is non-trivially sized
         assert os.path.getsize(output) > 100
+
+
+def test_generate_voucher_pdf_supports_jxl_paths(generator, tmp_path):
+    output = str(tmp_path / "voucher_jxl.pdf")
+    source = tmp_path / "receipt.jxl"
+    source.write_bytes(b"fake-jxl")
+
+    with patch(
+        "backend.engine.voucher_generator.ImageCodecAdapter.read_image_pil",
+        return_value=Image.new("RGB", (1000, 800), color=(160, 160, 160)),
+    ) as mock_read:
+        ok = generator.generate_voucher_pdf([str(source)], output)
+
+    assert ok is True
+    assert os.path.exists(output)
+    mock_read.assert_called_once_with(str(source))
+    with fitz.open(output) as doc:
+        assert doc.page_count == 1
+        assert len(doc[0].get_images()) >= 1

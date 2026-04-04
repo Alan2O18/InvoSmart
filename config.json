@@ -1,5 +1,8 @@
 {
     "project_manager_settings": {
         "workspace_root": "workspace"
+    },
+    "processing_settings": {
+        "archival_format": "jxl"
     }
 }

@@ -4,6 +4,34 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [V0.0.12] - 2026-03-29
+
+### 🎯 JXL 管線修正與預覽影像全鏈路修復
+
+**V0.0.12 Focus**: 解決 JXL 編碼管線 DLL 相容問題、43 倍效能優化、預覽影像從後端快取到前端顯示的全鏈路修復。
+
+### Changed
+- **JXL 編碼器切換**：由 `pyvips`（Windows DLL 衝突）改為 `imagecodecs`（自帶 libjxl binding，零外部依賴）。
+- **JXL 編碼加速 43x**：`jpegxl_encode(effort=1)` 將每張圖從 ~23 秒降至 ~0.5 秒，檔案大小僅增加 18%。
+- **前端取圖路徑**：由直接 `/static/` 路徑改走 `/api/projects/{id}/preview/{type}/{filename}` API 代理端點。
+
+### Added
+- **Preview 代理端點**（`backend/routers/files.py`）：
+  - `GET /{project_id}/preview/split/{filename}` — 分割發票預覽
+  - `GET /{project_id}/preview/raw/{filename}` — 原始輸入預覽
+- **JXL-aware 圖片讀取**：`file_ops._render_preview()` 與 `voucher._load_image_bytes()` 可透過 `imagecodecs.jpegxl_decode()` 讀取 JXL 源檔。
+
+### Fixed
+- **預覽圖全面空白**：PIL 無法開啟 JXL + 瀏覽器不支援 JXL 渲染 → 改用 imagecodecs 解碼 + AVIF/WebP 快取。
+- **JXL 轉檔極慢**：預設 effort=5（~23s/張）→ effort=1（~0.5s/張）。
+- **測試斷言過期**：`voucherNo.point`、`paymentAmount.point` 座標值對齊最新設定。
+- **測試 mock 路徑錯誤**：`test_jxl_encoder_backend.py` mock 對齊 lazy import 結構。
+
+### Test Metrics
+- **Total Tests:** 473 passed, 0 failed
+
+---
+
 ## [V0.0.9] - 2026-03-15
 
 ### 🎯 V0.0.9 Completion: Bug Fixes & Visual Settings

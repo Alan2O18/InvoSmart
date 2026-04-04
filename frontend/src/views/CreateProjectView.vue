@@ -114,16 +114,24 @@
       <section>
         <h2>Files</h2>
         <div class="form-group">
-          <label for="files">Upload Images *</label>
+          <label for="files">Upload Images</label>
           <input 
             type="file" 
             id="files" 
             @change="handleFileUpload" 
             multiple 
             accept="image/*"
-            required
           />
-          <p class="hint">Select one or more image files.</p>
+          <p class="hint">Select one or more image files (optional).</p>
+        </div>
+
+        <!-- Upload Progress -->
+        <div v-if="showUploadProgress" class="progress-section">
+          <label>📤 上傳進度:</label>
+          <div class="progress-bar-track">
+            <div class="progress-bar-fill" :style="{ width: uploadProgress + '%' }"></div>
+          </div>
+          <span class="progress-text">{{ uploadProgress }}%</span>
         </div>
       </section>
 
@@ -145,6 +153,8 @@ import api from '../services/api'
 const router = useRouter()
 const loading = ref(false)
 const files = ref([])
+const uploadProgress = ref(0)
+const showUploadProgress = ref(false)
 
 const form = reactive({
   projectId: '',
@@ -209,20 +219,23 @@ const onStartTimeChange = () => {
 }
 
 const createProject = async () => {
-  if (!form.projectId || !form.projectName || files.value.length === 0) {
-    alert('Please fill in Activity ID, Activity Name, and upload at least one file.')
+  if (!form.projectId || !form.projectName) {
+    alert('Please fill in Activity ID and Activity Name.')
     return
   }
 
   loading.value = true
+  uploadProgress.value = 0
+  showUploadProgress.value = files.value.length > 0
+
   try {
     const formData = new FormData()
     formData.append('project_id', form.projectId)
     
-    // Pack metadata - projectName goes into metadata with special handling
+    // Pack metadata
     const metadata = {
-      name: form.projectName,  // Activity Name stored as 'name' in metadata
-      projectName: form.projectName,  // Keep for backward compatibility
+      name: form.projectName,
+      projectName: form.projectName,
       group: form.group,
       leader: form.leader,
       coordinator: form.coordinator,
@@ -245,13 +258,18 @@ const createProject = async () => {
       formData.append('files', file)
     })
 
-    await api.createProject(formData)
+    await api.createProject(formData, (progressEvent) => {
+      if (progressEvent.total) {
+        uploadProgress.value = Math.round((progressEvent.loaded * 100) / progressEvent.total)
+      }
+    })
     router.push('/')
   } catch (error) {
     console.error('Failed to create activity:', error)
     alert('Failed to create activity. See console for details.')
   } finally {
     loading.value = false
+    showUploadProgress.value = false
   }
 }
 </script>
@@ -355,5 +373,40 @@ button.secondary {
 button.secondary:hover {
   border-color: #666;
   background: #333;
+}
+
+.progress-section {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.progress-section label {
+  min-width: 100px;
+  font-size: 0.85rem;
+  color: #ccc;
+}
+
+.progress-bar-track {
+  flex: 1;
+  height: 12px;
+  background: #333;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  min-width: 50px;
+  font-size: 0.8rem;
+  color: #aaa;
+  text-align: right;
 }
 </style>

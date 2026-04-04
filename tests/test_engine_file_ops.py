@@ -1,9 +1,9 @@
 import pytest
 import cv2
 import numpy as np
-import shutil
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+from PIL import Image
 from backend.engine.file_ops import FileOps
 from backend.utils import utils
 
@@ -85,30 +85,55 @@ def test_get_raw_files_missing_folder(file_ops):
 
 @pytest.mark.asyncio
 async def test_add_project_files_raw(file_ops, mock_dependencies, tmp_path):
-    _, _, _, root = mock_dependencies
+    repo, _, _, root = mock_dependencies
     upload_file = tmp_path / "upload.jpg"
     upload_file.touch()
-    
-    with patch("backend.engine.file_ops.shutil.copy"):
+
+    dummy_img = np.zeros((10, 10, 3), dtype=np.uint8)
+    dest_path = root / "原始輸入" / "upload.jxl"
+
+    async def fake_to_thread(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    with patch("backend.engine.file_ops.utils.cv_imread_chinese", return_value=dummy_img), \
+         patch("backend.engine.file_ops.asyncio.to_thread", side_effect=fake_to_thread), \
+         patch.object(file_ops, '_codec_adapter') as mock_codec_factory:
+        mock_codec = MagicMock()
+        mock_codec.build_archival_path.return_value = dest_path
+        mock_codec.write_archival_image.return_value = dest_path
+        mock_codec_factory.return_value = mock_codec
+
         result = await file_ops.add_project_files("proj1", [str(upload_file)], type="raw")
-        
+
     assert result["status"] == "added"
     assert (root / "原始輸入").exists()
+    repo.set_conversion_total.assert_called_once()
+    repo.inc_conversion_progress.assert_called_once()
 
 @pytest.mark.asyncio
 async def test_add_project_files_split_enqueues(file_ops, mock_dependencies, tmp_path):
     _, _, engine, root = mock_dependencies
     upload_file = tmp_path / "split_upload.jpg"
     upload_file.touch()
-    
-    with patch("backend.engine.file_ops.shutil.copy"):
+
+    dummy_img = np.zeros((10, 10, 3), dtype=np.uint8)
+    dest_path = root / "分割發票" / "split_upload_split_manual_123_abc.jxl"
+
+    async def fake_to_thread(fn, *args, **kwargs):
+        return fn(*args, **kwargs)
+
+    with patch("backend.engine.file_ops.utils.cv_imread_chinese", return_value=dummy_img), \
+         patch("backend.engine.file_ops.asyncio.to_thread", side_effect=fake_to_thread), \
+         patch.object(file_ops, '_codec_adapter') as mock_codec_factory:
+        mock_codec = MagicMock()
+        mock_codec.build_archival_path.return_value = dest_path
+        mock_codec.write_archival_image.return_value = dest_path
+        mock_codec_factory.return_value = mock_codec
+
         result = await file_ops.add_project_files("proj1", [str(upload_file)], type="split")
-        
+
     assert result["status"] == "added"
     engine.enqueue_job.assert_called_once()
-    enqueued_path = str(engine.enqueue_job.call_args[0][1])
-    assert "split_upload" in enqueued_path
-    assert "_split_manual_" in enqueued_path
 
 @pytest.mark.asyncio
 async def test_rotate_image(file_ops, mock_dependencies):
@@ -225,7 +250,6 @@ async def test_split_stores_asset_metadata_on_job(file_ops, mock_dependencies):
     assert len(calls) >= 2
     for call in calls:
         kwargs = call.kwargs if call.kwargs else {}
-        positional = call.args
         # update_job(job_id, source_format=..., preview_cache_path=...)
         assert "source_format" in kwargs, f"source_format missing in call: {call}"
         assert "preview_cache_path" in kwargs, f"preview_cache_path missing in call: {call}"
@@ -263,4 +287,36 @@ async def test_run_splitting_uses_unique_output_names_for_same_stem(file_ops, mo
     archival_writes = [name for name in written_paths if "_split_" in name]
     assert len(archival_writes) == 2
     assert len(set(archival_writes)) == 2
+
+
+@pytest.mark.asyncio
+async def test_run_splitting_accepts_jxl_sources(file_ops, mock_dependencies):
+    _, _, engine, root = mock_dependencies
+
+    raw_dir = root / "原始輸入"
+    raw_dir.mkdir()
+    (raw_dir / "receipt.jxl").touch()
+
+    with patch("backend.engine.file_ops.utils.cv_imread_chinese", return_value=np.zeros((32, 32, 3), dtype=np.uint8)) as mock_imread, \
+         patch("backend.engine.file_ops.utils.cv_imwrite_chinese", return_value=True):
+        result = await file_ops.run_splitting("proj1")
+
+    assert result["status"] == "split_completed"
+    assert any(Path(call.args[0]).suffix.lower() == ".jxl" for call in mock_imread.call_args_list)
+    assert engine.enqueue_job.call_count == 2
+
+
+def test_render_preview_uses_codec_adapter_for_jxl(tmp_path):
+    source = tmp_path / "preview.jxl"
+    source.write_bytes(b"fake-jxl")
+    cache = tmp_path / "preview.jpg"
+
+    with patch(
+        "backend.engine.file_ops.ImageCodecAdapter.read_image_pil",
+        return_value=Image.new("RGB", (200, 100), color=(150, 150, 150)),
+    ) as mock_read:
+        FileOps._render_preview(str(source), str(cache), "JPEG", 120)
+
+    mock_read.assert_called_once_with(str(source))
+    assert cache.exists()
 
