@@ -189,6 +189,33 @@ export default {
   },
 
   // =====================
+  // Stamp Repository
+  // =====================
+  listStamps() {
+    return api.get('/api/stamps')
+  },
+  detectStamps(file, mode = 'red') {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('mode', mode)
+    return api.post('/api/stamps/detect', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  registerStamps(file, mode = 'red', selections = []) {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('mode', mode)
+    formData.append('selections', JSON.stringify(selections))
+    return api.post('/api/stamps/register', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  deleteStampById(stampId) {
+    return api.delete(`/api/stamps/${stampId}`)
+  },
+
+  // =====================
   // Manual Correction
   // =====================
   getJobDetails(projectId, jobId) {

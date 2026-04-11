@@ -35,6 +35,11 @@ const router = createRouter({
       component: () => import('../views/SettingsView.vue')
     },
     {
+      path: '/stamps',
+      name: 'stamps-management',
+      component: () => import('../views/StampsManagementView.vue')
+    },
+    {
       path: '/project/:id/pdf-editor',
       name: 'pdf-editor',
       component: () => import('../views/PdfEditorView.vue')

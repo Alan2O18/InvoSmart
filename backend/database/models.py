@@ -95,6 +95,17 @@ class Group(Base):
     leader_name = Column(String, nullable=True)
 
 
+class Stamp(Base):
+    __tablename__ = "stamps"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    category = Column(String, nullable=False)
+    group_name = Column(String, ForeignKey("groups.group_name", ondelete="SET NULL"), nullable=True)
+    image_path = Column(String, nullable=False)
+    created_at = Column(Float, default=lambda: time.time())
+
+
 class Suggestion(Base):
     __tablename__ = "suggestions"
     
