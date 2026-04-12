@@ -9,15 +9,15 @@ import cv2
 import numpy as np
 from pathlib import Path
 from typing import Optional, Any
-from PIL import Image, features
 from backend.processing.image_codec_adapter import ImageCodecAdapter
-from backend.processing.perspective_transform import order_points, fix_orientation
+from backend.processing.perspective_transform import order_points
+from backend.engine.cache_mixin import CacheMixin
 from backend.utils import utils
 
 logger = logging.getLogger(__name__)
 
 
-class FileOps:
+class FileOps(CacheMixin):
     def __init__(self, project_repo, receipt_splitter, engine_ref):
         self.project_repo = project_repo
         self.receipt_splitter = receipt_splitter
@@ -31,9 +31,72 @@ class FileOps:
         config = self._engine_config()
         return int(config.get("voucher_settings", {}).get("thumb_max_width", 800))
 
-    def _image_semaphore(self):
-        semaphore = getattr(self.engine, "image_processing_semaphore", None)
-        return semaphore if isinstance(semaphore, asyncio.Semaphore) else None
+    def _deferred_gc_queue(self) -> list[dict[str, Any]]:
+        queue = getattr(self.engine, "_deferred_file_gc", None)
+        if not isinstance(queue, list):
+            queue = []
+            setattr(self.engine, "_deferred_file_gc", queue)
+        return queue
+
+    def _enqueue_deferred_file_gc(self, project_id: str, root: Path, target: Optional[Path]):
+        if target is None:
+            return
+        resolved = target.resolve(strict=False)
+        if not self._is_within_root(root, resolved):
+            return
+        queue = self._deferred_gc_queue()
+        key = str(resolved)
+        for item in queue:
+            if item.get("project_id") == project_id and item.get("path") == key:
+                return
+        queue.append({
+            "project_id": project_id,
+            "path": key,
+            "created_at": time.time(),
+        })
+
+    async def flush_deferred_gc(self, project_id: str) -> dict[str, Any]:
+        queue = self._deferred_gc_queue()
+        if not queue:
+            return {"deleted_files": [], "missing_files": [], "kept_referenced": []}
+
+        root = self.project_repo._project_root(project_id)
+        job_repo = self.engine.get_job_repo(project_id)
+        jobs = await job_repo.list_jobs()
+
+        referenced_paths: set[str] = set()
+        for job in jobs:
+            source = self._resolve_project_path(root, job.get("image_path"), preferred_dir="分割發票")
+            if source is None:
+                continue
+            referenced_paths.add(str(source.resolve(strict=False)))
+
+        deleted_files: list[str] = []
+        missing_files: list[str] = []
+        kept_referenced: list[str] = []
+
+        remaining: list[dict[str, Any]] = []
+        for item in queue:
+            if item.get("project_id") != project_id:
+                remaining.append(item)
+                continue
+
+            path = Path(str(item.get("path") or "")).resolve(strict=False)
+            key = str(path)
+            if key in referenced_paths:
+                kept_referenced.append(key)
+                remaining.append(item)
+                continue
+
+            self._safe_delete_file(root, path, deleted_files, missing_files)
+
+        queue.clear()
+        queue.extend(remaining)
+        return {
+            "deleted_files": deleted_files,
+            "missing_files": missing_files,
+            "kept_referenced": kept_referenced,
+        }
 
     def _codec_adapter(self) -> ImageCodecAdapter:
         settings = self._engine_config().get("processing_settings", {})
@@ -144,32 +207,31 @@ class FileOps:
         if target_files:
             files_to_process = target_files
         else:
-            files_to_process = [f.name for f in raw_input_dir.iterdir() if f.is_file()]
+            files_to_process = await asyncio.to_thread(
+                lambda: [f.name for f in raw_input_dir.iterdir() if f.is_file()]
+            )
 
         for image_name in files_to_process:
             try:
                 image_path = raw_input_dir / image_name
-                if not image_path.exists():
+                if not await asyncio.to_thread(image_path.exists):
                     logger.warning(f"File not found: {image_path}")
                     continue
 
                 if not image_name.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.jxl')):
                     continue
 
-                semaphore = getattr(self.engine, "image_processing_semaphore", None)
-                if semaphore is not None:
-                    async with semaphore:
-                        image = utils.cv_imread_chinese(str(image_path))
-                        if image is None:
-                            logger.error(f"Failed to read image: {image_path}")
-                            continue
-                        cropped_images = self.receipt_splitter.split(image, debug=False, headless=True)
-                else:
-                    image = utils.cv_imread_chinese(str(image_path))
+                async with self._optional_semaphore():
+                    image = await asyncio.to_thread(utils.cv_imread_chinese, str(image_path))
                     if image is None:
                         logger.error(f"Failed to read image: {image_path}")
                         continue
-                    cropped_images = self.receipt_splitter.split(image, debug=False, headless=True)
+                    cropped_images = await asyncio.to_thread(
+                        self.receipt_splitter.split,
+                        image,
+                        debug=False,
+                        headless=True,
+                    )
 
                 cropped_paths = []
                 codec = self._codec_adapter()
@@ -179,7 +241,8 @@ class FileOps:
                     unique_token = f"{time.time_ns()}_{uuid.uuid4().hex[:6]}"
                     save_stem = split_output_dir / f"{image_path.stem}_split_{i}_{unique_token}"
                     archival_path = codec.build_archival_path(save_stem)
-                    saved_path = codec.write_archival_image(archival_path, img)
+                    async with self._optional_semaphore():
+                        saved_path = await asyncio.to_thread(codec.write_archival_image, archival_path, img)
                     cropped_paths.append(saved_path)
 
                 logger.info(f"[FileOps] Saved {len(cropped_paths)} split images for {image_name}")
@@ -248,7 +311,7 @@ class FileOps:
             else:
                 raise ValueError("Invalid type")
 
-            target_dir.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(target_dir.mkdir, parents=True, exist_ok=True)
 
             # Initialize conversion progress
             image_files = [
@@ -282,23 +345,14 @@ class FileOps:
                             f"falling back to copy: {read_err}"
                         )
                         dest_path = target_dir / f"{base_stem}{original_suffix}"
-                        shutil.copy(file_path, dest_path)
+                        await asyncio.to_thread(shutil.copy, file_path, dest_path)
                         self.project_repo.inc_conversion_progress(project_id)
                         continue
 
                     archival_stem = target_dir / base_stem
                     archival_path = codec.build_archival_path(archival_stem)
 
-                    semaphore = self._image_semaphore()
-                    if semaphore is not None:
-                        async with semaphore:
-                            dest_path = await asyncio.to_thread(
-                                codec.write_archival_image,
-                                archival_path,
-                                image,
-                                original_suffix,
-                            )
-                    else:
+                    async with self._optional_semaphore():
                         dest_path = await asyncio.to_thread(
                             codec.write_archival_image,
                             archival_path,
@@ -310,7 +364,7 @@ class FileOps:
                 else:
                     # Non-image file: just copy
                     dest_path = target_dir / f"{base_stem}{original_suffix}"
-                    shutil.copy(file_path, dest_path)
+                    await asyncio.to_thread(shutil.copy, file_path, dest_path)
 
                 if type == "split":
                     # Enqueue with ABSOLUTE path
@@ -344,18 +398,22 @@ class FileOps:
             if not image_path.exists():
                 raise FileNotFoundError(f"Image {filename} not found in splits")
 
-            image = utils.cv_imread_chinese(str(image_path))
+            image = await asyncio.to_thread(utils.cv_imread_chinese, str(image_path))
             if image is None:
                 raise ValueError("Failed to read image")
 
-            if angle == 90:
-                image = cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
-            elif angle == -90 or angle == 270:
-                image = cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
-            elif angle == 180:
-                image = cv2.rotate(image, cv2.ROTATE_180)
+            def _rotate_image_sync(raw: np.ndarray, rotate_angle: int) -> np.ndarray:
+                if rotate_angle == 90:
+                    return cv2.rotate(raw, cv2.ROTATE_90_CLOCKWISE)
+                if rotate_angle == -90 or rotate_angle == 270:
+                    return cv2.rotate(raw, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                if rotate_angle == 180:
+                    return cv2.rotate(raw, cv2.ROTATE_180)
+                return raw
 
-            utils.cv_imwrite_chinese(str(image_path), image)
+            image = await asyncio.to_thread(_rotate_image_sync, image, angle)
+
+            await asyncio.to_thread(utils.cv_imwrite_chinese, str(image_path), image)
             self.invalidate_preview_cache(project_id, str(image_path))
             try:
                 max_width = self._thumb_max_width()
@@ -391,153 +449,6 @@ class FileOps:
             logger.error(f"Error rotating image {filename}: {e}")
             raise e
 
-    def _get_preview_cache_dir(self, project_id: str) -> Path:
-        root = self.project_repo._project_root(project_id)
-        cache_dir = root / "快取影像" / "voucher_preview"
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        return cache_dir
-
-    def _get_preview_format(self) -> tuple[str, str, str]:
-        configured = self._engine_config().get("processing_settings", {}).get("preview_formats", ["avif", "webp", "jpeg"])
-        candidates = [str(fmt).lower() for fmt in configured if str(fmt).strip()]
-        if not candidates:
-            candidates = ["avif", "webp", "jpeg"]
-
-        for fmt in candidates:
-            if fmt == "avif":
-                try:
-                    if features.check("avif"):
-                        return ("AVIF", "avif", "image/avif")
-                except Exception:
-                    pass
-            if fmt == "webp":
-                try:
-                    if features.check("webp"):
-                        return ("WEBP", "webp", "image/webp")
-                except Exception:
-                    pass
-            if fmt in ("jpg", "jpeg"):
-                return ("JPEG", "jpg", "image/jpeg")
-
-        return ("JPEG", "jpg", "image/jpeg")
-
-    def _build_preview_cache_path(self, project_id: str, image_path: str, max_width: int, extension: str) -> Path:
-        source = Path(image_path)
-        stat = source.stat()
-        sig = f"{stat.st_mtime_ns}_{stat.st_size}_{max_width}"
-        return self._get_preview_cache_dir(project_id) / f"{source.stem}_{sig}.{extension}"
-
-    @staticmethod
-    def _render_preview(source_path: str, cache_path: str, pil_format: str, max_width: int):
-        image = ImageCodecAdapter().read_image_pil(source_path)
-        if image.width > max_width:
-            new_height = int((max_width / image.width) * image.height)
-            image = image.resize((max_width, max(1, new_height)), Image.Resampling.LANCZOS)
-
-        save_kwargs = {}
-        if pil_format == "AVIF":
-            save_kwargs = {"quality": 60}
-        elif pil_format == "WEBP":
-            save_kwargs = {"quality": 85}
-        elif pil_format == "JPEG":
-            save_kwargs = {"quality": 90}
-
-        image.save(cache_path, format=pil_format, **save_kwargs)
-
-    async def ensure_preview_cache(self, project_id: str, image_path: str, max_width: int = 800) -> Optional[dict]:
-        source = Path(image_path)
-        if not source.exists() or not source.is_file():
-            return None
-
-        pil_format, extension, media_type = self._get_preview_format()
-        cache_path = self._build_preview_cache_path(project_id, image_path, max_width, extension)
-        if cache_path.exists():
-            return {"path": str(cache_path), "media_type": media_type, "cache_hit": True}
-
-        semaphore = self._image_semaphore()
-        if semaphore is not None:
-            async with semaphore:
-                await asyncio.to_thread(
-                    self._render_preview,
-                    str(source),
-                    str(cache_path),
-                    pil_format,
-                    max_width,
-                )
-        else:
-            await asyncio.to_thread(
-                self._render_preview,
-                str(source),
-                str(cache_path),
-                pil_format,
-                max_width,
-            )
-
-        return {"path": str(cache_path), "media_type": media_type, "cache_hit": False}
-
-    def invalidate_preview_cache(self, project_id: str, image_path: str):
-        source = Path(image_path)
-        cache_dir = self._get_preview_cache_dir(project_id)
-        for cached in cache_dir.glob(f"{source.stem}_*"):
-            try:
-                cached.unlink()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(f"[FileOps] failed to delete preview cache {cached}: {exc}")
-
-    async def cleanup_project_cache(self, project_id: str, max_age_hours: int = 24) -> dict[str, Any]:
-        root = self.project_repo._project_root(project_id)
-        cache_root = root / "快取影像"
-        if not cache_root.exists():
-            return {
-                "project_id": project_id,
-                "deleted_files": 0,
-                "missing_cache_root": True,
-            }
-
-        cutoff = time.time() - max(1, int(max_age_hours)) * 3600
-        deleted_files = 0
-
-        for file_path in cache_root.rglob("*"):
-            if not file_path.is_file():
-                continue
-            try:
-                if file_path.stat().st_mtime < cutoff:
-                    file_path.unlink()
-                    deleted_files += 1
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(f"[FileOps] cache cleanup failed for {file_path}: {exc}")
-
-        for dir_path in sorted((p for p in cache_root.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
-            try:
-                dir_path.rmdir()
-            except OSError:
-                pass
-
-        return {
-            "project_id": project_id,
-            "deleted_files": deleted_files,
-            "missing_cache_root": False,
-        }
-
-    async def cleanup_all_projects_cache(self, max_age_hours: int = 24) -> dict[str, Any]:
-        projects = await self.project_repo.list_projects()
-        summaries = []
-        total_deleted = 0
-        for project in projects:
-            project_id = project.get("project_id") or project.get("id")
-            if not project_id:
-                continue
-            summary = await self.cleanup_project_cache(project_id, max_age_hours=max_age_hours)
-            summaries.append(summary)
-            total_deleted += int(summary.get("deleted_files", 0))
-
-        return {
-            "status": "completed",
-            "projects": len(summaries),
-            "deleted_files": total_deleted,
-            "details": summaries,
-        }
-
     async def delete_job_files(self, project_id: str, job_id: str) -> dict[str, Any]:
         root = self.project_repo._project_root(project_id)
         job_repo = self.engine.get_job_repo(project_id)
@@ -547,10 +458,14 @@ class FileOps:
                 "job_found": False,
                 "deleted_files": [],
                 "missing_files": [],
+                "deferred_files": [],
+                "skipped_shared_files": [],
             }
 
         deleted_files: list[str] = []
         missing_files: list[str] = []
+        deferred_files: list[str] = []
+        skipped_shared_files: list[str] = []
         targets: list[Optional[Path]] = [
             self._resolve_project_path(root, job.get("image_path"), preferred_dir="分割發票"),
             self._resolve_project_path(root, job.get("source_pdf_path"), preferred_dir="原始輸入"),
@@ -560,10 +475,25 @@ class FileOps:
 
         image_target = targets[0]
         if image_target is not None:
-            self.invalidate_preview_cache(project_id, str(image_target))
+            image_key = str(image_target.resolve(strict=False))
+            self._enqueue_deferred_file_gc(project_id, root, image_target)
+            deferred_files.append(image_key)
+
+            for row in await job_repo.list_jobs():
+                if row.get("job_id") == job_id:
+                    continue
+                other = self._resolve_project_path(root, row.get("image_path"), preferred_dir="分割發票")
+                if other is None:
+                    continue
+                if str(other.resolve(strict=False)) == image_key:
+                    skipped_shared_files.append(image_key)
+                    break
+
+            if not skipped_shared_files:
+                self.invalidate_preview_cache(project_id, str(image_target))
 
         seen: set[str] = set()
-        for target in targets:
+        for target in targets[1:]:
             if target is None:
                 continue
             key = str(target.resolve(strict=False))
@@ -576,6 +506,8 @@ class FileOps:
             "job_found": True,
             "deleted_files": deleted_files,
             "missing_files": missing_files,
+            "deferred_files": deferred_files,
+            "skipped_shared_files": skipped_shared_files,
         }
 
     async def optimize_jxl_storage(self, project_id: str, force: bool = False) -> dict[str, Any]:
@@ -640,16 +572,7 @@ class FileOps:
                         failed_jobs += 1
                         continue
 
-                    semaphore = self._image_semaphore()
-                    if semaphore is not None:
-                        async with semaphore:
-                            saved = await asyncio.to_thread(
-                                codec.write_archival_image,
-                                target,
-                                image,
-                                src_abs.suffix or ".jpg",
-                            )
-                    else:
+                    async with self._optional_semaphore():
                         saved = await asyncio.to_thread(
                             codec.write_archival_image,
                             target,
@@ -725,7 +648,7 @@ class FileOps:
 
         root = self.project_repo._project_root(project_id)
         split_dir = root / "分割發票"
-        split_dir.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(split_dir.mkdir, parents=True, exist_ok=True)
 
         job_repo = self.engine.get_job_repo(project_id)
         job = await job_repo.get_job(job_id)
@@ -759,22 +682,11 @@ class FileOps:
             crop = self._warp_by_points(image, points)
             if crop.size == 0:
                 continue
-
-            crop = fix_orientation(crop)
             token = f"{time.time_ns()}_{uuid.uuid4().hex[:6]}"
             stem = split_dir / f"{source.stem}_resplit_{idx}_{token}"
             archival_path = codec.build_archival_path(stem)
 
-            semaphore = self._image_semaphore()
-            if semaphore is not None:
-                async with semaphore:
-                    saved_path = await asyncio.to_thread(
-                        codec.write_archival_image,
-                        archival_path,
-                        crop,
-                        source.suffix or ".jpg",
-                    )
-            else:
+            async with self._optional_semaphore():
                 saved_path = await asyncio.to_thread(
                     codec.write_archival_image,
                     archival_path,
@@ -821,14 +733,12 @@ class FileOps:
         將 PDF 第一頁渲染為圖片，透過 ImageCodecAdapter 轉檔後建立 Job。
         """
         try:
-            import fitz
-            import numpy as np
             root = self.project_repo._project_root(project_id)
             raw_dir = root / "原始輸入"
             split_dir = root / "分割發票"
 
-            raw_dir.mkdir(parents=True, exist_ok=True)
-            split_dir.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(raw_dir.mkdir, parents=True, exist_ok=True)
+            await asyncio.to_thread(split_dir.mkdir, parents=True, exist_ok=True)
 
             # Initialize conversion progress
             self.project_repo.set_conversion_total(project_id, len(files))
@@ -839,40 +749,18 @@ class FileOps:
                 # 1. 複製原始 PDF 檔案
                 filename = Path(file_path).name
                 dest_pdf_path = raw_dir / filename
-                shutil.copy(file_path, dest_pdf_path)
+                await asyncio.to_thread(shutil.copy, file_path, dest_pdf_path)
 
                 # 2. 渲染首頁並透過 codec 轉檔
                 try:
-                    doc = fitz.open(str(dest_pdf_path))
-                    page = doc[0]
-                    zoom_matrix = fitz.Matrix(2.0, 2.0)
-                    pix = page.get_pixmap(matrix=zoom_matrix)
-
-                    # Convert pixmap to numpy BGR array
-                    img_data = pix.samples
-                    if pix.n == 4:  # RGBA
-                        img_array = np.frombuffer(img_data, dtype=np.uint8).reshape(pix.h, pix.w, 4)
-                        img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGBA2BGR)
-                    else:  # RGB
-                        img_array = np.frombuffer(img_data, dtype=np.uint8).reshape(pix.h, pix.w, 3)
-                        img_bgr = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-                    doc.close()
+                    img_bgr = await asyncio.to_thread(self._render_pdf_first_page_to_bgr, str(dest_pdf_path))
 
                     ts = int(time.time())
                     stem = Path(filename).stem
                     save_stem = split_dir / f"{stem}_page0_{ts}"
                     archival_path = codec.build_archival_path(save_stem)
 
-                    semaphore = self._image_semaphore()
-                    if semaphore is not None:
-                        async with semaphore:
-                            dest_img_path = await asyncio.to_thread(
-                                codec.write_archival_image,
-                                archival_path,
-                                img_bgr,
-                                ".png",  # fallback to PNG for PDF renders
-                            )
-                    else:
+                    async with self._optional_semaphore():
                         dest_img_path = await asyncio.to_thread(
                             codec.write_archival_image,
                             archival_path,

@@ -4,8 +4,6 @@ from fastapi import APIRouter, Query, Depends
 from pydantic import BaseModel
 from typing import List
 from backend.repositories.suggestion_repository import SuggestionRepository
-from backend.dependencies import get_engine
-from backend.engine.core import Engine
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -19,9 +17,6 @@ class SuggestionRequest(BaseModel):
 class BulkSuggestionRequest(BaseModel):
     category: str
     values: List[str]
-
-
-from backend.repositories.suggestion_repository import SuggestionRepository
 
 def get_suggestion_repo() -> SuggestionRepository:
     """Dependency to provide a SuggestionRepository instance."""

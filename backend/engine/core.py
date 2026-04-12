@@ -226,7 +226,7 @@ class Engine:
         # 1. 建立 job (此時會帶入 image_path 讓 VLM 覺得這是一張圖片)
         await job_repo.insert_job(job_id, image_path, "ready")
         
-        # 2. 補充 PDF 特殊欄位 (Bug 1 fix: 同時設定 compressed_pdf_path 讓 Worker 有輸出路徑)
+        # 2. 補充 PDF 專用欄位，確保 Worker 具備穩定輸出路徑
         source_dir = os.path.dirname(source_pdf_path)
         output_dir = os.path.join(os.path.dirname(source_dir), "輸出結果")  # 與 原始輸入 平行
         os.makedirs(output_dir, exist_ok=True)
@@ -286,10 +286,16 @@ class Engine:
         job_repo = self.get_job_repo(project_id)
         file_cleanup = await self.file_ops.delete_job_files(project_id, job_id)
         deleted = await job_repo.delete_job(job_id)
+        deferred_gc = await self.file_ops.flush_deferred_gc(project_id) if deleted else {
+            "deleted_files": [],
+            "missing_files": [],
+            "kept_referenced": [],
+        }
         return {
             "status": "deleted" if deleted else "not_found",
             "deleted": deleted,
             "file_cleanup": file_cleanup,
+            "deferred_gc": deferred_gc,
         }
 
     # ========================================
@@ -440,7 +446,7 @@ class Engine:
         # 依照 updated_at 排序一下
         done_jobs.sort(key=lambda x: x.get("updated_at", 0))
         
-        # Bug 1 fix: 正規化為絕對路徑，避免相對路徑找不到檔案
+        # 正規化為絕對路徑，避免相對路徑在不同工作目錄下失敗
         root = self.project_repo._project_root(project_id)
         image_paths = []
         for j in done_jobs:

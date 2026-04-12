@@ -364,8 +364,52 @@ async def test_delete_job_files_removes_assets(file_ops, mock_dependencies):
     result = await file_ops.delete_job_files("proj1", "job-1")
 
     assert result["job_found"] is True
-    assert not split_file.exists()
+    assert result["deferred_files"]
+    assert split_file.exists()
     assert not preview_file.exists()
+
+    gc_result = await file_ops.flush_deferred_gc("proj1")
+    assert gc_result["deleted_files"]
+    assert not split_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_delete_job_files_skips_shared_image_path(file_ops, mock_dependencies):
+    _, _, engine, root = mock_dependencies
+    split_file = root / "分割發票" / "shared.jpg"
+    split_file.parent.mkdir(parents=True, exist_ok=True)
+    split_file.write_bytes(b"img")
+
+    engine.get_job_repo.return_value.get_job = AsyncMock(
+        return_value={
+            "job_id": "job-1",
+            "image_path": str(split_file),
+            "preview_cache_path": None,
+            "source_pdf_path": None,
+            "compressed_pdf_path": None,
+        }
+    )
+    engine.get_job_repo.return_value.list_jobs = AsyncMock(
+        return_value=[
+            {"job_id": "job-1", "image_path": str(split_file)},
+            {"job_id": "job-2", "image_path": str(split_file)},
+        ]
+    )
+
+    result = await file_ops.delete_job_files("proj1", "job-1")
+
+    assert result["deferred_files"]
+    assert result["skipped_shared_files"]
+    assert split_file.exists()
+
+    kept = await file_ops.flush_deferred_gc("proj1")
+    assert kept["kept_referenced"]
+    assert split_file.exists()
+
+    engine.get_job_repo.return_value.list_jobs = AsyncMock(return_value=[])
+    deleted = await file_ops.flush_deferred_gc("proj1")
+    assert deleted["deleted_files"]
+    assert not split_file.exists()
 
 
 @pytest.mark.asyncio

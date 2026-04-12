@@ -1,7 +1,7 @@
 """
 perspective_transform.py 單元測試
 
-測試 order_points, crop_by_rect, fix_orientation 三個核心函數。
+測試 order_points, crop_by_rect 兩個核心函數。
 使用合成圖片，不依賴任何真實圖片檔案。
 """
 import pytest
@@ -11,7 +11,6 @@ import cv2
 from backend.processing.perspective_transform import (
     order_points,
     crop_by_rect,
-    fix_orientation,
 )
 
 
@@ -131,56 +130,3 @@ class TestCropByRect:
         assert np.mean(center_region) > 10, "裁切丟失了內容"
 
 
-# ============================================================================
-# fix_orientation 測試
-# ============================================================================
-
-class TestFixOrientation:
-    """測試投影輪廓方向校正"""
-
-    def test_horizontal_text_no_rotation(self):
-        """水平文字行 → 不需要旋轉"""
-        # 建立有水平線條的圖片 (模擬文字行)
-        img = np.ones((300, 200, 3), dtype=np.uint8) * 255
-        for y in range(50, 250, 30):  # 水平黑色條紋
-            cv2.line(img, (20, y), (180, y), (0, 0, 0), 3)
-
-        result = fix_orientation(img)
-        # 不應旋轉，尺寸不變
-        assert result.shape == img.shape
-
-    def test_vertical_text_no_auto_rotate(self):
-        """v0.0.14: 垂直文字行也不應自動旋轉"""
-        # 建立有垂直線條的圖片 (模擬垂直排列的文字行)
-        img = np.ones((200, 300, 3), dtype=np.uint8) * 255
-        for x in range(30, 270, 20):  # 垂直黑色條紋
-            cv2.line(img, (x, 20), (x, 180), (0, 0, 0), 2)
-
-        result = fix_orientation(img)
-        assert result.shape == img.shape
-
-    def test_empty_image(self):
-        """空圖片不崩潰"""
-        img = np.array([])
-        result = fix_orientation(img)
-        assert result.size == 0
-
-    def test_grayscale_input(self):
-        """灰階圖片也能處理"""
-        img = np.ones((200, 100), dtype=np.uint8) * 255
-        for y in range(20, 180, 25):
-            cv2.line(img, (10, y), (90, y), 0, 2)
-
-        result = fix_orientation(img)
-        assert result is not None
-        assert result.size > 0
-
-    def test_uniform_image_no_crash(self):
-        """純白或純黑圖片不崩潰"""
-        white = np.ones((100, 100, 3), dtype=np.uint8) * 255
-        result = fix_orientation(white)
-        assert result.shape == white.shape
-
-        black = np.zeros((100, 100, 3), dtype=np.uint8)
-        result = fix_orientation(black)
-        assert result.shape == black.shape

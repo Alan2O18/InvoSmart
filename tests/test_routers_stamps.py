@@ -33,7 +33,7 @@ def stamp_client(tmp_path):
 
     anyio.run(init_tables)
 
-    async def override_get_stamp_db():
+    async def override_get_db():
         async with session_factory() as session:
             yield session
 
@@ -41,12 +41,12 @@ def stamp_client(tmp_path):
     stamps_router.STAMPS_STORAGE_DIR = tmp_path / 'stamps'
     stamps_router.STAMPS_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 
-    app.dependency_overrides[stamps_router.get_stamp_db] = override_get_stamp_db
+    app.dependency_overrides[stamps_router.get_db] = override_get_db
 
     with TestClient(app) as client:
         yield client
 
-    app.dependency_overrides.pop(stamps_router.get_stamp_db, None)
+    app.dependency_overrides.pop(stamps_router.get_db, None)
     stamps_router.STAMPS_STORAGE_DIR = old_storage_dir
     anyio.run(db_engine.dispose)
 

@@ -1,21 +1,15 @@
-import base64
+import asyncio
 import json
 import logging
-import time
-import uuid
 from pathlib import Path
-from typing import AsyncGenerator
 
-import cv2
-import numpy as np
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.database import core
-from backend.database.models import Stamp
-from backend.processing.stamp_processor import StampProcessor
+from backend.dependencies import get_db
+from backend.engine.stamp_service import StampService
+from backend.repositories.stamp_repository import StampRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -35,28 +29,12 @@ class StampSelection(BaseModel):
     group_name: str | None = None
 
 
-async def get_stamp_db() -> AsyncGenerator[AsyncSession, None]:
-    if core.AsyncSessionLocal is None:
-        raise HTTPException(status_code=503, detail="Database is not initialized")
-    async with core.AsyncSessionLocal() as session:
-        yield session
+def get_stamp_service() -> StampService:
+    return StampService(project_root=PROJECT_ROOT, storage_relative_dir=STAMPS_STORAGE_DIR)
 
 
-def _ensure_storage_dir() -> Path:
-    STAMPS_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-    return STAMPS_STORAGE_DIR
-
-
-async def _decode_upload_to_image(file: UploadFile) -> np.ndarray:
-    raw_bytes = await file.read()
-    if not raw_bytes:
-        raise HTTPException(status_code=400, detail="Uploaded image is empty")
-
-    np_bytes = np.frombuffer(raw_bytes, dtype=np.uint8)
-    image = cv2.imdecode(np_bytes, cv2.IMREAD_COLOR)
-    if image is None:
-        raise HTTPException(status_code=400, detail="Cannot decode uploaded image")
-    return image
+def get_stamp_repo(db: AsyncSession = Depends(get_db)) -> StampRepository:
+    return StampRepository(db)
 
 
 def _stamp_url_from_image_path(image_path: str) -> str:
@@ -64,16 +42,10 @@ def _stamp_url_from_image_path(image_path: str) -> str:
     return f"/stamps-static/{filename}"
 
 
-def _serialize_stamp(stamp: Stamp) -> dict:
-    return {
-        "id": stamp.id,
-        "name": stamp.name,
-        "category": stamp.category,
-        "group_name": stamp.group_name,
-        "image_path": stamp.image_path,
-        "image_url": _stamp_url_from_image_path(stamp.image_path),
-        "created_at": stamp.created_at,
-    }
+def _serialize_stamp(stamp: dict) -> dict:
+    payload = dict(stamp)
+    payload["image_url"] = _stamp_url_from_image_path(str(payload.get("image_path") or ""))
+    return payload
 
 
 def _resolve_image_path(image_path: str) -> Path:
@@ -83,42 +55,37 @@ def _resolve_image_path(image_path: str) -> Path:
     return PROJECT_ROOT / path
 
 
-def _build_preview_base64(image: np.ndarray, boxes: list[tuple[int, int, int, int]]) -> str | None:
-    preview = image.copy()
-    for x, y, w, h in boxes:
-        cv2.rectangle(preview, (x, y), (x + w, y + h), (0, 255, 255), 2)
-    ok, encoded = cv2.imencode(".png", preview)
-    if not ok:
-        return None
-    return base64.b64encode(encoded.tobytes()).decode("ascii")
-
-
 @router.get("/stamps")
-async def list_stamps(db: AsyncSession = Depends(get_stamp_db)):
-    result = await db.execute(select(Stamp).order_by(Stamp.created_at.desc()))
-    stamps = result.scalars().all()
-    return [_serialize_stamp(stamp) for stamp in stamps]
+async def list_stamps(repo: StampRepository = Depends(get_stamp_repo)):
+    rows = await repo.list_stamps()
+    return [_serialize_stamp(row) for row in rows]
 
 
 @router.post("/stamps/detect")
 async def detect_stamps(
     file: UploadFile = File(...),
     mode: str = Form("red"),
+    service: StampService = Depends(get_stamp_service),
 ):
     clean_mode = (mode or "red").strip().lower()
     if clean_mode not in {"red", "edge"}:
         raise HTTPException(status_code=400, detail="mode must be 'red' or 'edge'")
 
-    image = await _decode_upload_to_image(file)
-    processor = StampProcessor()
-    boxes = processor.detect_stamps(image, mode=clean_mode)
+    raw_bytes = await file.read()
+    try:
+        image = await asyncio.to_thread(service.decode_upload_image, raw_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    boxes = await asyncio.to_thread(service.processor.detect_stamps, image, clean_mode)
+    preview = await asyncio.to_thread(service.build_preview_base64, image, boxes)
 
     return {
         "mode": clean_mode,
         "image_width": int(image.shape[1]),
         "image_height": int(image.shape[0]),
         "boxes": [{"x": x, "y": y, "w": w, "h": h} for x, y, w, h in boxes],
-        "preview_image_base64": _build_preview_base64(image, boxes),
+        "preview_image_base64": preview,
     }
 
 
@@ -127,7 +94,8 @@ async def register_stamps(
     file: UploadFile = File(...),
     mode: str = Form("red"),
     selections: str = Form(...),
-    db: AsyncSession = Depends(get_stamp_db),
+    repo: StampRepository = Depends(get_stamp_repo),
+    service: StampService = Depends(get_stamp_service),
 ):
     clean_mode = (mode or "red").strip().lower()
     if clean_mode not in {"red", "edge"}:
@@ -156,72 +124,36 @@ async def register_stamps(
             item.group_name = item.group_name.strip() or None
         parsed.append(item)
 
-    image = await _decode_upload_to_image(file)
-    processor = StampProcessor()
-    storage_dir = _ensure_storage_dir()
-    written_files: list[Path] = []
-    created_entities: list[Stamp] = []
-
+    raw_bytes = await file.read()
     try:
-        for item in parsed:
-            crop = processor.crop_and_remove_background(
-                image,
-                rect=(item.x, item.y, item.w, item.h),
-                mode=clean_mode,
-            )
-            filename = f"stamp_{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}.png"
-            output_path = storage_dir / filename
-            if not cv2.imwrite(str(output_path), crop):
-                raise HTTPException(status_code=500, detail=f"Failed to write stamp image: {filename}")
-
-            written_files.append(output_path)
-            try:
-                stored_path = str(output_path.relative_to(PROJECT_ROOT)).replace("\\", "/")
-            except ValueError:
-                stored_path = str(output_path)
-            record = Stamp(
-                name=item.name,
-                category=item.category,
-                group_name=item.group_name,
-                image_path=stored_path,
-                created_at=time.time(),
-            )
-            db.add(record)
-            created_entities.append(record)
-
-        await db.commit()
-        for record in created_entities:
-            await db.refresh(record)
-    except HTTPException:
-        await db.rollback()
-        for file_path in written_files:
-            file_path.unlink(missing_ok=True)
-        raise
+        created_rows = await service.register_stamps(
+            raw_bytes=raw_bytes,
+            selections=[item.model_dump() for item in parsed],
+            mode=clean_mode,
+            repo=repo,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
-        await db.rollback()
-        for file_path in written_files:
-            file_path.unlink(missing_ok=True)
         logger.error("Error registering stamps: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     return {
         "status": "registered",
-        "count": len(created_entities),
-        "items": [_serialize_stamp(record) for record in created_entities],
+        "count": len(created_rows),
+        "items": [_serialize_stamp(row) for row in created_rows],
     }
 
 
 @router.delete("/stamps/{stamp_id}")
-async def delete_stamp(stamp_id: int, db: AsyncSession = Depends(get_stamp_db)):
-    result = await db.execute(select(Stamp).where(Stamp.id == stamp_id))
-    record = result.scalars().first()
+async def delete_stamp(stamp_id: int, repo: StampRepository = Depends(get_stamp_repo)):
+    record = await repo.get_stamp(stamp_id)
     if not record:
         raise HTTPException(status_code=404, detail="Stamp not found")
 
-    image_path = _resolve_image_path(record.image_path)
-    if image_path.exists() and image_path.is_file():
-        image_path.unlink(missing_ok=True)
+    image_path = _resolve_image_path(str(record.get("image_path") or ""))
+    if await asyncio.to_thread(image_path.exists) and await asyncio.to_thread(image_path.is_file):
+        await asyncio.to_thread(image_path.unlink, missing_ok=True)
 
-    await db.delete(record)
-    await db.commit()
+    await repo.delete_stamp(stamp_id)
     return {"status": "deleted", "id": stamp_id}

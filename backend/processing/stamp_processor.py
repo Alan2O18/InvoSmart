@@ -84,6 +84,41 @@ class StampProcessor:
         result[:, :, 3] = foreground_mask
         return result
 
+    def extract_stamps(
+        self,
+        image: np.ndarray,
+        selections: list[dict],
+        mode: str = "red",
+    ) -> list[dict]:
+        """Extract multiple stamp crops from one image without touching filesystem or DB."""
+        if image is None or image.size == 0:
+            raise ValueError("image cannot be empty")
+        if not isinstance(selections, list) or not selections:
+            raise ValueError("selections must be a non-empty list")
+
+        payload: list[dict] = []
+        for idx, item in enumerate(selections):
+            if not isinstance(item, dict):
+                raise ValueError(f"selection {idx} must be an object")
+
+            rect = (
+                int(item.get("x", 0)),
+                int(item.get("y", 0)),
+                int(item.get("w", 0)),
+                int(item.get("h", 0)),
+            )
+            cropped = self.crop_and_remove_background(image, rect=rect, mode=mode)
+            payload.append(
+                {
+                    "image": cropped,
+                    "name": str(item.get("name") or "").strip(),
+                    "category": str(item.get("category") or "").strip(),
+                    "group_name": item.get("group_name"),
+                }
+            )
+
+        return payload
+
     def _build_red_mask(self, image: np.ndarray) -> np.ndarray:
         hsv = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
         lower_red_1 = np.array([0, 45, 45], dtype=np.uint8)

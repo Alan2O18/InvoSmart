@@ -6,8 +6,14 @@ FastAPI 依賴注入模組
 - 生產環境：使用 get_engine() 獲取全局實例
 - 測試環境：使用 set_engine() 注入測試實例
 """
-from typing import Optional
+from typing import AsyncGenerator, Generator
 import logging
+
+from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
+
+from backend.database.core import AsyncSessionLocal, SyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -58,13 +64,10 @@ def reset_engine() -> None:
         logger.info("[Dependencies] Engine 實例已重置")
     _engine_instance = None
 
-from typing import AsyncGenerator, Generator
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import Session
-from backend.database.core import AsyncSessionLocal, SyncSessionLocal
-
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """獲取非同步 DB Session (用於 FastAPI Router)"""
+    if AsyncSessionLocal is None:
+        raise HTTPException(status_code=503, detail="Database is not initialized")
     async with AsyncSessionLocal() as session:
         yield session
 

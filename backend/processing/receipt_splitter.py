@@ -18,7 +18,7 @@ import numpy as np
 from typing import List, Dict, Tuple
 
 from backend.processing.image_preprocessor import ImagePreprocessor
-from backend.processing.perspective_transform import crop_by_rect, fix_orientation, order_points
+from backend.processing.perspective_transform import crop_by_rect, order_points
 
 logger = logging.getLogger(__name__)
 
@@ -91,14 +91,11 @@ class ReceiptSplitter:
             crop = crop_by_rect(image, rect)
 
             if crop.size == 0:
-                logger.warning(f"[發票 {i+1}] Direct Warp 裁切失敗")
+                logger.warning(f"[發票 {i + 1}] Direct Warp 裁切失敗")
                 continue
 
-            # 方向校正 (投影輪廓)
-            crop = fix_orientation(crop)
-
             final_receipts.append(crop)
-            logger.info(f"[發票 {i+1}] 裁切完成: {crop.shape[1]}x{crop.shape[0]}")
+            logger.info(f"[發票 {i + 1}] 裁切完成: {crop.shape[1]}x{crop.shape[0]}")
 
             if debug and not headless:
                 self._show_preview(crop, i, len(final_rects))
@@ -330,6 +327,6 @@ class ReceiptSplitter:
             scale = max_preview_size / max(image.shape)
             preview_image = cv2.resize(image, (0, 0), fx=scale, fy=scale)
 
-        window_name = f"Receipt {index+1}/{total}"
+        window_name = f"Receipt {index + 1}/{total}"
         cv2.imshow(window_name, preview_image)
         cv2.waitKey(1)

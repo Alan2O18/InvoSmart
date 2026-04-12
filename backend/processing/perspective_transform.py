@@ -4,11 +4,9 @@
 
 V10 重構：
 - crop_by_rect: 使用 Direct Warp 直接從原圖裁切旋轉矩形區域
-- fix_orientation: 使用投影輪廓 (Projection Profile) 校正文字方向
 """
 import cv2
 import numpy as np
-from typing import Tuple
 import logging
 
 logger = logging.getLogger(__name__)
@@ -103,19 +101,3 @@ def crop_by_rect(image: np.ndarray, rect) -> np.ndarray:
 
     return crop
 
-
-def fix_orientation(image: np.ndarray) -> np.ndarray:
-    """
-    V0.0.14: 停用自動方向校正，避免投影啟發式造成誤轉。
-
-    仍保留函式入口以維持相容性，實際上直接回傳原圖。
-
-    Args:
-        image: 裁切後的圖像 (BGR 或灰階)。
-
-    Returns:
-        方向校正後的圖像。
-    """
-    if image is None:
-        return image
-    return image

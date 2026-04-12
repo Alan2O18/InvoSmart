@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import functools
 import io
@@ -203,18 +204,25 @@ async def get_template_layout():
 async def save_template_layout(payload: _TemplateLayoutPayload):
     """Persist template layout changes to JSON config file."""
     config_path = _TEMPLATE_CONFIG_PATH
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    current: dict = {}
-    if config_path.exists():
+    await asyncio.to_thread(config_path.parent.mkdir, parents=True, exist_ok=True)
+
+    def _read_json(path: Path) -> dict:
+        if not path.exists():
+            return {}
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                current = json.load(f)
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            return payload if isinstance(payload, dict) else {}
         except Exception:  # noqa: BLE001
-            pass
+            return {}
+
+    current = await asyncio.to_thread(_read_json, config_path)
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     current.update(update)
-    with open(config_path, "w", encoding="utf-8") as f:
-        json.dump(current, f, ensure_ascii=False, indent=2)
+
+    await asyncio.to_thread(
+        lambda: config_path.write_text(json.dumps(current, ensure_ascii=False, indent=2), encoding="utf-8")
+    )
     return {"status": "saved"}
 
 
@@ -225,7 +233,7 @@ async def get_template_preview():
     template_path = settings["template_pdf_path"]
     if not os.path.exists(template_path):
         raise HTTPException(status_code=500, detail={"error": "INTERNAL_ERROR", "detail": "Voucher template not found"})
-    return _template_preview_payload(template_path, os.path.getmtime(template_path))
+    return await asyncio.to_thread(_template_preview_payload, template_path, os.path.getmtime(template_path))
 
 
 @router.get("/{project_id}/template")
@@ -256,7 +264,7 @@ async def get_template(project_id: str, engine: Engine = Depends(get_engine)):
             }
         )
 
-    preview_payload = _template_preview_payload(template_path, os.path.getmtime(template_path))
+    preview_payload = await asyncio.to_thread(_template_preview_payload, template_path, os.path.getmtime(template_path))
 
     metadata = project.get("metadata") or {}
     budget_item = metadata.get("group") or metadata.get("group_name") or ""
@@ -290,7 +298,7 @@ async def get_voucher_image(
     job_repo = engine.get_job_repo(project_id)
     job = await job_repo.get_job(job_id)
     if not job:
-        raise HTTPException(status_code=403, detail={"error": "FORBIDDEN", "detail": "Unauthorized invoice access"})
+        raise HTTPException(status_code=404, detail={"error": "NOT_FOUND", "detail": "Invoice job not found"})
 
     image_path = job.get("image_path")
     if not image_path or not os.path.exists(image_path):
@@ -304,7 +312,12 @@ async def get_voucher_image(
         except Exception as preview_err:  # noqa: BLE001
             logger.warning("Voucher image preview cache fallback triggered: %s", preview_err)
 
-    content, content_type = _load_image_bytes(image_path=image_path, thumb=thumb, max_width=max_width)
+    content, content_type = await asyncio.to_thread(
+        _load_image_bytes,
+        image_path=image_path,
+        thumb=thumb,
+        max_width=max_width,
+    )
     return Response(content=content, media_type=content_type)
 
 
@@ -380,13 +393,18 @@ async def generate_voucher_pdf(
 
     safe_project_id = sanitize_project_id(project_id)
     output_dir = Path(settings["layout_root"]) / safe_project_id / "outputs"
-    output_dir.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(output_dir.mkdir, parents=True, exist_ok=True)
     filename = f"voucher_{int(time.time())}.pdf"
     output_path = output_dir / filename
 
     try:
         generator = VoucherGenerator(template_path=template_path, font_path=settings.get("font_ttf_path", ""))
-        generator.generate_from_layout(resolved_pages, job_image_map=job_image_map, output_path=str(output_path))
+        await asyncio.to_thread(
+            generator.generate_from_layout,
+            resolved_pages,
+            job_image_map=job_image_map,
+            output_path=str(output_path),
+        )
     except ValueError as exc:
         raise HTTPException(
             status_code=422,
