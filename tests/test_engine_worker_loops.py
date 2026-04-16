@@ -1,8 +1,6 @@
-import json
 import threading
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from backend.engine.pdf_worker import pdf_worker_loop
 from backend.engine.workers import global_receipt_worker_loop
 
 
@@ -16,58 +14,6 @@ class ControlledQueue:
             return self._items.pop(0)
         self._shutdown_event.set()
         raise TimeoutError("queue empty")
-
-
-def test_pdf_worker_loop_marks_job_completed_on_success():
-    shutdown_event = threading.Event()
-    commands = {"page_order": [0], "stamps": []}
-    job_repo = MagicMock()
-    job_repo.update_job = AsyncMock(return_value=True)
-    job_repo.get_job = AsyncMock(
-        return_value={
-            "source_pdf_path": "source.pdf",
-            "compressed_pdf_path": "compressed.pdf",
-        }
-    )
-
-    engine = MagicMock()
-    engine._shutdown_event = shutdown_event
-    engine.pdf_task_queue = ControlledQueue([("proj1", "job-1", commands)], shutdown_event)
-    engine.get_job_repo.return_value = job_repo
-
-    with patch("backend.engine.pdf_worker.execute_commands", return_value=True):
-        pdf_worker_loop(engine)
-
-    assert job_repo.update_job.await_count == 2
-    assert job_repo.update_job.await_args_list[0].args == ("job-1",)
-    assert job_repo.update_job.await_args_list[0].kwargs == {"pdf_status": "compressing"}
-    assert job_repo.update_job.await_args_list[1].args == ("job-1",)
-    assert job_repo.update_job.await_args_list[1].kwargs["pdf_status"] == "completed"
-    assert json.loads(job_repo.update_job.await_args_list[1].kwargs["pdf_commands_json"]) == commands
-
-
-def test_pdf_worker_loop_marks_job_failed_when_engine_raises():
-    shutdown_event = threading.Event()
-    job_repo = MagicMock()
-    job_repo.update_job = AsyncMock(return_value=True)
-    job_repo.get_job = AsyncMock(
-        return_value={
-            "source_pdf_path": "source.pdf",
-            "compressed_pdf_path": "compressed.pdf",
-        }
-    )
-
-    engine = MagicMock()
-    engine._shutdown_event = shutdown_event
-    engine.pdf_task_queue = ControlledQueue([("proj1", "job-2", {"page_order": [1]})], shutdown_event)
-    engine.get_job_repo.return_value = job_repo
-
-    with patch("backend.engine.pdf_worker.execute_commands", side_effect=ValueError("Invalid PDF")):
-        pdf_worker_loop(engine)
-
-    failed_call = job_repo.update_job.await_args_list[-1]
-    assert failed_call.args == ("job-2",)
-    assert failed_call.kwargs == {"status": "failed", "pdf_status": "failed"}
 
 
 def test_global_receipt_worker_loop_skips_missing_jobs():

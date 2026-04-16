@@ -4,7 +4,6 @@
       <h1>活動列表</h1>
       <div class="header-actions">
         <button @click="$router.push('/stamps')" class="stamps-btn">🖋 印章管理</button>
-        <button @click="$router.push('/kanban')" class="kanban-btn">📊 PDF 看板</button>
         <button @click="$router.push('/create')" class="create-btn">+ 新增活動</button>
       </div>
     </div>
@@ -120,21 +119,6 @@ onMounted(fetchProjects)
 
 .stamps-btn:hover {
   background-color: #115e59;
-}
-
-.kanban-btn {
-  background-color: #3b82f6;
-  color: white;
-  border: none;
-  padding: 0.8rem 1.5rem;
-  border-radius: 6px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-.kanban-btn:hover {
-  background-color: #2563eb;
 }
 
 .create-btn {

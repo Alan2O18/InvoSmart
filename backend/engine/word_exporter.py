@@ -2,6 +2,7 @@ import copy
 import asyncio
 import json
 import logging
+from datetime import datetime
 from typing import Dict, Any
 from pathlib import Path
 from docx import Document
@@ -287,6 +288,89 @@ class WordExporter:
         except: pass
         return date_str
 
+    def _normalize_people_names(self, raw_value: Any) -> str:
+        if raw_value is None:
+            return ""
+
+        candidates: list[str]
+        if isinstance(raw_value, (list, tuple, set)):
+            candidates = [str(v).strip() for v in raw_value]
+        else:
+            text = str(raw_value).strip()
+            if not text:
+                return ""
+            if text.startswith("["):
+                try:
+                    parsed = json.loads(text)
+                    if isinstance(parsed, list):
+                        candidates = [str(v).strip() for v in parsed]
+                    else:
+                        candidates = [text]
+                except Exception:
+                    candidates = [text]
+            else:
+                normalized = (
+                    text.replace("\n", "、")
+                    .replace(",", "、")
+                    .replace("，", "、")
+                    .replace(";", "、")
+                    .replace("；", "、")
+                )
+                candidates = [part.strip() for part in normalized.split("、")]
+
+        unique: list[str] = []
+        for name in candidates:
+            if name and name not in unique:
+                unique.append(name)
+        return "、".join(unique)
+
+    def _parse_datetime(self, value: Any) -> datetime | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+
+        try:
+            return datetime.fromisoformat(text)
+        except Exception:
+            pass
+
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M"):
+            try:
+                return datetime.strptime(text, fmt)
+            except Exception:
+                continue
+        return None
+
+    def _format_roc_datetime_with_label(self, value: Any, label: str) -> str:
+        dt = self._parse_datetime(value)
+        if dt is None:
+            return ""
+        roc_year = dt.year - 1911
+        if roc_year <= 0:
+            return ""
+        return f"民國{roc_year}年 {dt.month}月 {dt.day}日 {dt.strftime('%H:%M')}分({label})"
+
+    def _format_activity_period(self, start_time: Any, end_time: Any) -> str:
+        start_line = self._format_roc_datetime_with_label(start_time, "開始")
+        end_line = self._format_roc_datetime_with_label(end_time, "結束")
+
+        if start_line and end_line:
+            return f"自{start_line}\n到{end_line}"
+        if start_line:
+            return f"自{start_line}"
+        if end_line:
+            return f"到{end_line}"
+
+        # Fallback for legacy or non-ISO values
+        if start_time and end_time:
+            return f"{start_time} ~ {end_time}"
+        return str(start_time or end_time or "")
+
     def _set_cell_vmerge(self, cell, val):
         from docx.oxml import OxmlElement
         tcPr = cell._tc.get_or_add_tcPr()
@@ -345,7 +429,11 @@ class WordExporter:
         
         start_time = meta.get("startTime", "")
         end_time = meta.get("endTime", "")
-        period = f"{start_time} ~ {end_time}" if (start_time and end_time) else (start_time or "")
+        period = self._format_activity_period(start_time, end_time)
+
+        leader_value = meta.get("leader")
+        if not leader_value:
+            leader_value = meta.get("leader_names", "")
             
         budget_income = meta.get("budgetIncome", [])
         budget_expense = meta.get("budgetExpense", [])
@@ -362,10 +450,10 @@ class WordExporter:
             
         base_replacements = {
             "{{組別}}": meta.get("group", ""),
-            "{{組長}}": meta.get("leader", ""),
+            "{{組長}}": self._normalize_people_names(leader_value),
             "{{活動名稱}}": meta.get("name", ""),
-            "{{活動總召}}": meta.get("coordinator", ""),
-            "{{活動總務}}": meta.get("generalAffairs", ""),
+            "{{活動總召}}": self._normalize_people_names(meta.get("coordinator", "")),
+            "{{活動總務}}": self._normalize_people_names(meta.get("generalAffairs", "")),
             "{{活動期間}}": period,
             "{{活動地點}}": meta.get("location", ""),
             "{{總人數}}": str(total_count),

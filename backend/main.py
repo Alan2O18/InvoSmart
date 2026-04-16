@@ -22,7 +22,6 @@ logger = logging.getLogger(__name__)
 from backend.routers import router as projects_router, websocket
 from backend.routers.suggestions import router as suggestions_router
 from backend.routers.config import router as config_router
-from backend.routers.pdf import router as pdf_router
 from backend.routers.voucher import router as voucher_router
 from backend.routers.stamps import router as stamps_router
 
@@ -134,7 +133,6 @@ app.mount("/stamps-static", StaticFiles(directory=stamps_static_root), name="sta
 app.include_router(projects_router, prefix="/api/projects", tags=["projects"])
 app.include_router(suggestions_router, prefix="/api", tags=["suggestions"])
 app.include_router(config_router, prefix="/api/config", tags=["config"])
-app.include_router(pdf_router, prefix="/api/pdf", tags=["pdf"])
 app.include_router(voucher_router, prefix="/api/voucher", tags=["voucher"])
 app.include_router(stamps_router, prefix="/api", tags=["stamps"])
 app.include_router(websocket.router, tags=["websocket"])

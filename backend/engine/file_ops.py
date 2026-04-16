@@ -1,4 +1,3 @@
-import os
 import time
 import shutil
 import logging
@@ -12,6 +11,11 @@ from typing import Optional, Any
 from backend.processing.image_codec_adapter import ImageCodecAdapter
 from backend.processing.perspective_transform import order_points
 from backend.engine.cache_mixin import CacheMixin
+from backend.engine.resplit_source import (
+    job_matches_raw_filename,
+    resolve_raw_source_by_filename,
+    resolve_resplit_raw_source,
+)
 from backend.utils import utils
 
 logger = logging.getLogger(__name__)
@@ -271,35 +275,8 @@ class FileOps(CacheMixin):
                 logger.error(f"Error preparing tasks for {image_name}: {e}")
 
     def get_raw_files(self, project_id: str):
-        try:
-            root = self.project_repo._project_root(project_id)
-            raw_dir = root / "原始輸入"
-            split_dir = root / "分割發票"
-
-            if not raw_dir.exists():
-                return []
-
-            raw_files = []
-            for f in os.listdir(raw_dir):
-                if not f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.jxl')):
-                    continue
-
-                base_name = os.path.splitext(f)[0]
-                split_count = 0
-                if split_dir.exists():
-                    for sf in os.listdir(split_dir):
-                        if sf.startswith(base_name + "_split_"):
-                            split_count += 1
-
-                raw_files.append({
-                    "filename": f,
-                    "path": str(raw_dir / f),
-                    "split_count": split_count
-                })
-            return raw_files
-        except Exception as e:
-            logger.error(f"Error getting raw files for {project_id}: {e}")
-            return []
+        # Backward-compatible delegate during service extraction.
+        return self.engine.file_service.get_raw_files(project_id)
 
     async def add_project_files(self, project_id: str, files: list[str], type: str = "raw"):
         try:
@@ -394,9 +371,10 @@ class FileOps(CacheMixin):
     async def rotate_image(self, project_id: str, filename: str, angle: int = 90):
         try:
             root = self.project_repo._project_root(project_id)
-            image_path = root / "分割發票" / filename
+            safe_filename = Path(filename).name
+            image_path = root / "分割發票" / safe_filename
             if not image_path.exists():
-                raise FileNotFoundError(f"Image {filename} not found in splits")
+                raise FileNotFoundError(f"Image {safe_filename} not found in splits")
 
             image = await asyncio.to_thread(utils.cv_imread_chinese, str(image_path))
             if image is None:
@@ -413,7 +391,9 @@ class FileOps(CacheMixin):
 
             image = await asyncio.to_thread(_rotate_image_sync, image, angle)
 
-            await asyncio.to_thread(utils.cv_imwrite_chinese, str(image_path), image)
+            write_ok = await asyncio.to_thread(utils.cv_imwrite_chinese, str(image_path), image)
+            if not write_ok:
+                raise IOError(f"Failed to write rotated image: {image_path}")
             self.invalidate_preview_cache(project_id, str(image_path))
             try:
                 max_width = self._thumb_max_width()
@@ -430,7 +410,7 @@ class FileOps(CacheMixin):
                 if not job_path:
                     continue
                 job_path_abs = str(Path(job_path).resolve())
-                if job_path_abs == rotated_abs_path or Path(job_path).name == filename:
+                if job_path_abs == rotated_abs_path or Path(job_path).name == safe_filename:
                     await job_repo.update_job(
                         job["job_id"],
                         # Rotation invalidates extracted results, but does not enqueue processing.
@@ -625,45 +605,15 @@ class FileOps(CacheMixin):
             "deleted_legacy_files": deleted_legacy_files,
         }
 
-    async def detect_job_sub_rects(self, project_id: str, job_id: str) -> list[dict[str, Any]]:
-        root = self.project_repo._project_root(project_id)
-        job_repo = self.engine.get_job_repo(project_id)
-        job = await job_repo.get_job(job_id)
-        if not job:
-            raise ValueError(f"Job not found: {job_id}")
-
-        source = self._resolve_project_path(root, job.get("image_path"), preferred_dir="分割發票")
-        if source is None or not source.exists():
-            raise FileNotFoundError(f"Image not found for job {job_id}")
-
-        image = await asyncio.to_thread(utils.cv_imread_chinese, str(source))
-        if image is None:
-            raise ValueError(f"Failed to read image for job {job_id}")
-
-        return self.receipt_splitter.detect_only(image)
-
-    async def apply_job_resplit(self, project_id: str, job_id: str, sub_rects: list[dict[str, Any]]) -> dict[str, Any]:
-        if not sub_rects:
-            raise ValueError("sub_rects cannot be empty")
-
-        root = self.project_repo._project_root(project_id)
-        split_dir = root / "分割發票"
-        await asyncio.to_thread(split_dir.mkdir, parents=True, exist_ok=True)
-
-        job_repo = self.engine.get_job_repo(project_id)
-        job = await job_repo.get_job(job_id)
-        if not job:
-            raise ValueError(f"Job not found: {job_id}")
-
-        source = self._resolve_project_path(root, job.get("image_path"), preferred_dir="分割發票")
-        if source is None or not source.exists():
-            raise FileNotFoundError(f"Image not found for job {job_id}")
-
-        image = await asyncio.to_thread(utils.cv_imread_chinese, str(source))
-        if image is None:
-            raise ValueError(f"Failed to read source image for job {job_id}")
-
+    async def _create_resplit_jobs_from_source(
+        self,
+        project_id: str,
+        source: Path,
+        image: np.ndarray,
+        sub_rects: list[dict[str, Any]],
+    ) -> tuple[list[str], list[str]]:
         codec = self._codec_adapter()
+        job_repo = self.engine.get_job_repo(project_id)
         new_job_ids: list[str] = []
         new_paths: list[str] = []
 
@@ -682,8 +632,9 @@ class FileOps(CacheMixin):
             crop = self._warp_by_points(image, points)
             if crop.size == 0:
                 continue
+
             token = f"{time.time_ns()}_{uuid.uuid4().hex[:6]}"
-            stem = split_dir / f"{source.stem}_resplit_{idx}_{token}"
+            stem = (self.project_repo._project_root(project_id) / "分割發票") / f"{source.stem}_resplit_{idx}_{token}"
             archival_path = codec.build_archival_path(stem)
 
             async with self._optional_semaphore():
@@ -715,6 +666,77 @@ class FileOps(CacheMixin):
             new_job_ids.append(new_job_id)
             new_paths.append(abs_path)
 
+        return new_job_ids, new_paths
+
+    async def detect_job_sub_rects(self, project_id: str, job_id: str) -> list[dict[str, Any]]:
+        root = self.project_repo._project_root(project_id)
+        job_repo = self.engine.get_job_repo(project_id)
+        job = await job_repo.get_job(job_id)
+        if not job:
+            raise ValueError(f"Job not found: {job_id}")
+
+        source = await asyncio.to_thread(
+            resolve_resplit_raw_source,
+            root,
+            job,
+            self._resolve_project_path,
+            logger,
+        )
+        if source is None or not source.exists():
+            raise FileNotFoundError(f"Image not found for job {job_id}")
+
+        image = await asyncio.to_thread(utils.cv_imread_chinese, str(source))
+        if image is None:
+            raise ValueError(f"Failed to read image for job {job_id}")
+
+        return self.receipt_splitter.detect_only(image)
+
+    async def detect_raw_sub_rects(self, project_id: str, raw_filename: str) -> list[dict[str, Any]]:
+        root = self.project_repo._project_root(project_id)
+        source = await asyncio.to_thread(resolve_raw_source_by_filename, root, raw_filename)
+        if source is None or not source.exists():
+            raise FileNotFoundError(f"Raw image not found: {raw_filename}")
+
+        image = await asyncio.to_thread(utils.cv_imread_chinese, str(source))
+        if image is None:
+            raise ValueError(f"Failed to read raw image: {raw_filename}")
+
+        return self.receipt_splitter.detect_only(image)
+
+    async def apply_job_resplit(self, project_id: str, job_id: str, sub_rects: list[dict[str, Any]]) -> dict[str, Any]:
+        if not sub_rects:
+            raise ValueError("sub_rects cannot be empty")
+
+        root = self.project_repo._project_root(project_id)
+        split_dir = root / "分割發票"
+        await asyncio.to_thread(split_dir.mkdir, parents=True, exist_ok=True)
+
+        job_repo = self.engine.get_job_repo(project_id)
+        job = await job_repo.get_job(job_id)
+        if not job:
+            raise ValueError(f"Job not found: {job_id}")
+
+        source = await asyncio.to_thread(
+            resolve_resplit_raw_source,
+            root,
+            job,
+            self._resolve_project_path,
+            logger,
+        )
+        if source is None or not source.exists():
+            raise FileNotFoundError(f"Image not found for job {job_id}")
+
+        image = await asyncio.to_thread(utils.cv_imread_chinese, str(source))
+        if image is None:
+            raise ValueError(f"Failed to read source image for job {job_id}")
+
+        new_job_ids, new_paths = await self._create_resplit_jobs_from_source(
+            project_id=project_id,
+            source=source,
+            image=image,
+            sub_rects=sub_rects,
+        )
+
         if not new_job_ids:
             raise ValueError("No valid sub-rect generated any image")
 
@@ -727,61 +749,48 @@ class FileOps(CacheMixin):
             "delete_old": delete_result,
         }
 
-    async def add_pdf_files(self, project_id: str, files: list[str]):
-        """
-        處理 PDF 檔案上傳。
-        將 PDF 第一頁渲染為圖片，透過 ImageCodecAdapter 轉檔後建立 Job。
-        """
-        try:
-            root = self.project_repo._project_root(project_id)
-            raw_dir = root / "原始輸入"
-            split_dir = root / "分割發票"
+    async def apply_raw_resplit(self, project_id: str, raw_filename: str, sub_rects: list[dict[str, Any]]) -> dict[str, Any]:
+        if not sub_rects:
+            raise ValueError("sub_rects cannot be empty")
 
-            await asyncio.to_thread(raw_dir.mkdir, parents=True, exist_ok=True)
-            await asyncio.to_thread(split_dir.mkdir, parents=True, exist_ok=True)
+        root = self.project_repo._project_root(project_id)
+        split_dir = root / "分割發票"
+        await asyncio.to_thread(split_dir.mkdir, parents=True, exist_ok=True)
 
-            # Initialize conversion progress
-            self.project_repo.set_conversion_total(project_id, len(files))
+        source = await asyncio.to_thread(resolve_raw_source_by_filename, root, raw_filename)
+        if source is None or not source.exists():
+            raise FileNotFoundError(f"Raw image not found: {raw_filename}")
 
-            codec = self._codec_adapter()
+        image = await asyncio.to_thread(utils.cv_imread_chinese, str(source))
+        if image is None:
+            raise ValueError(f"Failed to read raw image: {raw_filename}")
 
-            for file_path in files:
-                # 1. 複製原始 PDF 檔案
-                filename = Path(file_path).name
-                dest_pdf_path = raw_dir / filename
-                await asyncio.to_thread(shutil.copy, file_path, dest_pdf_path)
+        job_repo = self.engine.get_job_repo(project_id)
+        existing_jobs = await job_repo.list_jobs()
+        replaced_job_ids = [
+            str(job.get("job_id"))
+            for job in existing_jobs
+            if job.get("job_id") and job_matches_raw_filename(job, raw_filename)
+        ]
 
-                # 2. 渲染首頁並透過 codec 轉檔
-                try:
-                    img_bgr = await asyncio.to_thread(self._render_pdf_first_page_to_bgr, str(dest_pdf_path))
+        new_job_ids, new_paths = await self._create_resplit_jobs_from_source(
+            project_id=project_id,
+            source=source,
+            image=image,
+            sub_rects=sub_rects,
+        )
+        if not new_job_ids:
+            raise ValueError("No valid sub-rect generated any image")
 
-                    ts = int(time.time())
-                    stem = Path(filename).stem
-                    save_stem = split_dir / f"{stem}_page0_{ts}"
-                    archival_path = codec.build_archival_path(save_stem)
+        delete_results = []
+        for old_job_id in replaced_job_ids:
+            delete_results.append(await self.engine.delete_job(project_id, old_job_id))
 
-                    async with self._optional_semaphore():
-                        dest_img_path = await asyncio.to_thread(
-                            codec.write_archival_image,
-                            archival_path,
-                            img_bgr,
-                            ".png",
-                        )
-
-                    self.project_repo.inc_conversion_progress(project_id)
-
-                    # 3. 建立 Job
-                    await self.engine.enqueue_pdf_upload(
-                        project_id,
-                        str(dest_pdf_path.resolve()),
-                        str(Path(dest_img_path).resolve())
-                    )
-                    logger.debug(f"[FileOps] 處理 PDF {filename} 並轉存為 {dest_img_path}")
-                except Exception as ex:
-                    logger.error(f"[FileOps] 處理 PDF 渲染/轉檔失敗: {ex}")
-                    self.project_repo.inc_conversion_progress(project_id)
-
-            return {"status": "added"}
-        except Exception as e:
-            logger.error(f"Error adding pdf files to {project_id}: {e}")
-            raise e
+        return {
+            "status": "resplit_applied",
+            "raw_filename": Path(str(raw_filename)).name,
+            "replaced_job_ids": replaced_job_ids,
+            "new_job_ids": new_job_ids,
+            "new_paths": new_paths,
+            "delete_old": delete_results,
+        }

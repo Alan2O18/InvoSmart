@@ -90,6 +90,18 @@ def test_format_roc_date(word_exporter):
     assert word_exporter._format_roc_date("2024-05-12") == "113年5月12日"
     assert word_exporter._format_roc_date("invalid_date") == "invalid_date"
 
+
+def test_normalize_people_names_supports_multi_formats(word_exporter):
+    assert word_exporter._normalize_people_names("王大明、李小華") == "王大明、李小華"
+    assert word_exporter._normalize_people_names("王大明, 李小華") == "王大明、李小華"
+    assert word_exporter._normalize_people_names('["王大明", "李小華", "王大明"]') == "王大明、李小華"
+    assert word_exporter._normalize_people_names(["王大明", "李小華", "王大明"]) == "王大明、李小華"
+
+
+def test_format_activity_period_uses_required_roc_lines(word_exporter):
+    period = word_exporter._format_activity_period("2026-03-20T09:30", "2026-03-20T12:00")
+    assert period == "自民國115年 3月 20日 09:30分(開始)\n到民國115年 3月 20日 12:00分(結束)"
+
 @pytest.mark.asyncio
 async def test_process_export(word_exporter, tmp_path):
     import json

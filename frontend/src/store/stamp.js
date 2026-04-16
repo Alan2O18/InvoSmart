@@ -5,7 +5,6 @@ import api from '../services/api'
 export const useStampStore = defineStore('stamp', () => {
   const stamps = ref([])
   const loading = ref(false)
-  const detecting = ref(false)
   const saving = ref(false)
   const error = ref('')
 
@@ -21,20 +20,6 @@ export const useStampStore = defineStore('stamp', () => {
       throw e
     } finally {
       loading.value = false
-    }
-  }
-
-  const detectStamps = async (file, mode = 'red') => {
-    detecting.value = true
-    error.value = ''
-    try {
-      const res = await api.detectStamps(file, mode)
-      return res.data
-    } catch (e) {
-      error.value = e?.response?.data?.detail || e.message || String(e)
-      throw e
-    } finally {
-      detecting.value = false
     }
   }
 
@@ -70,11 +55,9 @@ export const useStampStore = defineStore('stamp', () => {
   return {
     stamps,
     loading,
-    detecting,
     saving,
     error,
     fetchStamps,
-    detectStamps,
     registerStamps,
     deleteStamp,
   }

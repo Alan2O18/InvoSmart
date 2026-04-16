@@ -1,5 +1,3 @@
-import os
-import json
 import logging
 from pathlib import Path
 
@@ -111,6 +109,8 @@ async def init_db(db_path: Path = None):
     
     # --- Create Tables ---
     # This replaces the need for Alembic in simple SQLite deployments
+    # Import models here to ensure SQLAlchemy metadata includes all tables.
+    from backend.database import models as _models  # noqa: F401
     async with async_engine.begin() as conn:
         logger.info("[DB] Creating core tables if they don't exist...")
         await conn.run_sync(Base.metadata.create_all)

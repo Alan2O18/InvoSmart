@@ -41,7 +41,19 @@ def cv_imread_chinese(filepath: str) -> np.ndarray:
 def cv_imwrite_chinese(filepath: str, image: np.ndarray) -> bool:
     """支援中文路徑的 OpenCV 圖像寫入。"""
     try:
-        is_success, im_buf_arr = cv2.imencode(os.path.splitext(filepath)[1], image)
+        suffix = Path(filepath).suffix.lower()
+
+        # OpenCV does not natively encode .jxl on many builds; use imagecodecs backend.
+        if suffix == ".jxl":
+            from backend.processing.jxl_encoder_backend import encode_image_to_jxl
+
+            encode_image_to_jxl(image, filepath)
+            return True
+
+        if not suffix:
+            raise ValueError("Image file extension is required")
+
+        is_success, im_buf_arr = cv2.imencode(suffix, image)
         if is_success:
             im_buf_arr.tofile(filepath)
             return True

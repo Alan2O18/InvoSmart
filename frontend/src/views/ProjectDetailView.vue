@@ -54,10 +54,6 @@
         <label>上傳已分割的圖 (Split):</label>
         <input type="file" multiple @change="(e) => handleFileUpload(e, 'split')" />
       </div>
-      <div class="action-group" style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #444;">
-        <label style="color: #60a5fa; font-weight: bold;">上傳 PDF 檔案:</label>
-        <input type="file" multiple accept="application/pdf" @change="(e) => handlePdfUpload(e)" />
-      </div>
 
       <!-- Progress Bars -->
       <div v-if="showProgressOverlay" class="progress-overlay">
@@ -103,6 +99,7 @@
               </td>
               <td>
                 <button @click="runSplitSingle(file)" class="mini-btn">分割此圖</button>
+                <button @click="openResplitModal(file)" class="mini-btn split-btn">手動二切</button>
                 <button @click="deleteRawFile(file)" class="mini-btn danger">刪除</button>
               </td>
             </tr>
@@ -149,7 +146,6 @@
               <td>
                 <div class="actions-cell">
                   <button @click="editJob(job)" class="mini-btn edit">核對資料</button>
-                  <button @click="openResplitModal(job)" class="mini-btn split-btn">手動二切</button>
                   <button @click="rotateImage(job, 90)" class="icon-btn" title="Rotate Right">↻</button>
                   <button @click="rotateImage(job, -90)" class="icon-btn" title="Rotate Left">↺</button>
                   <button @click="deleteJob(job)" class="mini-btn danger">Delete</button>
@@ -164,56 +160,10 @@
       </div>
     </div>
 
-    <!-- PDF 檔案區塊 -->
-    <div class="jobs-section">
-      <h3>獨立 PDF 文件 (PDF Files)</h3>
-      <div class="table-container">
-        <table>
-          <thead>
-            <tr>
-              <th>預覽</th>
-              <th>檔名</th>
-              <th>狀態</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="job in pdfJobs" :key="job.job_id">
-              <td>
-                <div class="img-preview">
-                  <img :src="getImageUrl(job.image_path)" alt="preview" @error="handleImgError" />
-                </div>
-              </td>
-              <td class="filename" :title="job.source_pdf_path">
-                {{ getFilename(job.source_pdf_path) }}
-                <div class="pdf-indicator">📄 PDF 檔案</div>
-              </td>
-              <td>
-                <div>
-                  <span class="badge" :class="getPdfStatusBadgeClass(job)">
-                    PDF: {{ job.pdf_status || 'uploaded' }}
-                  </span>
-                </div>
-              </td>
-              <td>
-                <div class="actions-cell">
-                  <button @click="editPdfJob(job)" class="mini-btn pdf-btn">PDF 蓋章排版</button>
-                  <button @click="deleteJob(job)" class="mini-btn danger">Delete</button>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="pdfJobs.length === 0">
-              <td colspan="4" class="no-data">尚無 PDF 文件。</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-
     <ResplitModal
       v-model="showResplitModal"
       :project-id="projectId"
-      :job="selectedResplitJob"
+      :raw-file="selectedResplitRaw"
       @applied="handleResplitApplied"
     />
   </div>
@@ -233,14 +183,13 @@ const project = ref(null)
 const progress = ref(null)
 const jobs = ref([])
 const receiptJobs = computed(() => jobs.value.filter(j => !j.source_pdf_path))
-const pdfJobs = computed(() => jobs.value.filter(j => j.source_pdf_path))
 const rawFiles = ref([])
 const loading = ref(false)
 const uploadProgress = ref(0)
 const conversionProgress = ref(null)
 const showProgressOverlay = ref(false)
 const showResplitModal = ref(false)
-const selectedResplitJob = ref(null)
+const selectedResplitRaw = ref(null)
 const conversionPercent = computed(() => {
   if (!conversionProgress.value || conversionProgress.value.total === 0) return 0
   return Math.round((conversionProgress.value.current / conversionProgress.value.total) * 100)
@@ -348,14 +297,6 @@ const getStatusBadgeClass = (job) => {
   return 'pending';
 }
 
-const getPdfStatusBadgeClass = (job) => {
-  if (job.pdf_status === 'failed') return 'danger';
-  if (job.pdf_status === 'completed') return 'success';
-  if (job.pdf_status === 'uploaded') return 'info';
-  if (job.pdf_status === 'pending_compression' || job.pdf_status === 'compressing') return 'pending';
-  return 'pending';
-}
-
 const canShowProcessButton = (job) => {
   if (job.source_pdf_path) return false;
   if (job.status === 'pending' || job.status === 'running') return false;
@@ -460,35 +401,6 @@ const handleFileUpload = async (event, type) => {
   }
 }
 
-const handlePdfUpload = async (event) => {
-  const files = event.target.files;
-  if (!files.length) return;
-
-  const formData = new FormData();
-  for (let i = 0; i < files.length; i++) {
-    formData.append('files', files[i]);
-  }
-
-  loading.value = true;
-  uploadProgress.value = 0;
-  conversionProgress.value = null;
-  showProgressOverlay.value = true;
-
-  try {
-    await api.uploadPdf(projectId, formData, (progressEvent) => {
-      if (progressEvent.total) {
-        uploadProgress.value = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-      }
-    });
-    await fetchProjectData();
-  } catch (e) {
-    alert('Error adding PDF files: ' + e);
-  } finally {
-    loading.value = false;
-    event.target.value = '';
-  }
-}
-
 const rotateImage = async (job, angle) => {
   const filename = getFilename(job.image_path);
   try {
@@ -517,17 +429,13 @@ const editJob = (job) => {
   router.push(`/project/${projectId}/edit-job?jobId=${job.job_id}`)
 }
 
-const editPdfJob = (job) => {
-  router.push(`/project/${projectId}/pdf-editor?jobId=${job.job_id}`)
-}
-
-const openResplitModal = (job) => {
-  selectedResplitJob.value = job
+const openResplitModal = (rawFile) => {
+  selectedResplitRaw.value = rawFile
   showResplitModal.value = true
 }
 
 const handleResplitApplied = async () => {
-  selectedResplitJob.value = null
+  selectedResplitRaw.value = null
   await fetchProjectData()
 }
 
@@ -740,23 +648,12 @@ th {
     background: #8b5cf6;
 }
 
-.mini-btn.pdf-btn {
-    background: #0ea5e9;
-}
-
 .mini-btn.split-btn {
   background: #14b8a6;
 }
 
 .mt-2 {
     margin-top: 0.5rem;
-}
-
-.pdf-indicator {
-    font-size: 0.75rem;
-    color: #60a5fa;
-    margin-top: 0.25rem;
-    font-weight: 500;
 }
 
 .icon-btn {

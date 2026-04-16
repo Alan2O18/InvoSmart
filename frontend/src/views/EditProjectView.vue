@@ -20,25 +20,50 @@
         <div class="form-row">
           <div class="form-group">
             <label for="group">所屬群組</label>
-            <input type="text" id="group" v-model="form.group" list="group-list" @change="onGroupChange" />
+            <input
+              type="text"
+              id="group"
+              v-model="form.group"
+              list="group-list"
+              @change="onGroupChange"
+              @blur="saveSuggestion('group_name', form.group)"
+            />
             <datalist id="group-list">
               <option v-for="g in groups" :key="g.group_name" :value="g.group_name"></option>
             </datalist>
           </div>
           <div class="form-group">
             <label for="leader">組長</label>
-            <input type="text" id="leader" v-model="form.leader" :list="form.group ? 'leader-list' : undefined" />
+            <input
+              type="text"
+              id="leader"
+              v-model="form.leader"
+              list="leader-list"
+              @blur="savePeopleSuggestions(form.leader)"
+            />
             <datalist id="leader-list">
-              <option v-for="leader in availableLeaders" :key="leader" :value="leader"></option>
+              <option v-for="leader in leaderOptions" :key="leader" :value="leader"></option>
             </datalist>
           </div>
           <div class="form-group">
             <label for="coordinator">活動總召</label>
-            <input type="text" id="coordinator" v-model="form.coordinator" />
+            <select id="coordinator" v-model="form.coordinator" @change="saveSuggestion('person_name', form.coordinator)">
+              <option value="">請選擇</option>
+              <option v-for="person in allPeopleOptions" :key="person" :value="person">{{ person }}</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="generalAffairs">活動總務</label>
-            <input type="text" id="generalAffairs" v-model="form.generalAffairs" />
+            <input
+              type="text"
+              id="generalAffairs"
+              v-model="form.generalAffairs"
+              list="people-list"
+              @blur="saveSuggestion('person_name', form.generalAffairs)"
+            />
+            <datalist id="people-list">
+              <option v-for="person in allPeopleOptions" :key="`ga-${person}`" :value="person"></option>
+            </datalist>
           </div>
         </div>
       </section>
@@ -114,9 +139,7 @@
       <section>
         <h2>經費來源 (預算表 / 結算表)</h2>
         <datalist id="income-items">
-          <option value="社團預算"></option>
-          <option value="系辦補助"></option>
-          <option value="課外活動組補助"></option>
+          <option v-for="item in budgetIncomeSuggestions" :key="`income-${item}`" :value="item"></option>
         </datalist>
         <div class="table-container">
           <table class="dynamic-table">
@@ -130,7 +153,7 @@
             </thead>
             <tbody>
               <tr v-for="(item, index) in form.budgetIncome" :key="'in'+index">
-                <td><input v-model="item.name" type="text" list="income-items" placeholder="下拉選單或自填" /></td>
+                <td><input v-model="item.name" type="text" list="income-items" placeholder="下拉選單或自填" @blur="saveSuggestion('budget_income_item', item.name)" /></td>
                 <td><input v-model.number="item.amount" type="number" /></td>
                 <td><input v-model="item.note" type="text" /></td>
                 <td><button type="button" @click="removeIncome(index)" class="mini-btn danger">刪除</button></td>
@@ -147,12 +170,7 @@
       <section>
         <h2>各項費用支出預估</h2>
         <datalist id="expense-items">
-          <option value="茶水費"></option>
-          <option value="影印費"></option>
-          <option value="便當費"></option>
-          <option value="文具費"></option>
-          <option value="郵資"></option>
-          <option value="雜支"></option>
+          <option v-for="item in expenseCategorySuggestions" :key="`expense-${item}`" :value="item"></option>
         </datalist>
         <div class="table-container">
           <table class="dynamic-table">
@@ -168,7 +186,7 @@
             </thead>
             <tbody>
               <tr v-for="(item, index) in form.budgetExpense" :key="'ex'+index">
-                <td><input v-model="item.name" type="text" list="expense-items" placeholder="下拉選單或自填" /></td>
+                <td><input v-model="item.name" type="text" list="expense-items" placeholder="下拉選單或自填" @blur="saveSuggestion('expense_category', item.name)" /></td>
                 <td><input v-model.number="item.qty" type="number" @input="calcExpenseTotal(item)" /></td>
                 <td><input v-model.number="item.price" type="number" @input="calcExpenseTotal(item)" /></td>
                 <td><input v-model.number="item.total" type="number" /></td>
@@ -199,7 +217,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import api from '../services/api'
 
@@ -232,23 +250,113 @@ const form = reactive({
 
 const groups = ref([])
 const availableLeaders = ref([])
+const personSuggestions = ref([])
+const budgetIncomeSuggestions = ref([])
+const expenseCategorySuggestions = ref([])
 
-onMounted(async () => {
-  fetchProject()
+const splitPeople = (raw) => {
+  const text = String(raw || '').trim()
+  if (!text) return []
+  return text
+    .replace(/\n/g, '、')
+    .replace(/[,，;；]/g, '、')
+    .split('、')
+    .map((x) => x.trim())
+    .filter(Boolean)
+}
+
+const allPeopleOptions = computed(() => {
+  const merged = []
+  const pushUnique = (name) => {
+    const value = String(name || '').trim()
+    if (!value || merged.includes(value)) return
+    merged.push(value)
+  }
+
+  groups.value.forEach((group) => {
+    ;(group.leader_names || []).forEach(pushUnique)
+  })
+  personSuggestions.value.forEach(pushUnique)
+  splitPeople(form.leader).forEach(pushUnique)
+  pushUnique(form.coordinator)
+  pushUnique(form.generalAffairs)
+  return merged
+})
+
+const leaderOptions = computed(() => {
+  const merged = []
+  const pushUnique = (name) => {
+    const value = String(name || '').trim()
+    if (!value || merged.includes(value)) return
+    merged.push(value)
+  }
+  availableLeaders.value.forEach(pushUnique)
+  allPeopleOptions.value.forEach(pushUnique)
+  return merged
+})
+
+const loadSuggestions = async () => {
+  try {
+    const [peopleRes, incomeRes, expenseRes] = await Promise.all([
+      api.getSuggestions('person_name', '', 200),
+      api.getSuggestions('budget_income_item', '', 200),
+      api.getSuggestions('expense_category', '', 200),
+    ])
+    personSuggestions.value = peopleRes.data || []
+    budgetIncomeSuggestions.value = incomeRes.data || []
+    expenseCategorySuggestions.value = expenseRes.data || []
+  } catch (e) {
+    console.error('Failed to load suggestions', e)
+  }
+}
+
+const saveSuggestion = async (category, value) => {
+  const text = String(value || '').trim()
+  if (!text) return
+  try {
+    await api.addSuggestion(category, text)
+    if (category === 'person_name' && !personSuggestions.value.includes(text)) {
+      personSuggestions.value = [...personSuggestions.value, text]
+    }
+    if (category === 'budget_income_item' && !budgetIncomeSuggestions.value.includes(text)) {
+      budgetIncomeSuggestions.value = [...budgetIncomeSuggestions.value, text]
+    }
+    if (category === 'expense_category' && !expenseCategorySuggestions.value.includes(text)) {
+      expenseCategorySuggestions.value = [...expenseCategorySuggestions.value, text]
+    }
+  } catch (e) {
+    console.error(`Failed to save suggestion ${category}:`, e)
+  }
+}
+
+const savePeopleSuggestions = async (raw) => {
+  const names = splitPeople(raw)
+  for (const name of names) {
+    await saveSuggestion('person_name', name)
+  }
+}
+
+const fetchGroups = async () => {
   try {
     const res = await api.listGroups()
     groups.value = res.data
-  } catch(e) {
+  } catch (e) {
     console.error('Failed to load groups', e)
   }
+}
+
+onMounted(async () => {
+  await Promise.all([fetchGroups(), loadSuggestions()])
+  await fetchProject()
 })
 
 const onGroupChange = () => {
   const selected = groups.value.find(g => g.group_name === form.group)
   const leaderNames = selected?.leader_names || []
   availableLeaders.value = leaderNames
-  if (leaderNames.length > 0 && !leaderNames.includes(form.leader)) {
-    form.leader = leaderNames[0]
+  if (leaderNames.length > 0) {
+    // 同組多位組長時，直接一次帶入所有組長名稱。
+    form.leader = leaderNames.join('、')
   }
 }
 
@@ -309,6 +417,17 @@ const updateProject = async (redirect = true) => {
   
   loading.value = true
   try {
+    await saveSuggestion('group_name', form.group)
+    await savePeopleSuggestions(form.leader)
+    await saveSuggestion('person_name', form.coordinator)
+    await saveSuggestion('person_name', form.generalAffairs)
+    for (const item of form.budgetIncome || []) {
+      await saveSuggestion('budget_income_item', item?.name)
+    }
+    for (const item of form.budgetExpense || []) {
+      await saveSuggestion('expense_category', item?.name)
+    }
+
     // Include Activity Name in metadata
     const metadata = {
       ...form,
@@ -367,16 +486,6 @@ const runWordExport = async () => {
   catch (e) { alert('Word export failed. Please check backend logs.'); } 
   finally { loading.value = false; }
 }
-
-onMounted(async () => {
-  await fetchProject()
-  try {
-    const res = await api.listGroups()
-    groups.value = res.data
-  } catch(e) {
-    console.error('Failed to load groups', e)
-  }
-})
 </script>
 
 <style scoped>
@@ -428,7 +537,7 @@ label {
   color: #ddd;
 }
 
-input, textarea {
+input, textarea, select {
   width: 100%;
   padding: 0.8rem;
   border: 1px solid #444;
@@ -437,7 +546,7 @@ input, textarea {
   border-radius: 4px;
 }
 
-input:focus, textarea:focus {
+input:focus, textarea:focus, select:focus {
   border-color: #60a5fa;
   outline: none;
 }

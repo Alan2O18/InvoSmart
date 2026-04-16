@@ -1,0 +1,34 @@
+{
+  "globalPrefix": "D-16",
+  "startIndex": 1,
+  "pages": [
+    {
+      "pageIndex": 0,
+      "fields": {
+        "voucherNo": "D-16-01\nD-16-02",
+        "budgetItem": "",
+        "amount": "4320",
+        "purpose": "餐食",
+        "receiptCount": "2",
+        "payDate": "2026-03-18",
+        "isManuallyEdited": false
+      },
+      "images": [
+        {
+          "jobId": "job-1775304352-99679b",
+          "x": 30.0,
+          "y": 394.0,
+          "w": 265.62,
+          "h": 169.0
+        },
+        {
+          "jobId": "job-1775304353-4eebec",
+          "x": 299.62,
+          "y": 394.0,
+          "w": 263.55,
+          "h": 169.0
+        }
+      ]
+    }
+  ]
+}

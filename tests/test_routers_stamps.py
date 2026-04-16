@@ -51,20 +51,6 @@ def stamp_client(tmp_path):
     anyio.run(db_engine.dispose)
 
 
-def test_detect_stamps_endpoint_returns_boxes(stamp_client):
-    response = stamp_client.post(
-        '/api/stamps/detect',
-        data={'mode': 'red'},
-        files={'file': ('sheet.png', _build_sheet_image_bytes(), 'image/png')},
-    )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload['mode'] == 'red'
-    assert isinstance(payload['boxes'], list)
-    assert len(payload['boxes']) >= 1
-
-
 def test_register_list_and_delete_stamp_roundtrip(stamp_client):
     image_bytes = _build_sheet_image_bytes()
     selections = [

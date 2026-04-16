@@ -61,34 +61,6 @@ async def list_stamps(repo: StampRepository = Depends(get_stamp_repo)):
     return [_serialize_stamp(row) for row in rows]
 
 
-@router.post("/stamps/detect")
-async def detect_stamps(
-    file: UploadFile = File(...),
-    mode: str = Form("red"),
-    service: StampService = Depends(get_stamp_service),
-):
-    clean_mode = (mode or "red").strip().lower()
-    if clean_mode not in {"red", "edge"}:
-        raise HTTPException(status_code=400, detail="mode must be 'red' or 'edge'")
-
-    raw_bytes = await file.read()
-    try:
-        image = await asyncio.to_thread(service.decode_upload_image, raw_bytes)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    boxes = await asyncio.to_thread(service.processor.detect_stamps, image, clean_mode)
-    preview = await asyncio.to_thread(service.build_preview_base64, image, boxes)
-
-    return {
-        "mode": clean_mode,
-        "image_width": int(image.shape[1]),
-        "image_height": int(image.shape[0]),
-        "boxes": [{"x": x, "y": y, "w": w, "h": h} for x, y, w, h in boxes],
-        "preview_image_base64": preview,
-    }
-
-
 @router.post("/stamps/register")
 async def register_stamps(
     file: UploadFile = File(...),

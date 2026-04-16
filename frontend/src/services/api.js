@@ -63,22 +63,6 @@ export default {
   },
 
   // =====================
-  // PDF Processing
-  // =====================
-  uploadPdf(projectId, formData, onProgress) {
-    return api.post(`/api/pdf/${projectId}/pdf`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-      onUploadProgress: onProgress,
-    })
-  },
-  executePdfCommands(projectId, jobId, commands) {
-    return api.post(`/api/pdf/${projectId}/${jobId}/commands`, commands)
-  },
-  downloadPdf(projectId, jobId) {
-    return api.get(`/api/pdf/${projectId}/${jobId}/download`, { responseType: 'blob' })
-  },
-
-  // =====================
   // Pipeline Actions (VLM-First)
   // =====================
   runSplit(projectId) {
@@ -100,6 +84,14 @@ export default {
   },
   applyJobResplit(projectId, jobId, subRects) {
     return api.post(`/api/projects/${projectId}/jobs/${jobId}/apply-resplit`, {
+      sub_rects: subRects,
+    })
+  },
+  detectRawSubRects(projectId, filename) {
+    return api.post(`/api/projects/${projectId}/raw_files/${encodeURIComponent(filename)}/detect-sub-rects`)
+  },
+  applyRawResplit(projectId, filename, subRects) {
+    return api.post(`/api/projects/${projectId}/raw_files/${encodeURIComponent(filename)}/apply-resplit`, {
       sub_rects: subRects,
     })
   },
@@ -193,14 +185,6 @@ export default {
   // =====================
   listStamps() {
     return api.get('/api/stamps')
-  },
-  detectStamps(file, mode = 'red') {
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('mode', mode)
-    return api.post('/api/stamps/detect', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
   },
   registerStamps(file, mode = 'red', selections = []) {
     const formData = new FormData()

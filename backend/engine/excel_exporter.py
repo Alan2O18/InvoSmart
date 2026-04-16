@@ -48,10 +48,16 @@ class ExcelExporter:
         # 從全域集中資料庫讀取 (透過 JobRepository)
         from backend.database.core import AsyncSessionLocal
         job_repo = JobRepository(project_id, session_factory=AsyncSessionLocal)
-        jobs_list = await job_repo.list_jobs()
+        base_jobs_list = await job_repo.list_jobs()
         
-        if not jobs_list:
+        if not base_jobs_list:
             raise FileNotFoundError("No jobs found for this project")
+            
+        jobs_list = []
+        for b_job in base_jobs_list:
+            job_data = await job_repo.get_job(b_job["job_id"])
+            if job_data:
+                jobs_list.append(job_data)
         
         df_jobs = pd.DataFrame(jobs_list)
 

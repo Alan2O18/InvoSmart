@@ -2,13 +2,16 @@
 import os
 import logging
 import json
+from collections import defaultdict
 from typing import List, Optional
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from backend.database import core as database_core
 from backend.dependencies import get_engine
 from backend.engine.core import Engine
 from backend.repositories.project_repository import ProjectArchivedError
+from backend.repositories.suggestion_repository import SuggestionRepository
 from backend.utils.utils import handle_upload_files
 
 logger = logging.getLogger(__name__)
@@ -18,6 +21,87 @@ router = APIRouter()
 class ProjectCreate(BaseModel):
     project_id: str
     metadata: Optional[dict] = None
+
+
+def _split_people(raw_value) -> list[str]:
+    if raw_value is None:
+        return []
+
+    if isinstance(raw_value, (list, tuple, set)):
+        candidates = [str(v).strip() for v in raw_value]
+    else:
+        text = str(raw_value).strip()
+        if not text:
+            return []
+        if text.startswith("["):
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, list):
+                    candidates = [str(v).strip() for v in parsed]
+                else:
+                    candidates = [text]
+            except Exception:
+                candidates = [text]
+        else:
+            normalized = (
+                text.replace("\n", "、")
+                .replace(",", "、")
+                .replace("，", "、")
+                .replace(";", "、")
+                .replace("；", "、")
+            )
+            candidates = [part.strip() for part in normalized.split("、")]
+
+    unique: list[str] = []
+    for name in candidates:
+        if name and name not in unique:
+            unique.append(name)
+    return unique
+
+
+def _collect_project_option_suggestions(metadata: dict) -> dict[str, list[str]]:
+    if not isinstance(metadata, dict):
+        return {}
+
+    buckets: dict[str, set[str]] = defaultdict(set)
+
+    group_name = str(metadata.get("group") or "").strip()
+    if group_name:
+        buckets["group_name"].add(group_name)
+
+    for field in ("leader", "coordinator", "generalAffairs", "leader_names"):
+        for person in _split_people(metadata.get(field)):
+            buckets["person_name"].add(person)
+
+    for item in metadata.get("budgetIncome", []) or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if name:
+            buckets["budget_income_item"].add(name)
+
+    for item in metadata.get("budgetExpense", []) or []:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if name:
+            buckets["expense_category"].add(name)
+
+    return {cat: sorted(values) for cat, values in buckets.items() if values}
+
+
+async def _persist_project_metadata_suggestions(metadata: dict) -> None:
+    if not isinstance(metadata, dict) or database_core.AsyncSessionLocal is None:
+        return
+
+    collected = _collect_project_option_suggestions(metadata)
+    if not collected:
+        return
+
+    repo = SuggestionRepository(session_factory=lambda: database_core.AsyncSessionLocal())
+    for category, values in collected.items():
+        if values:
+            await repo.bulk_add(category, values)
 
 
 @router.get("/")
@@ -47,9 +131,17 @@ async def create_project(
         if files:
             async with handle_upload_files(files) as saved_file_paths:
                 result = await engine.create_project(project_id, saved_file_paths, name=activity_name, metadata=meta_dict)
+                try:
+                    await _persist_project_metadata_suggestions(meta_dict)
+                except Exception as suggest_err:
+                    logger.warning(f"Failed to persist project suggestions for {project_id}: {suggest_err}")
                 return result
         else:
             result = await engine.create_project(project_id, [], name=activity_name, metadata=meta_dict)
+            try:
+                await _persist_project_metadata_suggestions(meta_dict)
+            except Exception as suggest_err:
+                logger.warning(f"Failed to persist project suggestions for {project_id}: {suggest_err}")
             return result
     except Exception as e:
         logger.error(f"Error creating project: {e}")
@@ -61,6 +153,10 @@ async def update_project(project_id: str, metadata: dict, engine: Engine = Depen
     """Update project metadata."""
     try:
         await engine.project_repo.update_project_metadata(project_id, metadata)
+        try:
+            await _persist_project_metadata_suggestions(metadata)
+        except Exception as suggest_err:
+            logger.warning(f"Failed to persist project suggestions for {project_id}: {suggest_err}")
         return await engine.project_repo.get_project(project_id)
     except ProjectArchivedError as e:
         raise HTTPException(status_code=409, detail=str(e))
@@ -110,6 +206,10 @@ async def update_activity_info(project_id: str, info: dict, engine: Engine = Dep
     """Update project activity info."""
     try:
         await engine.project_repo.update_activity_info(project_id, info)
+        try:
+            await _persist_project_metadata_suggestions(info)
+        except Exception as suggest_err:
+            logger.warning(f"Failed to persist project suggestions for {project_id}: {suggest_err}")
         return await engine.project_repo.get_project(project_id)
     except ProjectArchivedError as e:
         raise HTTPException(status_code=409, detail=str(e))

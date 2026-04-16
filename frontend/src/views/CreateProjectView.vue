@@ -20,25 +20,50 @@
         <div class="form-row">
           <div class="form-group">
             <label for="group">Group</label>
-            <input type="text" id="group" v-model="form.group" list="group-list" @change="onGroupChange" />
+            <input
+              type="text"
+              id="group"
+              v-model="form.group"
+              list="group-list"
+              @change="onGroupChange"
+              @blur="saveSuggestion('group_name', form.group)"
+            />
             <datalist id="group-list">
               <option v-for="g in groups" :key="g.group_name" :value="g.group_name"></option>
             </datalist>
           </div>
           <div class="form-group">
             <label for="leader">Leader</label>
-            <input type="text" id="leader" v-model="form.leader" :list="form.group ? 'leader-list' : undefined" />
+            <input
+              type="text"
+              id="leader"
+              v-model="form.leader"
+              list="leader-list"
+              @blur="savePeopleSuggestions(form.leader)"
+            />
             <datalist id="leader-list">
-              <option v-for="leader in availableLeaders" :key="leader" :value="leader"></option>
+              <option v-for="leader in leaderOptions" :key="leader" :value="leader"></option>
             </datalist>
           </div>
           <div class="form-group">
             <label for="coordinator">Coordinator (活動總召)</label>
-            <input type="text" id="coordinator" v-model="form.coordinator" />
+            <select id="coordinator" v-model="form.coordinator" @change="saveSuggestion('person_name', form.coordinator)">
+              <option value="">請選擇</option>
+              <option v-for="person in allPeopleOptions" :key="person" :value="person">{{ person }}</option>
+            </select>
           </div>
           <div class="form-group">
             <label for="generalAffairs">General Affairs (活動總務)</label>
-            <input type="text" id="generalAffairs" v-model="form.generalAffairs" />
+            <input
+              type="text"
+              id="generalAffairs"
+              v-model="form.generalAffairs"
+              list="people-list"
+              @blur="saveSuggestion('person_name', form.generalAffairs)"
+            />
+            <datalist id="people-list">
+              <option v-for="person in allPeopleOptions" :key="`ga-${person}`" :value="person"></option>
+            </datalist>
           </div>
         </div>
       </section>
@@ -146,7 +171,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
 
@@ -179,11 +204,87 @@ const form = reactive({
 
 const groups = ref([])
 const availableLeaders = ref([])
+const peopleSuggestions = ref([])
+
+const splitPeople = (raw) => {
+  const text = String(raw || '').trim()
+  if (!text) return []
+  return text
+    .replace(/\n/g, '、')
+    .replace(/[,，;；]/g, '、')
+    .split('、')
+    .map((x) => x.trim())
+    .filter(Boolean)
+}
+
+const allPeopleOptions = computed(() => {
+  const merged = []
+  const pushUnique = (name) => {
+    const value = String(name || '').trim()
+    if (!value || merged.includes(value)) return
+    merged.push(value)
+  }
+
+  groups.value.forEach((group) => {
+    ;(group.leader_names || []).forEach(pushUnique)
+  })
+  peopleSuggestions.value.forEach(pushUnique)
+  splitPeople(form.leader).forEach(pushUnique)
+  pushUnique(form.coordinator)
+  pushUnique(form.generalAffairs)
+  return merged
+})
+
+const leaderOptions = computed(() => {
+  const merged = []
+  const pushUnique = (name) => {
+    const value = String(name || '').trim()
+    if (!value || merged.includes(value)) return
+    merged.push(value)
+  }
+  availableLeaders.value.forEach(pushUnique)
+  allPeopleOptions.value.forEach(pushUnique)
+  return merged
+})
+
+const loadPeopleSuggestions = async () => {
+  try {
+    const res = await api.getSuggestions('person_name', '', 200)
+    peopleSuggestions.value = res.data || []
+  } catch (e) {
+    console.error('Failed to load people suggestions', e)
+  }
+}
+
+const saveSuggestion = async (category, value) => {
+  const text = String(value || '').trim()
+  if (!text) return
+  try {
+    await api.addSuggestion(category, text)
+    if (category === 'person_name') {
+      if (!peopleSuggestions.value.includes(text)) {
+        peopleSuggestions.value = [...peopleSuggestions.value, text]
+      }
+    }
+  } catch (e) {
+    console.error(`Failed to save suggestion ${category}:`, e)
+  }
+}
+
+const savePeopleSuggestions = async (raw) => {
+  const names = splitPeople(raw)
+  for (const name of names) {
+    await saveSuggestion('person_name', name)
+  }
+}
 
 onMounted(async () => {
   try {
-    const res = await api.listGroups()
-    groups.value = res.data
+    const [groupRes] = await Promise.all([
+      api.listGroups(),
+      loadPeopleSuggestions(),
+    ])
+    groups.value = groupRes.data
   } catch(e) {
     console.error('Failed to load groups', e)
   }
@@ -193,8 +294,9 @@ const onGroupChange = () => {
   const selected = groups.value.find(g => g.group_name === form.group)
   const leaderNames = selected?.leader_names || []
   availableLeaders.value = leaderNames
-  if (leaderNames.length > 0 && !leaderNames.includes(form.leader)) {
-    form.leader = leaderNames[0]
+  if (leaderNames.length > 0) {
+    // 同組多位組長時，直接一次帶入所有組長名稱。
+    form.leader = leaderNames.join('、')
   }
 }
 
@@ -252,6 +354,12 @@ const createProject = async () => {
       budgetDate: form.budgetDate,
       finalAccountDate: form.finalAccountDate
     }
+
+    await saveSuggestion('group_name', form.group)
+    await savePeopleSuggestions(form.leader)
+    await saveSuggestion('person_name', form.coordinator)
+    await saveSuggestion('person_name', form.generalAffairs)
+
     formData.append('metadata', JSON.stringify(metadata))
 
     files.value.forEach(file => {
@@ -323,7 +431,7 @@ label {
   color: #ddd;
 }
 
-input, textarea {
+input, textarea, select {
   width: 100%;
   padding: 0.8rem;
   border: 1px solid #444;
@@ -332,7 +440,7 @@ input, textarea {
   border-radius: 4px;
 }
 
-input:focus, textarea:focus {
+input:focus, textarea:focus, select:focus {
   border-color: #42b883;
   outline: none;
 }

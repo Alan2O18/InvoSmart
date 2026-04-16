@@ -5,7 +5,7 @@
         <header class="modal-header">
           <div>
             <h3>手動二切 / 細切</h3>
-            <p class="subtitle">拖曳角點調整切割區域，確認後套用重新分割。</p>
+            <p class="subtitle">以原始大圖為底，拖曳角點調整切割區域後套用重新分割。</p>
           </div>
           <button class="close-btn" @click="close">X</button>
         </header>
@@ -72,7 +72,7 @@ import api from '../services/api'
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   projectId: { type: String, required: true },
-  job: { type: Object, default: null },
+  rawFile: { type: Object, default: null },
 })
 
 const emit = defineEmits(['update:modelValue', 'applied'])
@@ -89,16 +89,16 @@ const naturalSize = reactive({ width: 1, height: 1 })
 const displaySize = reactive({ width: 1, height: 1 })
 const dragState = reactive({ active: false, rectId: null, pointIdx: -1 })
 
-const filename = computed(() => {
-  const raw = props.job?.image_path
+const rawFilename = computed(() => {
+  const raw = props.rawFile?.filename
   if (!raw) return ''
   const parts = String(raw).split(/[/\\]/)
   return parts[parts.length - 1] || ''
 })
 
 const imageUrl = computed(() => {
-  if (!props.projectId || !filename.value) return ''
-  return `http://localhost:8000/api/projects/${encodeURIComponent(props.projectId)}/preview/split/${encodeURIComponent(filename.value)}?v=${cacheToken.value}`
+  if (!props.projectId || !rawFilename.value) return ''
+  return `http://localhost:8000/api/projects/${encodeURIComponent(props.projectId)}/preview/raw/${encodeURIComponent(rawFilename.value)}?v=${cacheToken.value}`
 })
 
 const scaleX = computed(() => displaySize.width / Math.max(1, naturalSize.width))
@@ -191,12 +191,12 @@ const normalizeRect = (rawRect, idx) => {
 }
 
 const fetchDetectedRects = async () => {
-  if (!props.projectId || !props.job?.job_id) return
+  if (!props.projectId || !rawFilename.value) return
 
   loading.value = true
   error.value = ''
   try {
-    const response = await api.detectJobSubRects(props.projectId, props.job.job_id)
+    const response = await api.detectRawSubRects(props.projectId, rawFilename.value)
     const detected = Array.isArray(response.data?.rects) ? response.data.rects : []
     const normalized = detected
       .map((rect, idx) => normalizeRect(rect, idx))
@@ -252,7 +252,7 @@ const startDrag = (rectId, pointIdx) => {
 }
 
 const applyResplit = async () => {
-  if (!props.projectId || !props.job?.job_id) return
+  if (!props.projectId || !rawFilename.value) return
   if (rects.value.length === 0) {
     error.value = '至少需要一個切割區域'
     return
@@ -264,7 +264,7 @@ const applyResplit = async () => {
     const payload = rects.value.map((rect) => ({
       points: rect.points.map((point) => [Math.round(point.x), Math.round(point.y)]),
     }))
-    await api.applyJobResplit(props.projectId, props.job.job_id, payload)
+    await api.applyRawResplit(props.projectId, rawFilename.value, payload)
     emit('applied')
     close()
   } catch (err) {
@@ -294,7 +294,7 @@ watch(
 )
 
 watch(
-  () => props.job?.job_id,
+  () => props.rawFile?.filename,
   async () => {
     if (!props.modelValue) return
     cacheToken.value = Date.now()

@@ -8,8 +8,7 @@
 
       <div class="step-indicator">
         <span :class="{ active: step === 1 }">1. 上傳與模式</span>
-        <span :class="{ active: step === 2 }">2. 框選調整</span>
-        <span :class="{ active: step === 3 }">3. 屬性編輯</span>
+        <span :class="{ active: step === 2 }">2. 框選與屬性</span>
       </div>
 
       <section v-if="step === 1" class="step-content">
@@ -32,7 +31,7 @@
           <img :src="filePreviewUrl" alt="upload preview" class="preview-thumb" />
         </div>
 
-        <p class="hint">先自動偵測，再到下一步可用滑鼠拖拉補框與取消不需要的框。</p>
+        <p class="hint">下一步直接進入手動框選，不再執行自動偵測。</p>
       </section>
 
       <section v-else-if="step === 2" class="step-content">
@@ -70,9 +69,7 @@
             <button type="button" class="mini-btn" @click="removeBox(item.id)">刪除</button>
           </div>
         </div>
-      </section>
 
-      <section v-else class="step-content">
         <table class="meta-table">
           <thead>
             <tr>
@@ -105,20 +102,10 @@
             v-if="step === 1"
             type="button"
             class="primary"
-            :disabled="!selectedFile || stampStore.detecting"
-            @click="detectAndGoNext"
+            :disabled="!selectedFile"
+            @click="beginManualSelection"
           >
-            {{ stampStore.detecting ? '偵測中...' : '偵測並下一步' }}
-          </button>
-
-          <button
-            v-else-if="step === 2"
-            type="button"
-            class="primary"
-            :disabled="enabledBoxes.length === 0"
-            @click="step = 3"
-          >
-            下一步
+            下一步：框選印章
           </button>
 
           <button
@@ -219,37 +206,10 @@ const onImageLoad = () => {
   }
 }
 
-const detectAndGoNext = async () => {
+const beginManualSelection = () => {
   if (!selectedFile.value) return
-  try {
-    const result = await stampStore.detectStamps(selectedFile.value, mode.value)
-    if (result?.image_width && result?.image_height) {
-      imageSize.value = {
-        width: result.image_width,
-        height: result.image_height,
-      }
-    }
-
-    const detected = (result?.boxes || []).map((box, index) => ({
-      id: `A${index + 1}`,
-      x: Math.max(0, Math.round(box.x || 0)),
-      y: Math.max(0, Math.round(box.y || 0)),
-      w: Math.max(1, Math.round(box.w || 1)),
-      h: Math.max(1, Math.round(box.h || 1)),
-      enabled: true,
-      name: `印章 ${index + 1}`,
-      category: mode.value === 'red' ? '社團' : '稽核',
-      group_name: '',
-    }))
-
-    boxes.value = detected
-    step.value = 2
-    if (detected.length === 0) {
-      alert('未偵測到印章，請在下一步使用拖拉框選手動新增。')
-    }
-  } catch (e) {
-    alert(`偵測失敗：${stampStore.error || e}`)
-  }
+  boxes.value = []
+  step.value = 2
 }
 
 const boxStyle = (item) => {

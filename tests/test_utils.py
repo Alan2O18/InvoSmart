@@ -8,6 +8,7 @@ import json
 import tempfile
 import numpy as np
 from pathlib import Path
+from unittest.mock import patch
 
 
 # ============================================================================
@@ -167,6 +168,20 @@ class TestUtils:
             result = cv_imwrite_chinese(str(test_path), None)
             # Should handle error gracefully
             assert result is False or result is None
+
+    def test_cv_imwrite_chinese_jxl_uses_encoder_backend(self, temp_image):
+        """Test JXL writing path delegates to encoder backend."""
+        from backend.utils.utils import cv_imwrite_chinese
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            jxl_path = Path(tmpdir) / "測試.jxl"
+
+            with patch("backend.processing.jxl_encoder_backend.encode_image_to_jxl") as mock_encode:
+                mock_encode.return_value = jxl_path
+                success = cv_imwrite_chinese(str(jxl_path), temp_image)
+
+            assert success is True
+            mock_encode.assert_called_once()
 
     def test_cv_imwrite_chinese_creates_directory(self, temp_image):
         """Test that parent directory is NOT created automatically."""

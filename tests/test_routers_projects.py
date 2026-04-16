@@ -126,3 +126,29 @@ def test_update_project_archived(mock_app_client, mock_engine_for_api):
     assert response.status_code == 409
 
 
+def test_collect_project_option_suggestions_supports_people_and_budget_options():
+    from backend.routers.projects import _collect_project_option_suggestions
+
+    metadata = {
+        "group": "服務組",
+        "leader": "王大明、李小華",
+        "coordinator": "陳小美",
+        "generalAffairs": "李小華",
+        "budgetIncome": [
+            {"name": "社團預算"},
+            {"name": "系辦補助"},
+        ],
+        "budgetExpense": [
+            {"name": "茶水費"},
+            {"name": "文具費"},
+        ],
+    }
+
+    collected = _collect_project_option_suggestions(metadata)
+
+    assert set(collected["group_name"]) == {"服務組"}
+    assert set(collected["person_name"]) == {"王大明", "李小華", "陳小美"}
+    assert set(collected["budget_income_item"]) == {"社團預算", "系辦補助"}
+    assert set(collected["expense_category"]) == {"茶水費", "文具費"}
+
+

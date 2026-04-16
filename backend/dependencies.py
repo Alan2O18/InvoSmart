@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 
-from backend.database.core import AsyncSessionLocal, SyncSessionLocal
+from backend.database import core as database_core
 
 logger = logging.getLogger(__name__)
 
@@ -24,10 +24,10 @@ _engine_instance = None
 def get_engine():
     """
     獲取 Engine 實例。
-    
+
     生產環境：返回全局單例（在 lifespan startup 中預先初始化）
     測試環境：返回通過 set_engine() 設置的實例
-    
+
     Returns:
         Engine: 配置好的 Engine 實例
     """
@@ -42,7 +42,7 @@ def get_engine():
 def set_engine(engine) -> None:
     """
     設置 Engine 實例（用於測試）。
-    
+
     Args:
         engine: 要設置的 Engine 實例（可以是 mock）
     """
@@ -54,7 +54,7 @@ def set_engine(engine) -> None:
 def reset_engine() -> None:
     """
     重置 Engine 實例（用於測試清理）。
-    
+
     會觸發 shutdown event 讓 Worker 線程結束。
     """
     global _engine_instance
@@ -64,14 +64,18 @@ def reset_engine() -> None:
         logger.info("[Dependencies] Engine 實例已重置")
     _engine_instance = None
 
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """獲取非同步 DB Session (用於 FastAPI Router)"""
-    if AsyncSessionLocal is None:
+    if database_core.AsyncSessionLocal is None:
         raise HTTPException(status_code=503, detail="Database is not initialized")
-    async with AsyncSessionLocal() as session:
+    async with database_core.AsyncSessionLocal() as session:
         yield session
+
 
 def get_sync_db() -> Generator[Session, None, None]:
     """獲取同步 DB Session (用於背景 Thread 或特殊同步情境)"""
-    with SyncSessionLocal() as session:
+    if database_core.SyncSessionLocal is None:
+        raise HTTPException(status_code=503, detail="Database is not initialized")
+    with database_core.SyncSessionLocal() as session:
         yield session

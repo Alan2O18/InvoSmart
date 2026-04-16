@@ -10,7 +10,6 @@ Engine - 系統核心協調器 (VLM-First 簡化版)
 
 不再使用 TaskManager / ProjectManager 中間層。
 """
-import os
 import asyncio
 import queue
 import time
@@ -25,8 +24,8 @@ from backend.repositories.job_repository import JobRepository
 from backend.processing.receipt_splitter import ReceiptSplitter
 
 from .workers import global_receipt_worker_loop
-from .pdf_worker import pdf_worker_loop
 from .file_ops import FileOps
+from .file_service import FileService
 from .export import ExportHandler
 from .voucher_generator import VoucherGenerator
 
@@ -59,6 +58,7 @@ class Engine:
         self.receipt_splitter = receipt_splitter or ReceiptSplitter(config={})
         
         # 內部組件
+        self.file_service = FileService(self.project_repo)
         self.file_ops = FileOps(self.project_repo, self.receipt_splitter, self)
         self.export_handler = ExportHandler(self.project_repo, self)
         
@@ -77,13 +77,9 @@ class Engine:
         # 全局任務佇列 (影像 VLM 專用)
         self.task_queue: queue.Queue = queue.Queue()
         
-        # 獨立 PDF 任務佇列
-        self.pdf_task_queue: queue.Queue = queue.Queue()
-        
         # Worker 控制
         self._shutdown_event = threading.Event()
         self._worker_thread: Optional[threading.Thread] = None
-        self._pdf_worker_thread: Optional[threading.Thread] = None
         
         # 條件啟動 Workers
         if start_workers:
@@ -131,7 +127,7 @@ class Engine:
 
     def _start_global_workers(self):
         """啟動全局 Worker 線程"""
-        # 1. 影像 VLM Worker
+        # 影像 VLM Worker
         self._worker_thread = threading.Thread(
             target=global_receipt_worker_loop,
             args=(self,),
@@ -140,16 +136,6 @@ class Engine:
         )
         self._worker_thread.start()
         logger.info("[Engine] VLM-First Worker 已啟動")
-        
-        # 2. 獨立 PDF Worker
-        self._pdf_worker_thread = threading.Thread(
-            target=pdf_worker_loop,
-            args=(self,),
-            name="PDFProcessingWorker",
-            daemon=True
-        )
-        self._pdf_worker_thread.start()
-        logger.info("[Engine] PDF Processing Worker 已啟動")
 
     async def recover_pending_tasks(self):
         """Server 啟動時恢復未完成的任務"""
@@ -214,51 +200,6 @@ class Engine:
         await job_repo.emit_event(job_id, "enqueued", {"image_path": image_path})
         return job_id
 
-    async def enqueue_pdf_upload(self, project_id: str, source_pdf_path: str, image_path: str) -> str:
-        """
-        將上傳的 PDF 建立為 Job。
-        image_path 會指向已抽取的首頁 JPG (供 VLM 分析)。
-        source_pdf_path 保存 PDF 原始路徑。
-        """
-        job_repo = self.get_job_repo(project_id)
-        job_id = f"job-{int(time.time())}-{uuid.uuid4().hex[:6]}"
-        
-        # 1. 建立 job (此時會帶入 image_path 讓 VLM 覺得這是一張圖片)
-        await job_repo.insert_job(job_id, image_path, "ready")
-        
-        # 2. 補充 PDF 專用欄位，確保 Worker 具備穩定輸出路徑
-        source_dir = os.path.dirname(source_pdf_path)
-        output_dir = os.path.join(os.path.dirname(source_dir), "輸出結果")  # 與 原始輸入 平行
-        os.makedirs(output_dir, exist_ok=True)
-        stem = os.path.splitext(os.path.basename(source_pdf_path))[0]
-        compressed_pdf_path = os.path.join(output_dir, f"{stem}_compressed.pdf")
-        
-        await job_repo.update_job(
-            job_id,
-            source_pdf_path=source_pdf_path,
-            compressed_pdf_path=compressed_pdf_path,
-            pdf_status="uploaded"
-        )
-        
-        # 3. 發送事件
-        await job_repo.emit_event(job_id, "enqueued_pdf", {"source_pdf_path": source_pdf_path, "image_path": image_path})
-        return job_id
-
-    async def enqueue_pdf_job(self, project_id: str, job_id: str, commands: dict) -> bool:
-        """
-        將已現存的 Job 加入 PDF 處理佇列。
-        前端送出蓋章排版指令時呼叫此方法。
-        """
-        await self._ensure_project_editable(project_id)
-        job_repo = self.get_job_repo(project_id)
-        # 更新狀態為準備壓縮
-        await job_repo.update_job(job_id, pdf_status="pending_compression")
-        
-        # 將任務推入獨立佇列
-        self.pdf_task_queue.put((project_id, job_id, commands))
-        logger.info(f"[Engine] PDF 任務 {job_id} 已加入隊列")
-        return True
-
     async def claim_job(self, project_id: str, job_id: str) -> bool:
         """將 Job 標記為 running。"""
         job_repo = self.get_job_repo(project_id)
@@ -267,9 +208,15 @@ class Engine:
             await job_repo.emit_event(job_id, "claimed", {})
         return result
 
-    async def complete_job(self, project_id: str, job_id: str, vlm_result: dict,
-                     validation: dict = None, stats: dict = None,
-                     qr_verified: bool = False) -> bool:
+    async def complete_job(
+        self,
+        project_id: str,
+        job_id: str,
+        vlm_result: dict,
+        validation: dict = None,
+        stats: dict = None,
+        qr_verified: bool = False,
+    ) -> bool:
         """完成 VLM 處理。"""
         job_repo = self.get_job_repo(project_id)
         return await job_repo.complete_vlm(job_id, vlm_result, validation, stats, qr_verified)
@@ -365,32 +312,19 @@ class Engine:
         return result
 
     async def get_raw_files(self, project_id: str):
-        return self.file_ops.get_raw_files(project_id)
+        return self.file_service.get_raw_files(project_id)
 
     async def add_project_files(self, project_id: str, files: list[str], type: str = "raw"):
         await self._ensure_project_editable(project_id)
         return await self.file_ops.add_project_files(project_id, files, type)
-
-    async def add_pdf_files(self, project_id: str, files: list[str]):
-        await self._ensure_project_editable(project_id)
-        return await self.file_ops.add_pdf_files(project_id, files)
 
     async def rotate_image(self, project_id: str, filename: str, angle: int = 90):
         await self._ensure_project_editable(project_id)
         return await self.file_ops.rotate_image(project_id, filename, angle)
 
     async def delete_raw_file(self, project_id: str, filename: str):
-        try:
-            await self._ensure_project_editable(project_id)
-            root = self.project_repo._project_root(project_id)
-            path = root / "原始輸入" / filename
-            if path.exists():
-                os.remove(path)
-                return {"status": "deleted"}
-            return {"status": "not_found"}
-        except Exception as e:
-            logger.error(f"Error deleting raw file: {e}")
-            raise e
+        await self._ensure_project_editable(project_id)
+        return self.file_service.delete_raw_file(project_id, filename)
 
     async def save_manual_json(self, project_id: str, job_id: str, json_data: dict) -> bool:
         await self._ensure_project_editable(project_id)
@@ -428,6 +362,13 @@ class Engine:
     async def apply_job_resplit(self, project_id: str, job_id: str, sub_rects: list[dict]):
         await self._ensure_project_editable(project_id)
         return await self.file_ops.apply_job_resplit(project_id, job_id, sub_rects)
+
+    async def detect_raw_sub_rects(self, project_id: str, raw_filename: str):
+        return await self.file_ops.detect_raw_sub_rects(project_id, raw_filename)
+
+    async def apply_raw_resplit(self, project_id: str, raw_filename: str, sub_rects: list[dict]):
+        await self._ensure_project_editable(project_id)
+        return await self.file_ops.apply_raw_resplit(project_id, raw_filename, sub_rects)
 
     async def run_excel(self, project_id: str):
         return await self.export_handler.run_excel(project_id)

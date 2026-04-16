@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 import time
 import uuid
 from pathlib import Path
@@ -59,16 +58,6 @@ class StampService:
             return str(path.relative_to(self.project_root)).replace("\\", "/")
         except ValueError:
             return str(path)
-
-    @staticmethod
-    def build_preview_base64(image: np.ndarray, boxes: list[tuple[int, int, int, int]]) -> str | None:
-        preview = image.copy()
-        for x, y, w, h in boxes:
-            cv2.rectangle(preview, (x, y), (x + w, y + h), (0, 255, 255), 2)
-        ok, encoded = cv2.imencode(".png", preview)
-        if not ok:
-            return None
-        return base64.b64encode(encoded.tobytes()).decode("ascii")
 
     async def register_stamps(
         self,

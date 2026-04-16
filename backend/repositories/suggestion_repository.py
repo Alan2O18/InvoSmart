@@ -31,6 +31,9 @@ VALID_CATEGORIES = {
     "item_name":       "品項名稱",
     "shop_name":       "店家/章名稱",
     "expense_category":"報帳名目",
+    "group_name":      "活動群組名稱",
+    "person_name":     "人員姓名（組長/總召/總務）",
+    "budget_income_item":"預算收入項目",
 }
 
 # RAG Prompt 提供的每個分類最大建議數

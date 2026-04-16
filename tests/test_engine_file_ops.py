@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 from PIL import Image
 from backend.engine.file_ops import FileOps
+from backend.engine.file_service import FileService
 from backend.utils import utils
 
 @pytest.fixture
@@ -29,6 +30,7 @@ def mock_dependencies(tmp_path):
     job_repo.list_jobs = AsyncMock(return_value=[])
     job_repo.update_job = AsyncMock(return_value=True)
     engine_ref.get_job_repo = MagicMock(return_value=job_repo)
+    engine_ref.file_service = FileService(project_repo)
     
     return project_repo, receipt_splitter, engine_ref, project_root
 
@@ -171,6 +173,28 @@ async def test_rotate_image(file_ops, mock_dependencies):
             vlm_stats=None,
             qr_verified=0,
         )
+
+
+@pytest.mark.asyncio
+async def test_rotate_image_raises_when_write_fails(file_ops, mock_dependencies):
+    _, _, engine, root = mock_dependencies
+    split_dir = root / "分割發票"
+    split_dir.mkdir()
+    (split_dir / "sample.jpg").touch()
+
+    image_abs = str((split_dir / "sample.jpg").resolve())
+    engine.get_job_repo.return_value.list_jobs = AsyncMock(return_value=[
+        {"job_id": "job-1", "image_path": image_abs},
+    ])
+
+    dummy_img = np.zeros((10, 20, 3), dtype=np.uint8)
+    with patch("backend.engine.file_ops.utils.cv_imread_chinese", return_value=dummy_img), \
+         patch("backend.engine.file_ops.cv2.rotate", return_value=dummy_img), \
+         patch("backend.engine.file_ops.utils.cv_imwrite_chinese", return_value=False):
+        with pytest.raises(IOError, match="Failed to write rotated image"):
+            await file_ops.rotate_image("proj1", "sample.jpg", angle=90)
+
+    engine.get_job_repo.return_value.update_job.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -430,6 +454,32 @@ async def test_detect_job_sub_rects_delegates_to_splitter(file_ops, mock_depende
 
 
 @pytest.mark.asyncio
+async def test_detect_job_sub_rects_prefers_raw_source_by_split_stem(file_ops, mock_dependencies):
+    _, splitter, engine, root = mock_dependencies
+    split_path = root / "分割發票" / "receiptA_split_0_123456_abcd12.jpg"
+    raw_path = root / "原始輸入" / "receiptA.png"
+    split_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    split_path.write_bytes(b"split")
+    raw_path.write_bytes(b"raw")
+
+    splitter.detect_only.return_value = [{"points": [[0, 0], [8, 0], [8, 8], [0, 8]], "area": 64.0}]
+    engine.get_job_repo.return_value.get_job = AsyncMock(return_value={"job_id": "job-raw", "image_path": str(split_path)})
+
+    captured = {}
+
+    def fake_read(path):
+        captured["path"] = path
+        return np.zeros((20, 20, 3), dtype=np.uint8)
+
+    with patch("backend.engine.file_ops.utils.cv_imread_chinese", side_effect=fake_read):
+        result = await file_ops.detect_job_sub_rects("proj1", "job-raw")
+
+    assert len(result) == 1
+    assert Path(captured["path"]).resolve() == raw_path.resolve()
+
+
+@pytest.mark.asyncio
 async def test_apply_job_resplit_creates_new_jobs(file_ops, mock_dependencies):
     _, _, engine, root = mock_dependencies
     src_path = root / "分割發票" / "source.jpg"
@@ -452,6 +502,89 @@ async def test_apply_job_resplit_creates_new_jobs(file_ops, mock_dependencies):
     assert result["status"] == "resplit_applied"
     assert len(result["new_job_ids"]) == 2
     engine.delete_job.assert_called_once_with("proj1", "old-job")
+
+
+@pytest.mark.asyncio
+async def test_apply_job_resplit_prefers_raw_source_by_split_stem(file_ops, mock_dependencies):
+    _, _, engine, root = mock_dependencies
+    split_path = root / "分割發票" / "receiptB_split_0_999999_abcd12.jpg"
+    raw_path = root / "原始輸入" / "receiptB.jpg"
+    split_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    utils.cv_imwrite_chinese(str(split_path), np.full((80, 80, 3), 180, dtype=np.uint8))
+    utils.cv_imwrite_chinese(str(raw_path), np.full((260, 180, 3), 200, dtype=np.uint8))
+
+    engine.get_job_repo.return_value.get_job = AsyncMock(return_value={"job_id": "old-job", "image_path": str(split_path)})
+    engine.enqueue_job = AsyncMock(return_value="new-job")
+
+    captured = {}
+
+    def fake_read(path):
+        captured["path"] = path
+        return np.full((260, 180, 3), 200, dtype=np.uint8)
+
+    with patch("backend.engine.file_ops.utils.cv_imread_chinese", side_effect=fake_read), \
+         patch.object(file_ops, "ensure_preview_cache", AsyncMock(return_value=None)):
+        result = await file_ops.apply_job_resplit(
+            "proj1",
+            "old-job",
+            [{"points": [[10, 10], [170, 10], [170, 210], [10, 210]]}],
+        )
+
+    assert result["status"] == "resplit_applied"
+    assert Path(captured["path"]).resolve() == raw_path.resolve()
+
+
+@pytest.mark.asyncio
+async def test_detect_raw_sub_rects_supports_dotted_stem_lookup(file_ops, mock_dependencies):
+    _, splitter, _, root = mock_dependencies
+    raw_path = root / "原始輸入" / "receipt.v2.jpg"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    raw_path.write_bytes(b"raw")
+
+    splitter.detect_only.return_value = [{"points": [[0, 0], [8, 0], [8, 8], [0, 8]], "area": 64.0}]
+    captured = {}
+
+    def fake_read(path):
+        captured["path"] = path
+        return np.zeros((24, 24, 3), dtype=np.uint8)
+
+    with patch("backend.engine.file_ops.utils.cv_imread_chinese", side_effect=fake_read):
+        result = await file_ops.detect_raw_sub_rects("proj1", "receipt.v2")
+
+    assert len(result) == 1
+    assert Path(captured["path"]).resolve() == raw_path.resolve()
+
+
+@pytest.mark.asyncio
+async def test_apply_raw_resplit_replaces_related_jobs(file_ops, mock_dependencies):
+    _, _, engine, root = mock_dependencies
+    raw_path = root / "原始輸入" / "receipt.v2.jpg"
+    raw_path.parent.mkdir(parents=True, exist_ok=True)
+    utils.cv_imwrite_chinese(str(raw_path), np.full((260, 180, 3), 200, dtype=np.uint8))
+
+    split_dir = root / "分割發票"
+    split_dir.mkdir(parents=True, exist_ok=True)
+    engine.get_job_repo.return_value.list_jobs = AsyncMock(return_value=[
+        {"job_id": "old-1", "image_path": str(split_dir / "receipt.v2_split_0_old.jpg")},
+        {"job_id": "old-2", "image_path": str(split_dir / "receipt.v2_split_1_old.jpg")},
+        {"job_id": "other", "image_path": str(split_dir / "other_split_0_old.jpg")},
+    ])
+    engine.enqueue_job = AsyncMock(return_value="new-job")
+
+    with patch.object(file_ops, "ensure_preview_cache", AsyncMock(return_value=None)):
+        result = await file_ops.apply_raw_resplit(
+            "proj1",
+            "receipt.v2.jpg",
+            [{"points": [[10, 10], [170, 10], [170, 210], [10, 210]]}],
+        )
+
+    assert result["status"] == "resplit_applied"
+    assert result["replaced_job_ids"] == ["old-1", "old-2"]
+    assert result["new_job_ids"] == ["new-job"]
+    assert engine.delete_job.call_count == 2
+    engine.delete_job.assert_any_call("proj1", "old-1")
+    engine.delete_job.assert_any_call("proj1", "old-2")
 
 
 @pytest.mark.asyncio

@@ -101,12 +101,12 @@ class TestEngineProjectManagement:
             )
             
             assert engine2._worker_thread is not None
-            assert MockThread.call_count == 2
-            assert mock_thread_instance.start.call_count == 2
+            assert engine2.file_service is not None
+            assert MockThread.call_count == 1
+            assert mock_thread_instance.start.call_count == 1
             
             calls = MockThread.call_args_list
             assert calls[0].kwargs['target'].__name__ == 'global_receipt_worker_loop'
-            assert calls[1].kwargs['target'].__name__ == 'pdf_worker_loop'
             
             status = engine2.get_queue_status()
             assert status["worker_alive"] is True
@@ -493,6 +493,18 @@ class TestEngineJobManagement:
 
         mock_apply.assert_called_once()
         assert result["status"] == "resplit_applied"
+
+        with patch.object(engine.file_ops, "detect_raw_sub_rects", AsyncMock(return_value=[{"points": [], "area": 1.0}])) as mock_detect_raw:
+            raw_detected = await engine.detect_raw_sub_rects("resplit_proj", "raw_1.jpg")
+
+        assert len(raw_detected) == 1
+        mock_detect_raw.assert_called_once_with("resplit_proj", "raw_1.jpg")
+
+        with patch.object(engine.file_ops, "apply_raw_resplit", AsyncMock(return_value={"status": "resplit_applied"})) as mock_apply_raw:
+            raw_result = await engine.apply_raw_resplit("resplit_proj", "raw_1.jpg", [{"points": [[0, 0], [1, 0], [1, 1], [0, 1]]}])
+
+        mock_apply_raw.assert_called_once()
+        assert raw_result["status"] == "resplit_applied"
 
     async def test_job_state_transitions(self, test_engine):
         """Test claim, complete, and fail transitions."""

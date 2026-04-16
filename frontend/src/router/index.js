@@ -40,11 +40,6 @@ const router = createRouter({
       component: () => import('../views/StampsManagementView.vue')
     },
     {
-      path: '/project/:id/pdf-editor',
-      name: 'pdf-editor',
-      component: () => import('../views/PdfEditorView.vue')
-    },
-    {
       path: '/project/:id/voucher-editor',
       name: 'voucher-editor',
       component: () => import('../views/VoucherEditorView.vue')
@@ -53,11 +48,6 @@ const router = createRouter({
       path: '/voucher-template-config',
       name: 'voucher-template-config',
       component: () => import('../views/VoucherTemplateConfigView.vue')
-    },
-    {
-      path: '/kanban',
-      name: 'kanban',
-      component: () => import('../views/KanbanView.vue')
     }
   ]
 })
