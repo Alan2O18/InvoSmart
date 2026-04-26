@@ -234,10 +234,14 @@ const removeBox = (id) => {
   boxes.value = boxes.value.filter((item) => item.id !== id)
 }
 
-const getStageMetrics = () => {
-  const stage = stageRef.value
-  if (!stage) return null
-  const rect = stage.getBoundingClientRect()
+/**
+ * 使用 imageRef 而非 stageRef 取得座標基準，
+ * 排除 border / padding 對 getBoundingClientRect 的影響。
+ */
+const getImageMetrics = () => {
+  const img = imageRef.value
+  if (!img) return null
+  const rect = img.getBoundingClientRect()
   if (rect.width <= 0 || rect.height <= 0) return null
   return rect
 }
@@ -246,7 +250,7 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value))
 
 const startDraw = (event) => {
   if (step.value !== 2) return
-  const rect = getStageMetrics()
+  const rect = getImageMetrics()
   if (!rect) return
 
   const x = clamp(event.clientX - rect.left, 0, rect.width)
@@ -259,7 +263,7 @@ const startDraw = (event) => {
 
 const moveDraw = (event) => {
   if (!drawing.value) return
-  const rect = getStageMetrics()
+  const rect = getImageMetrics()
   if (!rect) return
 
   const currentX = clamp(event.clientX - rect.left, 0, rect.width)
@@ -285,7 +289,8 @@ const finishDraw = () => {
     return
   }
 
-  const rect = getStageMetrics()
+  // 使用 imageRef 確保比例計算不被 border/padding 汙染
+  const rect = getImageMetrics()
   if (!rect) {
     drawing.value = false
     draftRect.value = null
@@ -300,6 +305,7 @@ const finishDraw = () => {
 
   const width = imageSize.value.width || 1
   const height = imageSize.value.height || 1
+  // rect 現在是 imageRef 的尺寸，不含外框，比例計算精準
   const scaleX = width / rect.width
   const scaleY = height / rect.height
 

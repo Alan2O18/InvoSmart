@@ -7,56 +7,98 @@
             <h3>手動二切 / 細切</h3>
             <p class="subtitle">以原始大圖為底，拖曳角點調整切割區域後套用重新分割。</p>
           </div>
-          <button class="close-btn" @click="close">X</button>
+          <button class="close-btn" @click="close">✕</button>
         </header>
 
         <div class="modal-body">
           <div class="toolbar">
             <button class="mini-btn" @click="addRect" :disabled="loading || saving">新增區域</button>
-            <button class="mini-btn danger" @click="removeSelectedRect" :disabled="!selectedRectId || loading || saving">
+            <button
+              class="mini-btn danger"
+              @click="removeSelectedRect"
+              :disabled="!selectedRectId || loading || saving"
+            >
               刪除選取區域
             </button>
-            <span class="rect-count">目前區域數：{{ rects.length }}</span>
+            <span class="rect-count">區域數：{{ rects.length }}</span>
+
+            <div class="zoom-controls">
+              <button class="mini-btn icon-btn" @click="zoomIn" title="放大">＋</button>
+              <button class="mini-btn icon-btn" @click="zoomOut" title="縮小">－</button>
+              <button class="mini-btn icon-btn" @click="resetView" title="還原視角">⊡ Fit</button>
+              <span class="zoom-label">{{ Math.round(transform.scale * 100) }}%</span>
+            </div>
+
+            <span class="pan-hint" :class="{ active: spaceDown }">
+              {{ spaceDown ? '🤚 平移模式' : 'Space 鍵 = 平移' }}
+            </span>
           </div>
 
           <div v-if="error" class="error-banner">{{ error }}</div>
 
-          <div class="canvas-host">
+          <!-- canvas-host: 固定視口，overflow hidden，接收 wheel / pan 事件 -->
+          <div
+            class="canvas-host"
+            ref="canvasHostRef"
+            :class="{ 'cursor-grab': spaceDown && !panState.active, 'cursor-grabbing': panState.active }"
+            @wheel.prevent="onWheel"
+            @mousedown="onHostMouseDown"
+            @mousemove="onHostMouseMove"
+            @mouseup="onHostMouseUp"
+            @mouseleave="onHostMouseLeave"
+          >
             <div v-if="loading" class="loading-layer">偵測中...</div>
-            <img
-              ref="imageEl"
-              :src="imageUrl"
-              class="target-image"
-              alt="resplit target"
-              @load="onImageLoad"
-            />
-            <svg class="overlay" :width="displaySize.width" :height="displaySize.height">
-              <g
-                v-for="rect in rects"
-                :key="rect.id"
-                @click.stop="selectRect(rect.id)"
+
+            <!-- transform-layer: 套用 scale+translate，完全包住 img + svg -->
+            <div class="transform-layer" :style="transformLayerStyle">
+              <img
+                ref="imageEl"
+                :src="imageUrl"
+                class="target-image"
+                alt="resplit target"
+                draggable="false"
+                @load="onImageLoad"
+              />
+              <!-- SVG viewBox = 0 0 naturalWidth naturalHeight
+                   preserveAspectRatio="none" 使其與 img 完全重疊
+                   點的座標直接以自然像素儲存，零轉換誤差 -->
+              <svg
+                v-if="naturalSize.width > 0"
+                class="overlay"
+                :viewBox="`0 0 ${naturalSize.width} ${naturalSize.height}`"
+                preserveAspectRatio="none"
               >
-                <polygon
-                  :points="toDisplayPolygon(rect)"
-                  :class="['poly', { selected: selectedRectId === rect.id }]"
-                />
-                <circle
-                  v-for="(point, pIdx) in rect.points"
-                  :key="`${rect.id}-${pIdx}`"
-                  :cx="toDisplayX(point.x)"
-                  :cy="toDisplayY(point.y)"
-                  :class="['handle', { selected: selectedRectId === rect.id }]"
-                  r="6"
-                  @mousedown.prevent.stop="startDrag(rect.id, pIdx, $event)"
-                />
-              </g>
-            </svg>
+                <g
+                  v-for="rect in rects"
+                  :key="rect.id"
+                  @click.stop="selectRect(rect.id)"
+                >
+                  <polygon
+                    :points="toSvgPolygon(rect)"
+                    :class="['poly', { selected: selectedRectId === rect.id }]"
+                  />
+                  <circle
+                    v-for="(point, pIdx) in rect.points"
+                    :key="`${rect.id}-${pIdx}`"
+                    :cx="point.x"
+                    :cy="point.y"
+                    :class="['handle', { selected: selectedRectId === rect.id }]"
+                    :r="handleRadius"
+                    @mousedown.prevent.stop="startDrag(rect.id, pIdx)"
+                  />
+                </g>
+              </svg>
+            </div>
           </div>
         </div>
 
         <footer class="modal-footer">
           <button class="mini-btn" @click="close" :disabled="saving">取消</button>
-          <button class="mini-btn primary" @click="applyResplit" :disabled="saving || loading || rects.length === 0">
+          <button
+            class="mini-btn primary"
+            @click="applyResplit"
+            :disabled="saving || loading || rects.length === 0"
+          >
             {{ saving ? '套用中...' : '套用二切' }}
           </button>
         </footer>
@@ -77,23 +119,39 @@ const props = defineProps({
 
 const emit = defineEmits(['update:modelValue', 'applied'])
 
+// ─── DOM refs ──────────────────────────────────────────────────────────────
 const imageEl = ref(null)
+const canvasHostRef = ref(null)
+
+// ─── UI state ──────────────────────────────────────────────────────────────
 const loading = ref(false)
 const saving = ref(false)
 const error = ref('')
 const rects = ref([])
 const selectedRectId = ref(null)
 const cacheToken = ref(Date.now())
+const spaceDown = ref(false)
 
-const naturalSize = reactive({ width: 1, height: 1 })
-const displaySize = reactive({ width: 1, height: 1 })
+// ─── Image natural size ───────────────────────────────────────────────────
+const naturalSize = reactive({ width: 0, height: 0 })
+
+// ─── Pan / Zoom transform ─────────────────────────────────────────────────
+const transform = reactive({ scale: 1, x: 0, y: 0 })
+const MIN_SCALE = 0.05
+const MAX_SCALE = 10
+const ZOOM_STEP = 1.25
+
+// ─── Drag state (point handle) ────────────────────────────────────────────
 const dragState = reactive({ active: false, rectId: null, pointIdx: -1 })
 
+// ─── Pan state ────────────────────────────────────────────────────────────
+const panState = reactive({ active: false, startClientX: 0, startClientY: 0, startTX: 0, startTY: 0 })
+
+// ─── Computed ─────────────────────────────────────────────────────────────
 const rawFilename = computed(() => {
   const raw = props.rawFile?.filename
   if (!raw) return ''
-  const parts = String(raw).split(/[/\\]/)
-  return parts[parts.length - 1] || ''
+  return String(raw).split(/[/\\]/).at(-1) || ''
 })
 
 const imageUrl = computed(() => {
@@ -101,62 +159,185 @@ const imageUrl = computed(() => {
   return `http://localhost:8000/api/projects/${encodeURIComponent(props.projectId)}/preview/raw/${encodeURIComponent(rawFilename.value)}?v=${cacheToken.value}`
 })
 
-const scaleX = computed(() => displaySize.width / Math.max(1, naturalSize.width))
-const scaleY = computed(() => displaySize.height / Math.max(1, naturalSize.height))
+// CSS transform applied to the layer containing both img and svg overlay
+const transformLayerStyle = computed(() => ({
+  transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+  transformOrigin: '0 0',
+  width: naturalSize.width > 0 ? `${naturalSize.width}px` : '100%',
+  height: naturalSize.height > 0 ? `${naturalSize.height}px` : 'auto',
+}))
 
-const clamp = (value, min, max) => Math.max(min, Math.min(max, value))
+// Handle radius in SVG units: keep visually ~8px regardless of zoom
+const handleRadius = computed(() => Math.max(3, 8 / transform.scale))
 
-const close = () => {
-  emit('update:modelValue', false)
-}
+// ─── Utilities ────────────────────────────────────────────────────────────
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 
-const toDisplayX = (x) => x * scaleX.value
-const toDisplayY = (y) => y * scaleY.value
-
-const toDisplayPolygon = (rect) => {
-  return rect.points.map((point) => `${toDisplayX(point.x)},${toDisplayY(point.y)}`).join(' ')
-}
-
-const updateDisplaySize = () => {
-  if (!imageEl.value) return
-  naturalSize.width = Math.max(1, imageEl.value.naturalWidth || 1)
-  naturalSize.height = Math.max(1, imageEl.value.naturalHeight || 1)
-  displaySize.width = Math.max(1, imageEl.value.clientWidth || 1)
-  displaySize.height = Math.max(1, imageEl.value.clientHeight || 1)
-}
-
-const onImageLoad = () => {
-  updateDisplaySize()
-  if (rects.value.length === 0) {
-    addRect()
+/**
+ * Convert screen (client) coords to natural image pixel coords.
+ * Formula: natural = (screen - hostOffset - translate) / scale
+ */
+const screenToNatural = (clientX, clientY) => {
+  const host = canvasHostRef.value
+  if (!host) return { x: 0, y: 0 }
+  const bounds = host.getBoundingClientRect()
+  return {
+    x: clamp((clientX - bounds.left - transform.x) / transform.scale, 0, naturalSize.width),
+    y: clamp((clientY - bounds.top - transform.y) / transform.scale, 0, naturalSize.height),
   }
 }
 
+// Points are stored in natural coords → SVG renders 1:1 via viewBox
+const toSvgPolygon = (rect) => rect.points.map((p) => `${p.x},${p.y}`).join(' ')
+
+// ─── View fit ─────────────────────────────────────────────────────────────
+const fitToHost = () => {
+  const host = canvasHostRef.value
+  if (!host || naturalSize.width <= 0) return
+  const hw = host.clientWidth
+  const hh = host.clientHeight
+  const scale = Math.min(hw / naturalSize.width, hh / naturalSize.height, 1)
+  transform.scale = scale
+  transform.x = Math.round((hw - naturalSize.width * scale) / 2)
+  transform.y = Math.round((hh - naturalSize.height * scale) / 2)
+}
+
+const resetView = () => fitToHost()
+
+// ─── Zoom helpers ─────────────────────────────────────────────────────────
+const zoomAt = (clientX, clientY, factor) => {
+  const host = canvasHostRef.value
+  if (!host) return
+  const bounds = host.getBoundingClientRect()
+  const ox = clientX - bounds.left
+  const oy = clientY - bounds.top
+  const newScale = clamp(transform.scale * factor, MIN_SCALE, MAX_SCALE)
+  const ratio = newScale / transform.scale
+  transform.x = ox - (ox - transform.x) * ratio
+  transform.y = oy - (oy - transform.y) * ratio
+  transform.scale = newScale
+}
+
+const zoomInAt = (clientX, clientY) => zoomAt(clientX, clientY, ZOOM_STEP)
+const zoomOutAt = (clientX, clientY) => zoomAt(clientX, clientY, 1 / ZOOM_STEP)
+
+const zoomIn = () => {
+  const host = canvasHostRef.value
+  if (!host) return
+  const r = host.getBoundingClientRect()
+  zoomInAt(r.left + host.clientWidth / 2, r.top + host.clientHeight / 2)
+}
+
+const zoomOut = () => {
+  const host = canvasHostRef.value
+  if (!host) return
+  const r = host.getBoundingClientRect()
+  zoomOutAt(r.left + host.clientWidth / 2, r.top + host.clientHeight / 2)
+}
+
+// ─── Host mouse events ────────────────────────────────────────────────────
+const onWheel = (event) => {
+  zoomAt(event.clientX, event.clientY, event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP)
+}
+
+const onHostMouseDown = (event) => {
+  if (event.button !== 0) return
+  if (spaceDown.value) {
+    // Pan mode: capture pan start
+    panState.active = true
+    panState.startClientX = event.clientX
+    panState.startClientY = event.clientY
+    panState.startTX = transform.x
+    panState.startTY = transform.y
+    event.preventDefault()
+  }
+  // Drag mode is handled by startDrag() on individual handles via @mousedown.stop
+}
+
+const onHostMouseMove = (event) => {
+  if (panState.active) {
+    transform.x = panState.startTX + (event.clientX - panState.startClientX)
+    transform.y = panState.startTY + (event.clientY - panState.startClientY)
+    return
+  }
+  if (dragState.active) {
+    const rect = rects.value.find((r) => r.id === dragState.rectId)
+    if (!rect) return
+    const { x, y } = screenToNatural(event.clientX, event.clientY)
+    rect.points[dragState.pointIdx] = { x, y }
+  }
+}
+
+const onHostMouseUp = () => {
+  panState.active = false
+  dragState.active = false
+  dragState.rectId = null
+  dragState.pointIdx = -1
+}
+
+const onHostMouseLeave = () => {
+  // Keep drag alive even outside (mousmove still fires on window); only stop pan
+  panState.active = false
+}
+
+// ─── Point drag ───────────────────────────────────────────────────────────
+const startDrag = (rectId, pointIdx) => {
+  if (spaceDown.value) return // pan mode wins
+  dragState.active = true
+  dragState.rectId = rectId
+  dragState.pointIdx = pointIdx
+  selectedRectId.value = rectId
+}
+
+// ─── Keyboard ─────────────────────────────────────────────────────────────
+const onKeyDown = (e) => {
+  if (e.code === 'Space' && !e.target.matches('input, textarea, select')) {
+    e.preventDefault()
+    spaceDown.value = true
+  }
+}
+
+const onKeyUp = (e) => {
+  if (e.code === 'Space') {
+    spaceDown.value = false
+    panState.active = false
+  }
+}
+
+// ─── Image load ───────────────────────────────────────────────────────────
+const onImageLoad = async () => {
+  if (!imageEl.value) return
+  naturalSize.width = imageEl.value.naturalWidth || 1
+  naturalSize.height = imageEl.value.naturalHeight || 1
+  await nextTick()
+  fitToHost()
+  if (rects.value.length === 0) addRect()
+}
+
+// ─── Rect management ──────────────────────────────────────────────────────
 const makeRect = (points, idx) => ({
   id: `rect-${Date.now()}-${idx}`,
   points,
 })
 
 const createDefaultRect = () => {
-  const marginX = Math.max(20, Math.round(naturalSize.width * 0.2))
-  const marginY = Math.max(20, Math.round(naturalSize.height * 0.2))
-  const left = marginX
-  const top = marginY
-  const right = Math.max(left + 20, naturalSize.width - marginX)
-  const bottom = Math.max(top + 20, naturalSize.height - marginY)
+  const w = naturalSize.width || 100
+  const h = naturalSize.height || 100
+  const mx = Math.max(20, Math.round(w * 0.2))
+  const my = Math.max(20, Math.round(h * 0.2))
   return makeRect(
     [
-      { x: left, y: top },
-      { x: right, y: top },
-      { x: right, y: bottom },
-      { x: left, y: bottom },
+      { x: mx, y: my },
+      { x: w - mx, y: my },
+      { x: w - mx, y: h - my },
+      { x: mx, y: h - my },
     ],
     0,
   )
 }
 
 const selectRect = (rectId) => {
-  selectedRectId.value = rectId
+  if (!spaceDown.value) selectedRectId.value = rectId
 }
 
 const addRect = () => {
@@ -167,48 +348,34 @@ const addRect = () => {
 
 const removeSelectedRect = () => {
   if (!selectedRectId.value) return
-  rects.value = rects.value.filter((rect) => rect.id !== selectedRectId.value)
+  rects.value = rects.value.filter((r) => r.id !== selectedRectId.value)
   selectedRectId.value = rects.value[0]?.id || null
 }
 
 const normalizeRect = (rawRect, idx) => {
-  if (!rawRect || !Array.isArray(rawRect.points) || rawRect.points.length !== 4) {
-    return null
-  }
+  if (!rawRect || !Array.isArray(rawRect.points) || rawRect.points.length !== 4) return null
   const points = []
   for (const pair of rawRect.points) {
-    if (!Array.isArray(pair) || pair.length !== 2) {
-      return null
-    }
+    if (!Array.isArray(pair) || pair.length !== 2) return null
     const x = Number(pair[0])
     const y = Number(pair[1])
-    if (!Number.isFinite(x) || !Number.isFinite(y)) {
-      return null
-    }
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null
     points.push({ x, y })
   }
   return makeRect(points, idx)
 }
 
+// ─── API calls ────────────────────────────────────────────────────────────
 const fetchDetectedRects = async () => {
   if (!props.projectId || !rawFilename.value) return
-
   loading.value = true
   error.value = ''
   try {
     const response = await api.detectRawSubRects(props.projectId, rawFilename.value)
     const detected = Array.isArray(response.data?.rects) ? response.data.rects : []
-    const normalized = detected
-      .map((rect, idx) => normalizeRect(rect, idx))
-      .filter(Boolean)
-
-    rects.value = normalized
-    if (rects.value.length === 0) {
-      rects.value = [createDefaultRect()]
-    }
+    const normalized = detected.map((r, i) => normalizeRect(r, i)).filter(Boolean)
+    rects.value = normalized.length > 0 ? normalized : [createDefaultRect()]
     selectedRectId.value = rects.value[0]?.id || null
-    await nextTick()
-    updateDisplaySize()
   } catch (err) {
     const message = err?.response?.data?.detail || err?.message || '偵測失敗'
     error.value = `偵測失敗：${message}`
@@ -219,50 +386,17 @@ const fetchDetectedRects = async () => {
   }
 }
 
-const stopDrag = () => {
-  dragState.active = false
-  dragState.rectId = null
-  dragState.pointIdx = -1
-  window.removeEventListener('mousemove', onDragMove)
-  window.removeEventListener('mouseup', stopDrag)
-}
-
-const onDragMove = (event) => {
-  if (!dragState.active || !imageEl.value) return
-  const rect = rects.value.find((r) => r.id === dragState.rectId)
-  if (!rect) return
-
-  const bounds = imageEl.value.getBoundingClientRect()
-  const dispX = clamp(event.clientX - bounds.left, 0, bounds.width)
-  const dispY = clamp(event.clientY - bounds.top, 0, bounds.height)
-
-  const x = clamp(dispX / Math.max(0.0001, scaleX.value), 0, naturalSize.width)
-  const y = clamp(dispY / Math.max(0.0001, scaleY.value), 0, naturalSize.height)
-
-  rect.points[dragState.pointIdx] = { x, y }
-}
-
-const startDrag = (rectId, pointIdx) => {
-  dragState.active = true
-  dragState.rectId = rectId
-  dragState.pointIdx = pointIdx
-  selectedRectId.value = rectId
-  window.addEventListener('mousemove', onDragMove)
-  window.addEventListener('mouseup', stopDrag)
-}
-
 const applyResplit = async () => {
   if (!props.projectId || !rawFilename.value) return
   if (rects.value.length === 0) {
     error.value = '至少需要一個切割區域'
     return
   }
-
   saving.value = true
   error.value = ''
   try {
     const payload = rects.value.map((rect) => ({
-      points: rect.points.map((point) => [Math.round(point.x), Math.round(point.y)]),
+      points: rect.points.map((p) => [Math.round(p.x), Math.round(p.y)]),
     }))
     await api.applyRawResplit(props.projectId, rawFilename.value, payload)
     emit('applied')
@@ -275,20 +409,46 @@ const applyResplit = async () => {
   }
 }
 
+// ─── Modal lifecycle helpers ──────────────────────────────────────────────
+const close = () => emit('update:modelValue', false)
+
+const onResize = () => fitToHost()
+
+const attachListeners = () => {
+  window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('keyup', onKeyUp)
+  window.addEventListener('resize', onResize)
+}
+
+const detachListeners = () => {
+  window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('keyup', onKeyUp)
+  window.removeEventListener('resize', onResize)
+}
+
+const resetModalState = () => {
+  detachListeners()
+  dragState.active = false
+  panState.active = false
+  spaceDown.value = false
+  error.value = ''
+  rects.value = []
+  selectedRectId.value = null
+  naturalSize.width = 0
+  naturalSize.height = 0
+}
+
+// ─── Watchers ─────────────────────────────────────────────────────────────
 watch(
   () => props.modelValue,
   async (visible) => {
     if (visible) {
       cacheToken.value = Date.now()
       await nextTick()
+      attachListeners()
       await fetchDetectedRects()
-      window.addEventListener('resize', updateDisplaySize)
     } else {
-      window.removeEventListener('resize', updateDisplaySize)
-      stopDrag()
-      error.value = ''
-      rects.value = []
-      selectedRectId.value = null
+      resetModalState()
     }
   },
 )
@@ -302,17 +462,14 @@ watch(
   },
 )
 
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', updateDisplaySize)
-  stopDrag()
-})
+onBeforeUnmount(resetModalState)
 </script>
 
 <style scoped>
 .resplit-modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.65);
+  background: rgba(0, 0, 0, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -320,81 +477,147 @@ onBeforeUnmount(() => {
 }
 
 .resplit-modal-panel {
-  width: min(1000px, 96vw);
-  max-height: 92vh;
+  width: min(1100px, 97vw);
+  max-height: 95vh;
   display: flex;
   flex-direction: column;
-  background: #1f2937;
-  border: 1px solid #374151;
-  border-radius: 10px;
+  background: #1a2234;
+  border: 1px solid #2d3a52;
+  border-radius: 12px;
   overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.6);
 }
 
 .modal-header {
   display: flex;
   justify-content: space-between;
-  gap: 1rem;
   align-items: flex-start;
-  padding: 1rem 1.2rem;
-  border-bottom: 1px solid #374151;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid #2d3a52;
+  flex-shrink: 0;
 }
 
 .modal-header h3 {
   margin: 0;
-  color: #f3f4f6;
+  font-size: 1.05rem;
+  color: #f1f5f9;
 }
 
 .subtitle {
-  margin: 0.25rem 0 0;
-  color: #9ca3af;
-  font-size: 0.88rem;
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  color: #94a3b8;
 }
 
 .close-btn {
-  border: 1px solid #4b5563;
   background: transparent;
-  color: #d1d5db;
+  border: 1px solid #3d4f6e;
+  color: #94a3b8;
   border-radius: 6px;
-  padding: 0.2rem 0.55rem;
+  padding: 0.25rem 0.6rem;
   cursor: pointer;
+  font-size: 0.9rem;
+  transition: color 0.15s, border-color 0.15s;
+}
+.close-btn:hover {
+  color: #f1f5f9;
+  border-color: #64748b;
 }
 
 .modal-body {
-  padding: 1rem 1.2rem;
-  overflow: auto;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0.85rem 1.25rem;
+  overflow: hidden;
+  gap: 0.6rem;
 }
 
+/* ── Toolbar ── */
 .toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.6rem;
-  margin-bottom: 0.8rem;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .rect-count {
-  color: #cbd5e1;
-  font-size: 0.85rem;
+  font-size: 0.82rem;
+  color: #94a3b8;
+}
+
+.zoom-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
   margin-left: auto;
 }
 
-.error-banner {
-  padding: 0.55rem 0.7rem;
-  border-radius: 6px;
-  margin-bottom: 0.8rem;
-  background: rgba(220, 38, 38, 0.2);
-  border: 1px solid rgba(220, 38, 38, 0.5);
-  color: #fecaca;
+.zoom-label {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  min-width: 3.5ch;
+  text-align: right;
 }
 
+.pan-hint {
+  font-size: 0.76rem;
+  color: #64748b;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  transition: all 0.15s;
+}
+.pan-hint.active {
+  color: #38bdf8;
+  border-color: #38bdf8;
+  background: rgba(56, 189, 248, 0.1);
+}
+
+/* ── Canvas host ── */
 .canvas-host {
   position: relative;
-  width: 100%;
-  min-height: 260px;
-  border: 1px solid #374151;
-  border-radius: 8px;
+  flex: 1;
+  min-height: 300px;
   overflow: hidden;
-  background: #111827;
+  background: #0d1117;
+  border: 1px solid #2d3a52;
+  border-radius: 8px;
+  user-select: none;
+  cursor: default;
+}
+
+.canvas-host.cursor-grab {
+  cursor: grab;
+}
+.canvas-host.cursor-grabbing {
+  cursor: grabbing;
+}
+
+/* ── Transform layer ── */
+.transform-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  /* width/height set dynamically in style binding */
+}
+
+.target-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* NO object-fit — fills transform-layer exactly */
+  pointer-events: none;
+}
+
+.overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
 }
 
 .loading-layer {
@@ -403,80 +626,107 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #f3f4f6;
-  background: rgba(0, 0, 0, 0.5);
-  z-index: 3;
+  color: #f1f5f9;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 10;
+  font-size: 0.9rem;
 }
 
-.target-image {
-  display: block;
-  width: 100%;
-  height: auto;
-  max-height: 62vh;
-  object-fit: contain;
-}
-
-.overlay {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
+/* ── SVG elements ── */
 .poly {
-  fill: rgba(14, 165, 233, 0.18);
-  stroke: rgba(14, 165, 233, 0.9);
+  fill: rgba(14, 165, 233, 0.15);
+  stroke: rgba(14, 165, 233, 0.85);
   stroke-width: 2;
+  vector-effect: non-scaling-stroke;
   pointer-events: auto;
   cursor: pointer;
+  transition: fill 0.12s;
 }
-
+.poly:hover {
+  fill: rgba(14, 165, 233, 0.25);
+}
 .poly.selected {
-  fill: rgba(16, 185, 129, 0.22);
+  fill: rgba(16, 185, 129, 0.2);
   stroke: rgba(16, 185, 129, 0.95);
 }
 
 .handle {
-  fill: #d1d5db;
-  stroke: #111827;
+  fill: #e2e8f0;
+  stroke: #0f172a;
   stroke-width: 2;
+  vector-effect: non-scaling-stroke;
   pointer-events: auto;
   cursor: move;
+  transition: fill 0.1s;
 }
-
+.handle:hover {
+  fill: #f8fafc;
+}
 .handle.selected {
-  fill: #f59e0b;
+  fill: #fbbf24;
+  stroke: #78350f;
 }
 
+/* ── Error banner ── */
+.error-banner {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  background: rgba(220, 38, 38, 0.15);
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  color: #fca5a5;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+/* ── Footer ── */
 .modal-footer {
-  border-top: 1px solid #374151;
-  padding: 0.9rem 1.2rem;
+  border-top: 1px solid #2d3a52;
+  padding: 0.75rem 1.25rem;
   display: flex;
   justify-content: flex-end;
-  gap: 0.6rem;
+  gap: 0.5rem;
+  flex-shrink: 0;
 }
 
+/* ── Buttons ── */
 .mini-btn {
-  padding: 0.35rem 0.75rem;
-  font-size: 0.82rem;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   background: #2563eb;
-  color: white;
+  color: #fff;
   cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
 }
-
+.mini-btn:hover:not(:disabled) {
+  background: #3b82f6;
+}
 .mini-btn.primary {
   background: #0ea5e9;
 }
-
+.mini-btn.primary:hover:not(:disabled) {
+  background: #38bdf8;
+}
 .mini-btn.danger {
   background: #dc2626;
 }
-
+.mini-btn.danger:hover:not(:disabled) {
+  background: #ef4444;
+}
+.mini-btn.icon-btn {
+  padding: 0.3rem 0.55rem;
+  background: #1e293b;
+  border: 1px solid #334155;
+  color: #cbd5e1;
+}
+.mini-btn.icon-btn:hover:not(:disabled) {
+  background: #273549;
+  color: #f1f5f9;
+}
 .mini-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 </style>
