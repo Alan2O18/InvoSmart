@@ -1,6 +1,7 @@
 import logging
 import os
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,36 @@ class FileService:
 
     def __init__(self, project_repo):
         self.project_repo = project_repo
+
+    def _resolve_project_path(self, root: Path, raw_path: Optional[str], preferred_dir: Optional[str] = None) -> Optional[Path]:
+        if not raw_path:
+            return None
+
+        path = Path(str(raw_path))
+        candidates: list[Path] = []
+        if path.is_absolute():
+            candidates.append(path)
+        else:
+            candidates.append(root / path)
+            if preferred_dir:
+                candidates.append(root / preferred_dir / path.name)
+
+        for candidate in candidates:
+            resolved = candidate.resolve(strict=False)
+            if resolved.exists():
+                return resolved
+
+        if candidates:
+            return candidates[0].resolve(strict=False)
+        return None
+
+    @staticmethod
+    def _is_within_root(root: Path, target: Path) -> bool:
+        try:
+            target.resolve(strict=False).relative_to(root.resolve(strict=False))
+            return True
+        except Exception:
+            return False
 
     def get_raw_files(self, project_id: str) -> list[dict]:
         try:

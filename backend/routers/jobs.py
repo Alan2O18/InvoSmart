@@ -1,5 +1,4 @@
 # Jobs Router - Job 管理端點 (VLM-First)
-import asyncio
 import logging
 from typing import List
 from fastapi import APIRouter, HTTPException, Depends
@@ -98,14 +97,6 @@ async def save_manual_json(
         except Exception as fb_err:
             # 回饋失敗不影響主業務
             logger.warning(f"[FeedbackLoop] 建議詞萃取失敗（不影響儲存）: {fb_err}")
-
-        async def _precompute_flatten_cache():
-            try:
-                await engine.export_handler.precompute_flatten_cache(project_id)
-            except Exception as precompute_err:  # noqa: BLE001
-                logger.warning(f"[FlattenCache] 預計算失敗（不影響儲存）: {precompute_err}")
-
-        asyncio.create_task(_precompute_flatten_cache())
 
         return {"status": "saved", "job_id": job_id}
     except ProjectArchivedError as e:

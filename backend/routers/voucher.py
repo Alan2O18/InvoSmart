@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import functools
+import inspect
 import io
 import json
 import logging
@@ -306,7 +307,17 @@ async def get_voucher_image(
 
     if thumb:
         try:
-            preview = await engine.file_ops.ensure_preview_cache(project_id, image_path, max_width=max_width)
+            preview = None
+            cache_service = getattr(engine, "cache_service", None)
+            ensure_preview = getattr(cache_service, "ensure_preview_cache", None) if cache_service else None
+            if ensure_preview is None or not inspect.iscoroutinefunction(ensure_preview):
+                legacy_file_ops = getattr(engine, "file_ops", None)
+                ensure_preview = getattr(legacy_file_ops, "ensure_preview_cache", None) if legacy_file_ops else None
+
+            if ensure_preview is not None:
+                maybe_preview = ensure_preview(project_id, image_path, max_width=max_width)
+                preview = await maybe_preview if inspect.isawaitable(maybe_preview) else maybe_preview
+
             if preview and os.path.exists(preview["path"]):
                 return FileResponse(path=preview["path"], media_type=preview["media_type"])
         except Exception as preview_err:  # noqa: BLE001

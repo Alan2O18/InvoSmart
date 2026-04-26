@@ -231,6 +231,8 @@ async def generate_voucher_pdf(project_id: str, engine: Engine = Depends(get_eng
             filename=f"憑證黏貼_{project_id}.pdf",
             media_type="application/pdf"
         )
+    except HTTPException:
+        raise
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except FileNotFoundError as fnf:

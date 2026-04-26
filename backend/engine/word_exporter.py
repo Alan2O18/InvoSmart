@@ -1,10 +1,9 @@
 import copy
-import asyncio
 import json
 import logging
+import re
 from datetime import datetime
 from typing import Dict, Any
-from pathlib import Path
 from docx import Document
 from docx.shared import RGBColor
 from backend.processing.flattening import build_job_flatten_payload, aggregate_flattened_jobs
@@ -16,20 +15,13 @@ logger = logging.getLogger(__name__)
 class WordExporter:
     """Word 報表匯出模組 (依品類跨頁分組)"""
 
-    _flatten_locks: dict[str, asyncio.Lock] = {}
-
     def __init__(self, project_repo: ProjectRepository):
         self.project_repo = project_repo
 
-    def _get_flatten_lock(self, project_id: str) -> asyncio.Lock:
-        lock = self._flatten_locks.get(project_id)
-        if lock is None:
-            lock = asyncio.Lock()
-            self._flatten_locks[project_id] = lock
-        return lock
-
-    def _flatten_cache_path(self, project_id: str) -> Path:
-        return self.project_repo._project_root(project_id) / "cache" / "flattened_items.json"
+    @staticmethod
+    def _sanitize_windows_filename_fragment(value: str) -> str:
+        sanitized = re.sub(r'[<>:"/\\|?*]', "_", value or "")
+        return sanitized.strip()
 
     async def _build_source_signature(self, job_repo: JobRepository) -> str:
         jobs = await job_repo.list_jobs(status="done")
@@ -37,44 +29,16 @@ class WordExporter:
         parts.sort()
         return "|".join(parts)
 
-    def _load_persisted_flatten_payload(self, job: dict[str, Any] | None) -> dict[str, Any] | None:
-        if not isinstance(job, dict):
-            return None
-        if job.get("flattening_status") != "done":
-            return None
-        raw_payload = job.get("flattened_data")
-        if not raw_payload:
-            return None
-        try:
-            payload = json.loads(raw_payload)
-        except Exception:
-            logger.warning("Invalid flattened_data payload for job %s", job.get("job_id"))
-            return None
-        return payload if isinstance(payload, dict) else None
-
     async def _build_flatten_payload(self, job_repo: JobRepository, source_signature: str) -> dict[str, Any]:
         jobs = await job_repo.list_jobs(status="done")
         project = await self.project_repo.get_project(job_repo.project_id) or {}
         project_group = str((project.get("metadata") or {}).get("group") or "")
         job_payloads: list[dict[str, Any]] = []
-        payload_sources = {"persisted": 0, "refreshed": 0, "runtime_fallback": 0, "skipped": 0}
+        payload_sources = {"display_result": 0, "skipped": 0}
 
         for job in jobs:
             job_id = job.get("job_id", "")
             if not job_id:
-                continue
-
-            current = await job_repo.get_job(job_id)
-            payload = self._load_persisted_flatten_payload(current)
-            if payload is not None:
-                payload_sources["persisted"] += 1
-                job_payloads.append(payload)
-                continue
-
-            payload = await job_repo.refresh_flattened_data(job_id, persist=True)
-            if payload is not None:
-                payload_sources["refreshed"] += 1
-                job_payloads.append(payload)
                 continue
 
             result = await job_repo.get_display_result(job_id) or {}
@@ -82,7 +46,7 @@ class WordExporter:
                 payload_sources["skipped"] += 1
                 continue
 
-            payload_sources["runtime_fallback"] += 1
+            payload_sources["display_result"] += 1
             job_payloads.append(
                 build_job_flatten_payload(
                     result,
@@ -98,22 +62,10 @@ class WordExporter:
         return aggregated
 
     async def ensure_flatten_cache(self, project_id: str, job_repo: JobRepository, force: bool = False) -> dict[str, Any]:
-        lock = self._get_flatten_lock(project_id)
-        async with lock:
-            source_signature = await self._build_source_signature(job_repo)
-            cache_path = self._flatten_cache_path(project_id)
-            if not force and cache_path.exists():
-                try:
-                    cached = json.loads(cache_path.read_text(encoding="utf-8"))
-                    if cached.get("sourceSignature") == source_signature:
-                        return cached
-                except Exception:
-                    pass
-
-            payload = await self._build_flatten_payload(job_repo, source_signature)
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            return payload
+        del project_id
+        del force
+        source_signature = await self._build_source_signature(job_repo)
+        return await self._build_flatten_payload(job_repo, source_signature)
 
     def _replace_text_in_paragraph(self, paragraph, replacements: Dict[str, str], mark_unfilled_red: bool = True):
         """
@@ -451,7 +403,7 @@ class WordExporter:
         base_replacements = {
             "{{組別}}": meta.get("group", ""),
             "{{組長}}": self._normalize_people_names(leader_value),
-            "{{活動名稱}}": meta.get("name", ""),
+            "{{活動名稱}}": f"{project_id} {meta.get('name', '')}".strip(),
             "{{活動總召}}": self._normalize_people_names(meta.get("coordinator", "")),
             "{{活動總務}}": self._normalize_people_names(meta.get("generalAffairs", "")),
             "{{活動期間}}": period,
@@ -560,7 +512,10 @@ class WordExporter:
         # 4. 儲存實體檔案
         out_root = self.project_repo._project_root(project_id) / "Word匯出"
         out_root.mkdir(parents=True, exist_ok=True)
-        fname = f"{project_id}_word_export.docx"
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_project_id = self._sanitize_windows_filename_fragment(project_id) or "UNKNOWN"
+        safe_project_name = self._sanitize_windows_filename_fragment(str(meta.get("name", ""))) or "未命名"
+        fname = f"{safe_project_id}「{safe_project_name}」_預結算表_{ts}.docx"
         out_path = out_root / fname
         doc.save(str(out_path))
         

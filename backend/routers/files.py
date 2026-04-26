@@ -130,7 +130,7 @@ async def get_split_preview(
         raise HTTPException(status_code=404, detail="Image not found")
 
     try:
-        preview = await engine.file_ops.ensure_preview_cache(
+        preview = await engine.cache_service.ensure_preview_cache(
             project_id, str(image_path), max_width=800,
         )
         if preview and os.path.exists(preview["path"]):
@@ -172,7 +172,7 @@ async def get_raw_preview(
         raise HTTPException(status_code=404, detail="Image not found")
 
     try:
-        preview = await engine.file_ops.ensure_preview_cache(
+        preview = await engine.cache_service.ensure_preview_cache(
             project_id, str(image_path), max_width=800,
         )
         if preview and os.path.exists(preview["path"]):

@@ -33,12 +33,24 @@ class Job(Base):
     pdf_status = Column(String, nullable=True, index=True)
     pdf_commands_json = Column(Text, nullable=True)
     
-    # JSON strings or objects depending on access pattern, mostly strings in previous DB architecture
+    # Legacy payload column kept for backward compatibility with older tests/tools.
     vlm_result_json = Column(Text, nullable=True)
+
+    # Immutable raw VLM result kept for audit/reference only.
+    vlm_raw_json = Column(Text, nullable=True)
     vlm_stats = Column(Text, nullable=True)
     validation_json = Column(Text, nullable=True)
+
+    # Normalized header/summary fields (single source of truth for UI/export assembly).
+    voucher_id = Column(String, nullable=True)
+    purpose = Column(String, nullable=True)
+    supplier = Column(String, nullable=True)
+    invoice_date = Column(String, nullable=True)
+    total_amount = Column(Float, nullable=True)
     
     qr_verified = Column(Integer, default=0)
+
+    # Legacy manual payload column kept for backward compatibility.
     manual_json_text = Column(Text, nullable=True)
     manual_updated_at = Column(Float, nullable=True)
 
@@ -46,7 +58,7 @@ class Job(Base):
     source_format = Column(String, nullable=True)   # e.g. "jpg", "jxl", "png"
     preview_cache_path = Column(String, nullable=True)  # abs path to the latest preview cache file
 
-    # Persisted flatten payload for exporters and one-shot migration backfills.
+    # Deprecated flatten cache columns retained for backward compatibility.
     flattened_data = Column(Text, nullable=True)
     flattening_status = Column(String, nullable=True)
 

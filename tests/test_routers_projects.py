@@ -1,5 +1,9 @@
 from unittest.mock import AsyncMock
 import io
+import json
+from pathlib import Path
+
+from unittest.mock import patch
 
 from backend.repositories.project_repository import ProjectArchivedError
 
@@ -86,6 +90,42 @@ def test_create_project_metadata_parse_error(mock_app_client, mock_engine_for_ap
     assert response.status_code == 200  # Should still succeed with empty metadata
 
 
+def test_create_project_without_files_persists_suggestions(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.create_project = AsyncMock(return_value={"status": "created_no_files"})
+
+    with patch("backend.routers.projects._persist_project_metadata_suggestions", new=AsyncMock()) as persist:
+        response = mock_app_client.post(
+            "/api/projects/",
+            data={"project_id": "proj2", "metadata": json.dumps({"group": "服務組"}, ensure_ascii=False)},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "created_no_files"
+    persist.assert_awaited_once()
+
+
+def test_create_project_suggestion_failure_is_non_blocking(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.create_project = AsyncMock(return_value={"status": "created"})
+
+    with patch(
+        "backend.routers.projects._persist_project_metadata_suggestions",
+        new=AsyncMock(side_effect=RuntimeError("suggestion down")),
+    ):
+        response = mock_app_client.post(
+            "/api/projects/",
+            data={"project_id": "proj3", "metadata": json.dumps({"name": "活動"}, ensure_ascii=False)},
+        )
+
+    assert response.status_code == 200
+
+
+def test_create_project_error(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.create_project = AsyncMock(side_effect=RuntimeError("create failed"))
+
+    response = mock_app_client.post("/api/projects/", data={"project_id": "proj4"})
+    assert response.status_code == 500
+
+
 def test_update_project_error(mock_app_client, mock_engine_for_api):
     """Test update project exception handling."""
     mock_engine_for_api.project_repo.update_project_metadata = AsyncMock(side_effect=Exception("DB error"))
@@ -119,11 +159,66 @@ def test_update_activity_info_error(mock_app_client, mock_engine_for_api):
     assert response.status_code == 500
 
 
+def test_update_activity_info_archived(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.project_repo.update_activity_info = AsyncMock(side_effect=ProjectArchivedError("archived"))
+
+    response = mock_app_client.post("/api/projects/proj1/activity_info", json={"key": "val"})
+    assert response.status_code == 409
+
+
 def test_update_project_archived(mock_app_client, mock_engine_for_api):
     mock_engine_for_api.project_repo.update_project_metadata = AsyncMock(side_effect=ProjectArchivedError("Project proj1 is archived and read-only"))
 
     response = mock_app_client.put("/api/projects/proj1", json={"name": "new_name"})
     assert response.status_code == 409
+
+
+def test_get_project_detail_error(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.project_repo.get_project = AsyncMock(side_effect=RuntimeError("read failed"))
+
+    response = mock_app_client.get("/api/projects/proj1/detail")
+    assert response.status_code == 500
+
+
+def test_generate_voucher_pdf_success(mock_app_client, mock_engine_for_api, tmp_path):
+    pdf_path = tmp_path / "voucher.pdf"
+    pdf_path.write_bytes(b"%PDF-1.4\n%ok")
+    mock_engine_for_api.generate_voucher_pdf = AsyncMock(return_value=str(pdf_path))
+
+    response = mock_app_client.post("/api/projects/proj1/generate-voucher-pdf")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content.startswith(b"%PDF")
+
+
+def test_generate_voucher_pdf_missing_output_file(mock_app_client, mock_engine_for_api, tmp_path):
+    missing_path = tmp_path / "missing.pdf"
+    mock_engine_for_api.generate_voucher_pdf = AsyncMock(return_value=str(missing_path))
+
+    response = mock_app_client.post("/api/projects/proj1/generate-voucher-pdf")
+    assert response.status_code == 404
+
+
+def test_generate_voucher_pdf_value_error(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.generate_voucher_pdf = AsyncMock(side_effect=ValueError("bad input"))
+
+    response = mock_app_client.post("/api/projects/proj1/generate-voucher-pdf")
+    assert response.status_code == 400
+
+
+def test_generate_voucher_pdf_file_not_found(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.generate_voucher_pdf = AsyncMock(side_effect=FileNotFoundError("template missing"))
+
+    response = mock_app_client.post("/api/projects/proj1/generate-voucher-pdf")
+    assert response.status_code == 404
+
+
+def test_generate_voucher_pdf_internal_error(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.generate_voucher_pdf = AsyncMock(side_effect=RuntimeError("unexpected"))
+
+    response = mock_app_client.post("/api/projects/proj1/generate-voucher-pdf")
+    assert response.status_code == 500
 
 
 def test_collect_project_option_suggestions_supports_people_and_budget_options():

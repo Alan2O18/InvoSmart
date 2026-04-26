@@ -24,7 +24,8 @@ from backend.repositories.job_repository import JobRepository
 from backend.processing.receipt_splitter import ReceiptSplitter
 
 from .workers import global_receipt_worker_loop
-from .file_ops import FileOps
+from .image_service import ImageService
+from .cache_service import CacheService
 from .file_service import FileService
 from .export import ExportHandler
 from .voucher_generator import VoucherGenerator
@@ -59,7 +60,16 @@ class Engine:
         
         # 內部組件
         self.file_service = FileService(self.project_repo)
-        self.file_ops = FileOps(self.project_repo, self.receipt_splitter, self)
+        self.cache_service = CacheService(self.project_repo, self)
+        self.image_service = ImageService(
+            self.project_repo,
+            self.receipt_splitter,
+            self,
+            file_service=self.file_service,
+            cache_service=self.cache_service,
+        )
+        # Backward compatibility: legacy callers/tests still reference `engine.file_ops`.
+        self.file_ops = self.image_service
         self.export_handler = ExportHandler(self.project_repo, self)
         
         # 憑證產生組件
@@ -231,9 +241,9 @@ class Engine:
         """刪除 Job，並同步清除對應檔案與快取。"""
         await self._ensure_project_editable(project_id)
         job_repo = self.get_job_repo(project_id)
-        file_cleanup = await self.file_ops.delete_job_files(project_id, job_id)
+        file_cleanup = await self.image_service.delete_job_files(project_id, job_id)
         deleted = await job_repo.delete_job(job_id)
-        deferred_gc = await self.file_ops.flush_deferred_gc(project_id) if deleted else {
+        deferred_gc = await self.image_service.flush_deferred_gc(project_id) if deleted else {
             "deleted_files": [],
             "missing_files": [],
             "kept_referenced": [],
@@ -300,14 +310,14 @@ class Engine:
     async def run_splitting(self, project_id: str, target_files: Optional[list[str]] = None):
         logger.info(f"[分割] 開始處理專案: {project_id}, 目標檔案={target_files}")
         await self._ensure_project_editable(project_id)
-        result = await self.file_ops.run_splitting(project_id, target_files)
+        result = await self.image_service.run_splitting(project_id, target_files)
         logger.info(f"[分割] 完成: {project_id}")
         return result
 
     async def run_split_single(self, project_id: str, filename: str):
         """Split a single raw file."""
         logger.info(f"[分割] 單檔處理: {project_id}/{filename}")
-        result = await self.file_ops.run_splitting(project_id, target_files=[filename])
+        result = await self.image_service.run_splitting(project_id, target_files=[filename])
         logger.info(f"[分割] 單檔完成: {filename}")
         return result
 
@@ -316,11 +326,11 @@ class Engine:
 
     async def add_project_files(self, project_id: str, files: list[str], type: str = "raw"):
         await self._ensure_project_editable(project_id)
-        return await self.file_ops.add_project_files(project_id, files, type)
+        return await self.image_service.add_project_files(project_id, files, type)
 
     async def rotate_image(self, project_id: str, filename: str, angle: int = 90):
         await self._ensure_project_editable(project_id)
-        return await self.file_ops.rotate_image(project_id, filename, angle)
+        return await self.image_service.rotate_image(project_id, filename, angle)
 
     async def delete_raw_file(self, project_id: str, filename: str):
         await self._ensure_project_editable(project_id)
@@ -343,7 +353,7 @@ class Engine:
             project_id = project.get("project_id") or project.get("id")
             if not project_id:
                 continue
-            summary = await self.file_ops.optimize_jxl_storage(project_id, force=force)
+            summary = await self.image_service.optimize_jxl_storage(project_id, force=force)
             details.append(summary)
             total_optimized += int(summary.get("optimized_jobs", 0))
             total_failed += int(summary.get("failed_jobs", 0))
@@ -357,18 +367,18 @@ class Engine:
         }
 
     async def detect_job_sub_rects(self, project_id: str, job_id: str):
-        return await self.file_ops.detect_job_sub_rects(project_id, job_id)
+        return await self.image_service.detect_job_sub_rects(project_id, job_id)
 
     async def apply_job_resplit(self, project_id: str, job_id: str, sub_rects: list[dict]):
         await self._ensure_project_editable(project_id)
-        return await self.file_ops.apply_job_resplit(project_id, job_id, sub_rects)
+        return await self.image_service.apply_job_resplit(project_id, job_id, sub_rects)
 
     async def detect_raw_sub_rects(self, project_id: str, raw_filename: str):
-        return await self.file_ops.detect_raw_sub_rects(project_id, raw_filename)
+        return await self.image_service.detect_raw_sub_rects(project_id, raw_filename)
 
     async def apply_raw_resplit(self, project_id: str, raw_filename: str, sub_rects: list[dict]):
         await self._ensure_project_editable(project_id)
-        return await self.file_ops.apply_raw_resplit(project_id, raw_filename, sub_rects)
+        return await self.image_service.apply_raw_resplit(project_id, raw_filename, sub_rects)
 
     async def run_excel(self, project_id: str):
         return await self.export_handler.run_excel(project_id)

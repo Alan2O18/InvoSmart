@@ -4,9 +4,11 @@ import os
 import time
 import json
 import tempfile
+import re
 import pandas as pd
 import sqlite3
 from pathlib import Path
+from datetime import datetime
 from typing import Optional
 from backend.utils.parser import extract_structured_data
 
@@ -20,6 +22,11 @@ class ExcelExporter:
     
     def __init__(self, project_repo):
         self.project_repo = project_repo
+
+    @staticmethod
+    def _sanitize_windows_filename_fragment(value: str) -> str:
+        sanitized = re.sub(r'[<>:"/\\|?*]', "_", value or "")
+        return sanitized.strip()
     
     async def run_excel(self, project_id: str):
         """Export project data to Excel file."""
@@ -79,6 +86,7 @@ class ExcelExporter:
         detail_rows = []
 
         for _, row in df_jobs.iterrows():
+            job_id = row.get("job_id")
             filename = (
                 row.get("image_path") and Path(row.get("image_path")).name or None
             )
@@ -101,15 +109,23 @@ class ExcelExporter:
                 total = None
 
             raw_vlm = row.get("vlm_result_json")
-            manual_json_text = row.get("manual_json_text")
             job_status = row.get("status")
 
             human_correction_text = None
             vlm_body_text = None
+
+            display_result = {}
+            if job_id:
+                try:
+                    display_result = await job_repo.get_display_result(job_id) or {}
+                except Exception:
+                    display_result = {}
             
             # Parse VLM JSON to extract multiple pieces of information
             parsed_vlm = {}
-            if isinstance(raw_vlm, str) and raw_vlm.strip():
+            if isinstance(display_result, dict) and display_result:
+                parsed_vlm = display_result
+            elif isinstance(raw_vlm, str) and raw_vlm.strip():
                 try:
                     parsed_vlm = json.loads(raw_vlm)
                 except json.JSONDecodeError:
@@ -118,25 +134,21 @@ class ExcelExporter:
             # Generate text from flat structure
             vlm_body_text = self._generate_text_from_vlm_result(parsed_vlm)
 
-            # 處理人工修正文字
-            parsed_manual = {}
-            if isinstance(manual_json_text, str) and manual_json_text.strip():
-                try:
-                    parsed_manual = json.loads(manual_json_text)
-                    human_correction_text = self._generate_text_from_vlm_result(parsed_manual)
-                except json.JSONDecodeError:
-                    pass
-
             # extract_structured_data handles flat structure
-            # Priority: manual_json_text > vlm_result_json
-            structured = extract_structured_data(manual_json_text)
+            # Priority: display_result > vlm_result_json
+            structured = extract_structured_data(display_result)
             if not structured:
                 structured = extract_structured_data(raw_vlm)
 
-            supplier = structured.get("supplier", "")
-            total_amount = structured.get("total_amount", "")
+            supplier = structured.get("supplier") or row.get("supplier", "")
+            total_amount = structured.get("total_amount")
+            if total_amount in (None, ""):
+                total_amount = row.get("total_amount", "")
             file_date = (
-                structured.get("date", "") or structured.get("invoice_date", "") or ""
+                structured.get("date", "")
+                or structured.get("invoice_date", "")
+                or row.get("invoice_date", "")
+                or ""
             )
 
             main_rows.append(
@@ -164,7 +176,7 @@ class ExcelExporter:
                         "檔名": filename,
                         "來源檔案(位置)": row.get("image_path"),
                         "專案": project_id,
-                        "發票號碼": structured.get("invoice_id", ""),
+                        "發票號碼": structured.get("invoice_id", "") or structured.get("voucher_id", "") or row.get("voucher_id", ""),
                         "供應商": supplier,
                         "報帳名目": it.get("category", ""),
                         "品項名稱": it.get("description", ""),
@@ -182,8 +194,18 @@ class ExcelExporter:
             ]
         )
 
-        ts = int(time.time())
-        excel_name = excel_name or f"{project_id}_archive_{ts}.xlsx"
+        if not excel_name:
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            project = await self.project_repo.get_project(project_id)
+            project_name = ""
+            if isinstance(project, dict):
+                project_name = str(project.get("name") or "")
+                if not project_name:
+                    project_name = str((project.get("metadata") or {}).get("name") or "")
+
+            safe_project_id = self._sanitize_windows_filename_fragment(project_id) or "UNKNOWN"
+            safe_project_name = self._sanitize_windows_filename_fragment(project_name) or "未命名"
+            excel_name = f"{safe_project_id}「{safe_project_name}」_預結算表_{ts}.xlsx"
         out_path = root / excel_name
 
         # 選 engine: 優先 xlsxwriter，再 openpyxl；都沒有就 fallback CSV

@@ -16,8 +16,16 @@ from backend.processing.image_codec_adapter import ImageCodecAdapter
 logger = logging.getLogger(__name__)
 
 
-class CacheMixin:
-    """Shared cache and image-semaphore helpers for FileOps-like services."""
+class CacheService:
+    """Preview/cache operations extracted from legacy FileOps cache mixin."""
+
+    def __init__(self, project_repo, engine_ref):
+        self.project_repo = project_repo
+        self.engine = engine_ref
+
+    def _engine_config(self) -> dict:
+        config = getattr(self.engine, "config", {})
+        return config if isinstance(config, dict) else {}
 
     def _image_semaphore(self):
         semaphore = getattr(self.engine, "image_processing_semaphore", None)

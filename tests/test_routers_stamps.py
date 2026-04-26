@@ -1,4 +1,5 @@
 import json
+from unittest.mock import AsyncMock
 
 import anyio
 import cv2
@@ -99,3 +100,121 @@ def test_register_list_and_delete_stamp_roundtrip(stamp_client):
         from pathlib import Path
 
         assert not Path(created_path).exists()
+
+
+def test_register_rejects_invalid_mode(stamp_client):
+    image_bytes = _build_sheet_image_bytes()
+    response = stamp_client.post(
+        "/api/stamps/register",
+        data={
+            "mode": "blue",
+            "selections": json.dumps([{"x": 1, "y": 1, "w": 10, "h": 10, "name": "A", "category": "社章"}], ensure_ascii=False),
+        },
+        files={"file": ("sheet.png", image_bytes, "image/png")},
+    )
+    assert response.status_code == 400
+
+
+def test_register_rejects_invalid_selections_json(stamp_client):
+    image_bytes = _build_sheet_image_bytes()
+    response = stamp_client.post(
+        "/api/stamps/register",
+        data={"mode": "red", "selections": "{not-json"},
+        files={"file": ("sheet.png", image_bytes, "image/png")},
+    )
+    assert response.status_code == 400
+
+
+def test_register_rejects_empty_selections(stamp_client):
+    image_bytes = _build_sheet_image_bytes()
+    response = stamp_client.post(
+        "/api/stamps/register",
+        data={"mode": "red", "selections": json.dumps([], ensure_ascii=False)},
+        files={"file": ("sheet.png", image_bytes, "image/png")},
+    )
+    assert response.status_code == 400
+
+
+def test_register_rejects_invalid_selection_item(stamp_client):
+    image_bytes = _build_sheet_image_bytes()
+    response = stamp_client.post(
+        "/api/stamps/register",
+        data={"mode": "red", "selections": json.dumps([{"x": 1}], ensure_ascii=False)},
+        files={"file": ("sheet.png", image_bytes, "image/png")},
+    )
+    assert response.status_code == 400
+
+
+def test_register_rejects_blank_name_or_category(stamp_client):
+    image_bytes = _build_sheet_image_bytes()
+    response = stamp_client.post(
+        "/api/stamps/register",
+        data={
+            "mode": "red",
+            "selections": json.dumps([
+                {"x": 1, "y": 1, "w": 10, "h": 10, "name": " ", "category": "社章"}
+            ], ensure_ascii=False),
+        },
+        files={"file": ("sheet.png", image_bytes, "image/png")},
+    )
+    assert response.status_code == 400
+
+
+def test_register_maps_service_value_error_to_400(stamp_client):
+    image_bytes = _build_sheet_image_bytes()
+
+    fake_service = AsyncMock()
+    fake_service.register_stamps = AsyncMock(side_effect=ValueError("bad selection"))
+    app.dependency_overrides[stamps_router.get_stamp_service] = lambda: fake_service
+    try:
+        response = stamp_client.post(
+            "/api/stamps/register",
+            data={
+                "mode": "red",
+                "selections": json.dumps([
+                    {"x": 1, "y": 1, "w": 10, "h": 10, "name": "A", "category": "社章"}
+                ], ensure_ascii=False),
+            },
+            files={"file": ("sheet.png", image_bytes, "image/png")},
+        )
+    finally:
+        app.dependency_overrides.pop(stamps_router.get_stamp_service, None)
+
+    assert response.status_code == 400
+
+
+def test_register_maps_service_error_to_500(stamp_client):
+    image_bytes = _build_sheet_image_bytes()
+
+    fake_service = AsyncMock()
+    fake_service.register_stamps = AsyncMock(side_effect=RuntimeError("service down"))
+    app.dependency_overrides[stamps_router.get_stamp_service] = lambda: fake_service
+    try:
+        response = stamp_client.post(
+            "/api/stamps/register",
+            data={
+                "mode": "red",
+                "selections": json.dumps([
+                    {"x": 1, "y": 1, "w": 10, "h": 10, "name": "A", "category": "社章"}
+                ], ensure_ascii=False),
+            },
+            files={"file": ("sheet.png", image_bytes, "image/png")},
+        )
+    finally:
+        app.dependency_overrides.pop(stamps_router.get_stamp_service, None)
+
+    assert response.status_code == 500
+
+
+def test_delete_stamp_not_found(stamp_client):
+    response = stamp_client.delete("/api/stamps/999999")
+    assert response.status_code == 404
+
+
+def test_resolve_image_path_absolute_and_relative(tmp_path):
+    relative = stamps_router._resolve_image_path("backend/data/stamps/x.png")
+    assert str(relative).endswith("backend\\data\\stamps\\x.png")
+
+    absolute_input = str(tmp_path / "abs.png")
+    absolute = stamps_router._resolve_image_path(absolute_input)
+    assert str(absolute) == absolute_input

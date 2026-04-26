@@ -49,13 +49,6 @@ class ExportHandler:
         if inspect.isawaitable(result):
             return await result
         return result
-
-    async def precompute_flatten_cache(self, project_id: str):
-        """Best-effort flatten cache precompute after job edits."""
-        if not self.engine:
-            return
-        job_repo = self.engine.get_job_repo(project_id)
-        await self._word_exporter.ensure_flatten_cache(project_id, job_repo)
     
     # Archive Methods
     async def seal_project(
