@@ -741,7 +741,18 @@ class ImageService:
 
         return self.receipt_splitter.detect_only(image)
 
-    async def detect_raw_sub_rects(self, project_id: str, raw_filename: str) -> list[dict[str, Any]]:
+    async def detect_raw_sub_rects(self, project_id: str, raw_filename: str) -> dict[str, Any]:
+        """Detect sub-rects on the full-resolution raw image.
+
+        Returns:
+            {
+                "rects": [...],        # coordinates in FULL-IMAGE pixel space
+                "full_width": int,     # original image width
+                "full_height": int,    # original image height
+            }
+        Frontend must scale display coordinates by (previewNaturalWidth / full_width).
+        The actual crop coordinates should be sent to apply_raw_resplit as-is (full-image space).
+        """
         root = self.project_repo._project_root(project_id)
         source = await asyncio.to_thread(resolve_raw_source_by_filename, root, raw_filename)
         if source is None or not source.exists():
@@ -751,7 +762,13 @@ class ImageService:
         if image is None:
             raise ValueError(f"Failed to read raw image: {raw_filename}")
 
-        return self.receipt_splitter.detect_only(image)
+        rects = self.receipt_splitter.detect_only(image)
+        full_height, full_width = image.shape[:2]
+        return {
+            "rects": rects,
+            "full_width": int(full_width),
+            "full_height": int(full_height),
+        }
 
     async def apply_job_resplit(self, project_id: str, job_id: str, sub_rects: list[dict[str, Any]]) -> dict[str, Any]:
         if not sub_rects:

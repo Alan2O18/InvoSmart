@@ -78,13 +78,28 @@ async def delete_raw_file(project_id: str, filename: str, engine: Engine = Depen
 
 @router.post("/{project_id}/raw_files/{filename}/detect-sub-rects")
 async def detect_raw_sub_rects(project_id: str, filename: str, engine: Engine = Depends(get_engine)):
-    """Detect potential sub-rectangles for a specific raw file."""
+    """Detect potential sub-rectangles for a specific raw file.
+
+    Returns rects in FULL-IMAGE coordinates, along with full_width/full_height
+    so the frontend can scale the display without affecting the actual crop coords.
+    """
     try:
-        rects = await engine.detect_raw_sub_rects(project_id, filename)
+        result = await engine.detect_raw_sub_rects(project_id, filename)
+        # Support both legacy list return and new dict return
+        if isinstance(result, dict):
+            rects = result.get("rects", [])
+            full_width = result.get("full_width")
+            full_height = result.get("full_height")
+        else:
+            rects = result
+            full_width = None
+            full_height = None
         return {
             "status": "ok",
             "filename": filename,
             "rects": rects,
+            "full_width": full_width,
+            "full_height": full_height,
         }
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))

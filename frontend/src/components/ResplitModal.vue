@@ -62,10 +62,13 @@
               <!-- SVG viewBox = 0 0 naturalWidth naturalHeight
                    preserveAspectRatio="none" 使其與 img 完全重疊
                    點的座標直接以自然像素儲存，零轉換誤差 -->
+              <!-- viewBox uses full-image dimensions (backend coords).
+                   The SVG element physically fills the preview-sized transform-layer.
+                   Browser auto-scales: full-res coords → preview-sized display. -->
               <svg
-                v-if="naturalSize.width > 0"
+                v-if="naturalSize.width > 0 && svgViewW > 0"
                 class="overlay"
-                :viewBox="`0 0 ${naturalSize.width} ${naturalSize.height}`"
+                :viewBox="`0 0 ${svgViewW} ${svgViewH}`"
                 preserveAspectRatio="none"
               >
                 <g
@@ -132,8 +135,13 @@ const selectedRectId = ref(null)
 const cacheToken = ref(Date.now())
 const spaceDown = ref(false)
 
-// ─── Image natural size ───────────────────────────────────────────────────
+// ─── Image natural size (preview thumbnail dimensions) ───────────────────
 const naturalSize = reactive({ width: 0, height: 0 })
+
+// ─── Full-resolution image size (from backend detect API) ─────────────────
+// SVG viewBox uses fullImageSize so coords match backend's full-res pixel space.
+// transform-layer uses naturalSize so the image renders at preview thumbnail scale.
+const fullImageSize = reactive({ width: 0, height: 0 })
 
 // ─── Pan / Zoom transform ─────────────────────────────────────────────────
 const transform = reactive({ scale: 1, x: 0, y: 0 })
@@ -163,27 +171,47 @@ const imageUrl = computed(() => {
 const transformLayerStyle = computed(() => ({
   transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
   transformOrigin: '0 0',
+  // Physical size = preview naturalSize; SVG viewBox = fullImageSize.
+  // Browser scales SVG coords automatically: full→preview ratio handled via viewBox.
   width: naturalSize.width > 0 ? `${naturalSize.width}px` : '100%',
   height: naturalSize.height > 0 ? `${naturalSize.height}px` : 'auto',
 }))
 
-// Handle radius in SVG units: keep visually ~8px regardless of zoom
-const handleRadius = computed(() => Math.max(3, 8 / transform.scale))
+// Effective full-image width / height for SVG viewBox.
+// If backend provided full dimensions, use them; otherwise fall back to naturalSize.
+const svgViewW = computed(() => fullImageSize.width > 0 ? fullImageSize.width : naturalSize.width)
+const svgViewH = computed(() => fullImageSize.height > 0 ? fullImageSize.height : naturalSize.height)
+
+// Scale factor: full-res pixel → preview pixel
+const scaleToFull = computed(() => ({
+  x: svgViewW.value / Math.max(1, naturalSize.width),
+  y: svgViewH.value / Math.max(1, naturalSize.height),
+}))
+
+// Handle radius in SVG/full-image units: keep visually ~8px regardless of zoom
+const handleRadius = computed(() => Math.max(3, 8 * scaleToFull.value.x / transform.scale))
 
 // ─── Utilities ────────────────────────────────────────────────────────────
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v))
 
 /**
- * Convert screen (client) coords to natural image pixel coords.
- * Formula: natural = (screen - hostOffset - translate) / scale
+ * Convert screen (client) coords → full-image pixel coords.
+ *
+ * The transform-layer renders at naturalSize (preview), but the SVG
+ * viewBox and stored coords are in fullImageSize.
+ * Formula:
+ *   preview_x = (clientX - hostLeft - translate.x) / scale
+ *   full_x    = preview_x * (fullWidth / previewWidth)
  */
 const screenToNatural = (clientX, clientY) => {
   const host = canvasHostRef.value
   if (!host) return { x: 0, y: 0 }
   const bounds = host.getBoundingClientRect()
+  const previewX = (clientX - bounds.left - transform.x) / transform.scale
+  const previewY = (clientY - bounds.top - transform.y) / transform.scale
   return {
-    x: clamp((clientX - bounds.left - transform.x) / transform.scale, 0, naturalSize.width),
-    y: clamp((clientY - bounds.top - transform.y) / transform.scale, 0, naturalSize.height),
+    x: clamp(previewX * scaleToFull.value.x, 0, svgViewW.value),
+    y: clamp(previewY * scaleToFull.value.y, 0, svgViewH.value),
   }
 }
 
@@ -321,8 +349,9 @@ const makeRect = (points, idx) => ({
 })
 
 const createDefaultRect = () => {
-  const w = naturalSize.width || 100
-  const h = naturalSize.height || 100
+  // Use full-image dimensions for default rect; fall back to preview if unavailable
+  const w = svgViewW.value || naturalSize.width || 100
+  const h = svgViewH.value || naturalSize.height || 100
   const mx = Math.max(20, Math.round(w * 0.2))
   const my = Math.max(20, Math.round(h * 0.2))
   return makeRect(
@@ -372,7 +401,15 @@ const fetchDetectedRects = async () => {
   error.value = ''
   try {
     const response = await api.detectRawSubRects(props.projectId, rawFilename.value)
-    const detected = Array.isArray(response.data?.rects) ? response.data.rects : []
+    const data = response.data || {}
+    const detected = Array.isArray(data?.rects) ? data.rects : []
+
+    // Store full-image dimensions from backend (used for SVG viewBox)
+    if (data.full_width > 0 && data.full_height > 0) {
+      fullImageSize.width = data.full_width
+      fullImageSize.height = data.full_height
+    }
+
     const normalized = detected.map((r, i) => normalizeRect(r, i)).filter(Boolean)
     rects.value = normalized.length > 0 ? normalized : [createDefaultRect()]
     selectedRectId.value = rects.value[0]?.id || null
@@ -436,6 +473,8 @@ const resetModalState = () => {
   selectedRectId.value = null
   naturalSize.width = 0
   naturalSize.height = 0
+  fullImageSize.width = 0
+  fullImageSize.height = 0
 }
 
 // ─── Watchers ─────────────────────────────────────────────────────────────
