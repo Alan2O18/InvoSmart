@@ -43,9 +43,6 @@
             :class="{ 'cursor-grab': spaceDown && !panState.active, 'cursor-grabbing': panState.active }"
             @wheel.prevent="onWheel"
             @mousedown="onHostMouseDown"
-            @mousemove="onHostMouseMove"
-            @mouseup="onHostMouseUp"
-            @mouseleave="onHostMouseLeave"
           >
             <div v-if="loading" class="loading-layer">偵測中...</div>
 
@@ -268,21 +265,11 @@ const onWheel = (event) => {
   zoomAt(event.clientX, event.clientY, event.deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP)
 }
 
-const onHostMouseDown = (event) => {
-  if (event.button !== 0) return
-  if (spaceDown.value) {
-    // Pan mode: capture pan start
-    panState.active = true
-    panState.startClientX = event.clientX
-    panState.startClientY = event.clientY
-    panState.startTX = transform.x
-    panState.startTY = transform.y
-    event.preventDefault()
-  }
-  // Drag mode is handled by startDrag() on individual handles via @mousedown.stop
-}
-
-const onHostMouseMove = (event) => {
+/**
+ * Global (window-level) mousemove handler — attached only while dragging or panning.
+ * Using window ensures the cursor is tracked even when it leaves canvas-host.
+ */
+const onWindowMouseMove = (event) => {
   if (panState.active) {
     transform.x = panState.startTX + (event.clientX - panState.startClientX)
     transform.y = panState.startTY + (event.clientY - panState.startClientY)
@@ -296,16 +283,30 @@ const onHostMouseMove = (event) => {
   }
 }
 
-const onHostMouseUp = () => {
+/** Global mouseup — ends any active drag/pan and removes window listeners. */
+const onWindowMouseUp = () => {
   panState.active = false
   dragState.active = false
   dragState.rectId = null
   dragState.pointIdx = -1
+  window.removeEventListener('mousemove', onWindowMouseMove)
+  window.removeEventListener('mouseup', onWindowMouseUp)
 }
 
-const onHostMouseLeave = () => {
-  // Keep drag alive even outside (mousmove still fires on window); only stop pan
-  panState.active = false
+const onHostMouseDown = (event) => {
+  if (event.button !== 0) return
+  if (spaceDown.value) {
+    // Pan mode: capture pan start & attach window-level tracking
+    panState.active = true
+    panState.startClientX = event.clientX
+    panState.startClientY = event.clientY
+    panState.startTX = transform.x
+    panState.startTY = transform.y
+    event.preventDefault()
+    window.addEventListener('mousemove', onWindowMouseMove)
+    window.addEventListener('mouseup', onWindowMouseUp)
+  }
+  // Drag mode is handled by startDrag() on individual handles via @mousedown.stop
 }
 
 // ─── Point drag ───────────────────────────────────────────────────────────
@@ -315,6 +316,9 @@ const startDrag = (rectId, pointIdx) => {
   dragState.rectId = rectId
   dragState.pointIdx = pointIdx
   selectedRectId.value = rectId
+  // Attach window-level listeners so drag tracks even outside canvas-host
+  window.addEventListener('mousemove', onWindowMouseMove)
+  window.addEventListener('mouseup', onWindowMouseUp)
 }
 
 // ─── Keyboard ─────────────────────────────────────────────────────────────
@@ -461,6 +465,9 @@ const detachListeners = () => {
   window.removeEventListener('keydown', onKeyDown)
   window.removeEventListener('keyup', onKeyUp)
   window.removeEventListener('resize', onResize)
+  // Clean up any lingering drag/pan window listeners
+  window.removeEventListener('mousemove', onWindowMouseMove)
+  window.removeEventListener('mouseup', onWindowMouseUp)
 }
 
 const resetModalState = () => {
