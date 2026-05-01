@@ -200,6 +200,14 @@ def client(test_engine):
     return TestClient(app)
 
 
+@pytest_asyncio.fixture
+async def db_session(async_session_factory):
+    """Provide a database session for testing."""
+    async with async_session_factory() as session:
+        yield session
+
+
+
 @pytest.fixture
 def mock_app_client(mock_engine_for_api):
     """

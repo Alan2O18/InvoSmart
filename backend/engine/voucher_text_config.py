@@ -94,6 +94,49 @@ DEFAULT_PREVIEW_CONFIG: dict[str, bool] = {
     "showBlockedZones": True,
 }
 
+# STAMP_ZONES: 各角色章的蓋章位置 (A4 頁面座標)
+# 格式: {"role": {"rect": [x0, y0, x1, y1]}} where rect is [x0, y0, width, height] in points
+STAMP_ZONES: dict[str, dict[str, Any]] = {
+    "handler": {
+        "rect": [430, 395, 50, 50],
+        "label": "經手人章",
+    },
+    "activity_general_affairs": {
+        "rect": [485, 395, 50, 50],
+        "label": "活動總務章",
+    },
+    "general_affairs_head": {
+        "rect": [430, 450, 50, 50],
+        "label": "總務組長章",
+    },
+    "president": {
+        "rect": [485, 450, 50, 50],
+        "label": "社長章",
+    },
+    "advisor": {
+        "rect": [430, 505, 50, 50],
+        "label": "指導老師章",
+    },
+    "club_seal": {
+        "rect": [485, 505, 50, 50],
+        "label": "社團關防",
+    },
+}
+
+# 騎縫章配置（動態計算）
+STITCHED_SEAL_CONFIG: dict[str, Any] = {
+    "fin_original": {
+        "label": "與正本相符",
+        "position": "edge",  # edge | bottom
+        "edge_offset": 5,  # 距離邊界偏移量 (points)
+    },
+    "fin_audited": {
+        "label": "已稽核",
+        "position": "edge",
+        "edge_offset": -5,  # 另一側
+    },
+}
+
 
 def _build_defaults() -> dict[str, Any]:
     return {

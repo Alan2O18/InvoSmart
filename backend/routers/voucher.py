@@ -18,8 +18,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from PIL import Image
 from pydantic import BaseModel
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.dependencies import get_engine
+from backend.dependencies import get_engine, get_db
 from backend.engine.core import Engine
 from backend.engine.voucher_text_config import (
     _CONFIG_PATH as _TEMPLATE_CONFIG_PATH,
@@ -27,9 +28,11 @@ from backend.engine.voucher_text_config import (
     get_voucher_text_config_payload,
 )
 from backend.engine.voucher_generator import VoucherGenerator
+from backend.engine.stamp_service import StampService
 from backend.models.voucher_payload import VoucherLayoutPayloadDraft, VoucherLayoutPayloadStrict
 from backend.processing.image_codec_adapter import ImageCodecAdapter
 from backend.repositories.voucher_layout_repo import VoucherLayoutRepository, sanitize_project_id
+from backend.repositories.stamp_repository import StampRepository
 from backend.utils.config import load_config
 
 logger = logging.getLogger(__name__)
@@ -349,6 +352,7 @@ async def generate_voucher_pdf(
     project_id: str,
     payload: VoucherLayoutPayloadStrict,
     engine: Engine = Depends(get_engine),
+    db: AsyncSession = Depends(get_db),
 ):
     settings = get_voucher_settings()
     template_path = settings["template_pdf_path"]
@@ -409,12 +413,37 @@ async def generate_voucher_pdf(
     output_path = output_dir / filename
 
     try:
+        # --- 收集印章 (在 generate_from_layout 之前) ---
+        stamp_repo = StampRepository(db)
+        stamp_service = StampService()
+        
+        # 所有需要收集的角色
+        all_stamp_roles = [
+            "handler", "activity_general_affairs", "general_affairs_head",
+            "president", "advisor", "club_seal", "fin_original", "fin_audited"
+        ]
+        
+        stamp_paths: Dict[str, str | None] = {}
+        for role in all_stamp_roles:
+            stamp_image_path = await stamp_service.get_random_stamp_by_role(role, stamp_repo)
+            stamp_paths[role] = stamp_image_path
+            if stamp_image_path:
+                logger.info(f"[Stamps] 角色 '{role}' 已找到印章: {stamp_image_path}")
+            else:
+                logger.warning(f"[Stamps] 角色 '{role}' 無可用印章")
+        
+        # 特殊處理: 若 handler 無印章，回退到 president 的章
+        if not stamp_paths.get("handler") and stamp_paths.get("president"):
+            logger.info("[Stamps] handler 無印章，使用 president 的章替代")
+            stamp_paths["handler"] = stamp_paths["president"]
+        
         generator = VoucherGenerator(template_path=template_path, font_path=settings.get("font_ttf_path", ""))
         await asyncio.to_thread(
             generator.generate_from_layout,
             resolved_pages,
             job_image_map=job_image_map,
             output_path=str(output_path),
+            stamps=stamp_paths,
         )
     except ValueError as exc:
         raise HTTPException(

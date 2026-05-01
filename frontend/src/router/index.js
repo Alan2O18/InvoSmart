@@ -40,6 +40,26 @@ const router = createRouter({
       component: () => import('../views/StampsManagementView.vue')
     },
     {
+      path: '/persons',
+      name: 'persons-management',
+      component: () => import('../views/PersonsManagementView.vue')
+    },
+    {
+      path: '/stamp-zones',
+      name: 'stamp-zones-config',
+      component: () => import('../views/StampZoneConfigView.vue')
+    },
+    {
+      path: '/stamps/upload',
+      name: 'stamp-source-upload',
+      component: () => import('../views/StampSourceUploadView.vue')
+    },
+    {
+      path: '/project/:id/stamp-preview',
+      name: 'voucher-stamp-preview',
+      component: () => import('../views/VoucherStampPreviewView.vue')
+    },
+    {
       path: '/project/:id/voucher-editor',
       name: 'voucher-editor',
       component: () => import('../views/VoucherEditorView.vue')

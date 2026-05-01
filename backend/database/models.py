@@ -100,7 +100,29 @@ class Event(Base):
     job = relationship("Job", back_populates="events")
 
 
+class Person(Base):
+    """表示人員或虛擬實體（如虛擬印章持有者）"""
+    __tablename__ = "persons"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String, nullable=False, unique=True)
+    role = Column(String, nullable=False)  # handler, activity_general_affairs, general_affairs_head, president, advisor, fin_original, fin_audited, club_seal
+    is_virtual = Column(Boolean, default=False)  # True 表示虛擬實體（社團大章、財務章等）
+    created_at = Column(Float, default=lambda: time.time())
+    
+    # Relationship
+    stamps = relationship("Stamp", back_populates="owner", cascade="all, delete-orphan")
+
+
+# DEPRECATED: Group 模型已廢棄，保留用於向後兼容性
+# 新系統應使用 Person 模型代替
 class Group(Base):
+    """
+    [DEPRECATED] 舊版 Group 模型
+    
+    v0.0.20 起，應使用 Person 模型代替。
+    此模型僅保留以支持向後相容性，未來版本將移除。
+    """
     __tablename__ = "groups"
 
     group_name = Column(String, primary_key=True)
@@ -111,11 +133,13 @@ class Stamp(Base):
     __tablename__ = "stamps"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    name = Column(String, nullable=False)
-    category = Column(String, nullable=False)
-    group_name = Column(String, ForeignKey("groups.group_name", ondelete="SET NULL"), nullable=True)
+    owner_id = Column(Integer, ForeignKey("persons.id", ondelete="CASCADE"), nullable=False, index=True)
+    category = Column(String, default="personal")  # 簡化為統一 personal，位置由 Person.role 決定
     image_path = Column(String, nullable=False)
     created_at = Column(Float, default=lambda: time.time())
+    
+    # Relationship
+    owner = relationship("Person", back_populates="stamps")
 
 
 class Suggestion(Base):

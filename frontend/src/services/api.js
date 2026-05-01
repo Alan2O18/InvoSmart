@@ -181,16 +181,47 @@ export default {
   },
 
   // =====================
+  // Persons (v0.0.20)
+  // =====================
+  listPersons() {
+    return api.get('/api/persons')
+  },
+  getPersonsByRole(role) {
+    return api.get(`/api/persons/by-role/${role}`)
+  },
+  getPerson(id) {
+    return api.get(`/api/persons/${id}`)
+  },
+  createPerson(name, role, isVirtual = false) {
+    return api.post('/api/persons', { name, role, is_virtual: isVirtual })
+  },
+  deletePerson(id) {
+    return api.delete(`/api/persons/${id}`)
+  },
+  ensureVirtualPersons() {
+    return api.post('/api/persons/ensure-virtuals')
+  },
+
+  // =====================
   // Stamp Repository
   // =====================
   listStamps() {
     return api.get('/api/stamps')
   },
-  registerStamps(file, mode = 'red', selections = []) {
+  listStampsByRole(role) {
+    return api.get(`/api/stamps/by-role/${role}`)
+  },
+  listStampsByOwner(ownerId) {
+    return api.get(`/api/stamps/by-owner/${ownerId}`)
+  },
+  registerStamps(file, mode = 'red', selections = [], ownerId = null) {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('mode', mode)
     formData.append('selections', JSON.stringify(selections))
+    if (ownerId !== null) {
+      formData.append('owner_id', ownerId)
+    }
     return api.post('/api/stamps/register', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })

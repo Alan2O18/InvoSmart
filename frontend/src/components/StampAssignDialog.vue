@@ -75,14 +75,14 @@
             <tr>
               <th>名稱</th>
               <th>類別</th>
-              <th>群組 (可留白)</th>
+              <th>所有者 ID (可留白)</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="item in enabledBoxes" :key="`${item.id}-meta`">
               <td><input type="text" v-model="item.name" placeholder="例如：美術社社章" /></td>
               <td><input type="text" v-model="item.category" placeholder="例如：社團 / 稽核" /></td>
-              <td><input type="text" v-model="item.group_name" placeholder="例如：美術組" /></td>
+              <td><input type="number" v-model.number="item.owner_id" placeholder="可留白（自動分配）" /></td>
             </tr>
             <tr v-if="enabledBoxes.length === 0">
               <td colspan="3" class="empty-tip">沒有可儲存的框，請回上一步至少選取一個。</td>
@@ -324,7 +324,7 @@ const finishDraw = () => {
     enabled: true,
     name: `手動印章 ${boxes.value.length + 1}`,
     category: mode.value === 'red' ? '社團' : '稽核',
-    group_name: '',
+    owner_id: null,
   })
 
   drawing.value = false
@@ -341,7 +341,7 @@ const saveStamps = async () => {
     h: item.h,
     name: String(item.name || '').trim(),
     category: String(item.category || '').trim(),
-    group_name: String(item.group_name || '').trim() || null,
+    owner_id: item.owner_id || null,
   }))
 
   try {

@@ -24,6 +24,7 @@ from backend.routers.suggestions import router as suggestions_router
 from backend.routers.config import router as config_router
 from backend.routers.voucher import router as voucher_router
 from backend.routers.stamps import router as stamps_router
+from backend.routers.persons import router as persons_router
 
 from fastapi.staticfiles import StaticFiles
 import json
@@ -44,9 +45,9 @@ stamps_static_root = os.path.join(PROJECT_ROOT, "backend", "data", "stamps")
 os.makedirs(stamps_static_root, exist_ok=True)
 
 print("="*60)
-print(f"🚀 AI Agent Lab Server Starting...")
-print(f"📂 Workspace Root: {os.path.abspath(workspace_root)}")
-print(f"🛢️  Global DB Path:  {os.path.abspath(global_db_path)}")
+print(f"[START] AI Agent Lab Server Starting...")
+print(f"[WORKSPACE] Workspace Root: {os.path.abspath(workspace_root)}")
+print(f"[DATABASE] Global DB Path:  {os.path.abspath(global_db_path)}")
 print("="*60)
 
 
@@ -54,12 +55,22 @@ print("="*60)
 async def lifespan(app: FastAPI):
     # Startup: Initialize DB and Engine before accepting requests
     from backend.dependencies import get_engine, reset_engine
-    from backend.database.core import init_db
+    from backend.database.core import init_db, get_session_factory
+    from backend.repositories.person_repository import PersonRepository
     
     # 1. Initialize global database tables asynchronously
     await init_db()
     
-    # 2. Setup Engine (workers start conditionally if start_workers=True)
+    # 2. Initialize virtual persons (虛擬實體: 與正本相符、已稽核、社團關防)
+    try:
+        async with get_session_factory().begin() as session:
+            person_repo = PersonRepository(session)
+            virtual_ids = await person_repo.ensure_virtual_persons()
+            logger.info(f"[Startup] Virtual persons ensured: {virtual_ids}")
+    except Exception as virtual_err:  # noqa: BLE001
+        logger.warning(f"[Startup] Virtual persons initialization failed: {virtual_err}")
+    
+    # 3. Setup Engine (workers start conditionally if start_workers=True)
     engine = get_engine()
     
     # 3. Recover pending tasks that might have crashed previously
@@ -135,6 +146,7 @@ app.include_router(suggestions_router, prefix="/api", tags=["suggestions"])
 app.include_router(config_router, prefix="/api/config", tags=["config"])
 app.include_router(voucher_router, prefix="/api/voucher", tags=["voucher"])
 app.include_router(stamps_router, prefix="/api", tags=["stamps"])
+app.include_router(persons_router, prefix="/api", tags=["persons"])
 app.include_router(websocket.router, tags=["websocket"])
 
 @app.get("/")

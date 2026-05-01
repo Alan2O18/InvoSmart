@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 import time
 import uuid
 from pathlib import Path
@@ -64,8 +65,13 @@ class StampService:
         raw_bytes: bytes,
         selections: list[dict],
         mode: str,
+        owner_id: int,
         repo: StampRepository,
     ) -> list[dict]:
+        """
+        Register stamps by extracting from image and saving.
+        Selections now use owner_id instead of group_name.
+        """
         image = await asyncio.to_thread(self.decode_upload_image, raw_bytes)
         extracted = await asyncio.to_thread(self.processor.extract_stamps, image, selections, mode)
         await asyncio.to_thread(self._ensure_storage_dir)
@@ -78,9 +84,8 @@ class StampService:
                 written_files.append(saved_path)
                 entities.append(
                     Stamp(
-                        name=str(item.get("name") or "").strip(),
-                        category=str(item.get("category") or "").strip(),
-                        group_name=item.get("group_name"),
+                        owner_id=owner_id,
+                        category="personal",  # Simplified: always "personal"
                         image_path=self._to_stored_path(saved_path),
                         created_at=time.time(),
                     )
@@ -91,3 +96,14 @@ class StampService:
             for file_path in written_files:
                 await asyncio.to_thread(file_path.unlink, missing_ok=True)
             raise
+
+    async def get_random_stamp_by_role(self, role: str, repo: StampRepository) -> str | None:
+        """
+        Get a random stamp image path for a given role.
+        If no stamps available, returns None.
+        """
+        stamps = await repo.list_stamps_by_role(role)
+        if not stamps:
+            return None
+        selected = random.choice(stamps)
+        return selected.get("image_path")

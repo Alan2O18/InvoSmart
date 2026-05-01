@@ -5,7 +5,9 @@
   <header>
     <nav>
       <router-link to="/">Home</router-link>
+      <router-link to="/persons">Persons</router-link>
       <router-link to="/stamps">Stamps</router-link>
+      <router-link to="/stamp-zones">Stamp Zones</router-link>
       <router-link to="/settings">Settings</router-link>
     </nav>
   </header>

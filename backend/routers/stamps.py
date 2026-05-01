@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from backend.dependencies import get_db
 from backend.engine.stamp_service import StampService
 from backend.repositories.stamp_repository import StampRepository
+from backend.repositories.person_repository import PersonRepository
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -24,9 +25,7 @@ class StampSelection(BaseModel):
     y: int
     w: int
     h: int
-    name: str
-    category: str
-    group_name: str | None = None
+    owner_id: int  # Changed from name/group_name
 
 
 def get_stamp_service() -> StampService:
@@ -35,6 +34,10 @@ def get_stamp_service() -> StampService:
 
 def get_stamp_repo(db: AsyncSession = Depends(get_db)) -> StampRepository:
     return StampRepository(db)
+
+
+def get_person_repo(db: AsyncSession = Depends(get_db)) -> PersonRepository:
+    return PersonRepository(db)
 
 
 def _stamp_url_from_image_path(image_path: str) -> str:
@@ -61,17 +64,38 @@ async def list_stamps(repo: StampRepository = Depends(get_stamp_repo)):
     return [_serialize_stamp(row) for row in rows]
 
 
+@router.get("/stamps/by-role/{role}")
+async def list_stamps_by_role(role: str, repo: StampRepository = Depends(get_stamp_repo)):
+    """List all stamps for a given role."""
+    rows = await repo.list_stamps_by_role(role)
+    return [_serialize_stamp(row) for row in rows]
+
+
+@router.get("/stamps/by-owner/{owner_id}")
+async def list_stamps_by_owner(owner_id: int, repo: StampRepository = Depends(get_stamp_repo)):
+    """List all stamps for a given owner (Person ID)."""
+    rows = await repo.list_stamps_by_owner(owner_id)
+    return [_serialize_stamp(row) for row in rows]
+
+
 @router.post("/stamps/register")
 async def register_stamps(
     file: UploadFile = File(...),
     mode: str = Form("red"),
+    owner_id: str = Form(...),
     selections: str = Form(...),
     repo: StampRepository = Depends(get_stamp_repo),
     service: StampService = Depends(get_stamp_service),
 ):
+    """Register stamps for a specific owner (Person)."""
     clean_mode = (mode or "red").strip().lower()
     if clean_mode not in {"red", "edge"}:
         raise HTTPException(status_code=400, detail="mode must be 'red' or 'edge'")
+
+    try:
+        owner_id_int = int(owner_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="owner_id must be an integer") from exc
 
     try:
         raw_selections = json.loads(selections)
@@ -88,12 +112,9 @@ async def register_stamps(
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=400, detail=f"Invalid selection at index {idx}: {exc}") from exc
 
-        item.name = item.name.strip()
-        item.category = item.category.strip()
-        if not item.name or not item.category:
-            raise HTTPException(status_code=400, detail=f"Selection {idx} must have name and category")
-        if item.group_name is not None:
-            item.group_name = item.group_name.strip() or None
+        # Validate owner_id matches
+        if item.owner_id != owner_id_int:
+            raise HTTPException(status_code=400, detail=f"Selection {idx} owner_id mismatch")
         parsed.append(item)
 
     raw_bytes = await file.read()
@@ -102,6 +123,7 @@ async def register_stamps(
             raw_bytes=raw_bytes,
             selections=[item.model_dump() for item in parsed],
             mode=clean_mode,
+            owner_id=owner_id_int,
             repo=repo,
         )
     except ValueError as exc:
