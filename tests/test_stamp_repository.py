@@ -12,7 +12,7 @@ async def test_stamp_repository_crud(async_session_factory):
         repo = StampRepository(session)
         
         # Create a Person first to satisfy FK constraint
-        person = Person(name="測試印章", role="社團", department="測試組")
+        person = Person(name="測試印章", role="社團")
         session.add(person)
         await session.commit()
         await session.refresh(person)

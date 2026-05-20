@@ -76,6 +76,7 @@ def test_register_list_and_delete_stamp_roundtrip(stamp_client):
         '/api/stamps/register',
         data={
             'mode': 'red',
+            'owner_id': str(person_id),
             'selections': json.dumps(selections, ensure_ascii=False),
         },
         files={'file': ('sheet.png', image_bytes, 'image/png')},
@@ -114,6 +115,7 @@ def test_register_rejects_invalid_mode(stamp_client):
         "/api/stamps/register",
         data={
             "mode": "blue",
+            "owner_id": "1",
             "selections": json.dumps([{"x": 1, "y": 1, "w": 10, "h": 10, "owner_id": 1}], ensure_ascii=False),
         },
         files={"file": ("sheet.png", image_bytes, "image/png")},
@@ -125,7 +127,7 @@ def test_register_rejects_invalid_selections_json(stamp_client):
     image_bytes = _build_sheet_image_bytes()
     response = stamp_client.post(
         "/api/stamps/register",
-        data={"mode": "red", "selections": "{not-json"},
+        data={"mode": "red", "owner_id": "1", "selections": "{not-json"},
         files={"file": ("sheet.png", image_bytes, "image/png")},
     )
     assert response.status_code == 400
@@ -135,7 +137,7 @@ def test_register_rejects_empty_selections(stamp_client):
     image_bytes = _build_sheet_image_bytes()
     response = stamp_client.post(
         "/api/stamps/register",
-        data={"mode": "red", "selections": json.dumps([], ensure_ascii=False)},
+        data={"mode": "red", "owner_id": "1", "selections": json.dumps([], ensure_ascii=False)},
         files={"file": ("sheet.png", image_bytes, "image/png")},
     )
     assert response.status_code == 400
@@ -145,20 +147,21 @@ def test_register_rejects_invalid_selection_item(stamp_client):
     image_bytes = _build_sheet_image_bytes()
     response = stamp_client.post(
         "/api/stamps/register",
-        data={"mode": "red", "selections": json.dumps([{"x": 1}], ensure_ascii=False)},
+        data={"mode": "red", "owner_id": "1", "selections": json.dumps([{"x": 1}], ensure_ascii=False)},
         files={"file": ("sheet.png", image_bytes, "image/png")},
     )
     assert response.status_code == 400
 
 
-def test_register_rejects_blank_name_or_category(stamp_client):
+def test_register_rejects_owner_id_mismatch(stamp_client):
     image_bytes = _build_sheet_image_bytes()
     response = stamp_client.post(
         "/api/stamps/register",
         data={
             "mode": "red",
+            "owner_id": "1",
             "selections": json.dumps([
-                {"x": 1, "y": 1, "w": 10, "h": 10, "name": " ", "category": "社章"}
+                {"x": 1, "y": 1, "w": 10, "h": 10, "owner_id": 2}
             ], ensure_ascii=False),
         },
         files={"file": ("sheet.png", image_bytes, "image/png")},
@@ -177,8 +180,9 @@ def test_register_maps_service_value_error_to_400(stamp_client):
             "/api/stamps/register",
             data={
                 "mode": "red",
+                "owner_id": "1",
                 "selections": json.dumps([
-                    {"x": 1, "y": 1, "w": 10, "h": 10, "name": "A", "category": "社章"}
+                    {"x": 1, "y": 1, "w": 10, "h": 10, "owner_id": 1}
                 ], ensure_ascii=False),
             },
             files={"file": ("sheet.png", image_bytes, "image/png")},
@@ -200,8 +204,9 @@ def test_register_maps_service_error_to_500(stamp_client):
             "/api/stamps/register",
             data={
                 "mode": "red",
+                "owner_id": "1",
                 "selections": json.dumps([
-                    {"x": 1, "y": 1, "w": 10, "h": 10, "name": "A", "category": "社章"}
+                    {"x": 1, "y": 1, "w": 10, "h": 10, "owner_id": 1}
                 ], ensure_ascii=False),
             },
             files={"file": ("sheet.png", image_bytes, "image/png")},

@@ -222,8 +222,10 @@ def mock_app_client(mock_engine_for_api):
     
     # Provide simple yield mocks so we don't hit 503
     async def override_get_db():
-        from unittest.mock import AsyncMock
-        yield AsyncMock()
+        from unittest.mock import AsyncMock, MagicMock
+        mock_session = AsyncMock()
+        mock_session.execute.return_value = MagicMock()
+        yield mock_session
         
     def override_get_sync_db():
         from unittest.mock import MagicMock
