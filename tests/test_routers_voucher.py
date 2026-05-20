@@ -22,7 +22,7 @@ def test_generate_voucher_returns_pdf_file_response(mock_app_client, mock_engine
 
     generated_output = output_root / "proj1" / "outputs" / "voucher_123.pdf"
 
-    def fake_generate_from_layout(pages, job_image_map, output_path):
+    def fake_generate_from_layout(pages, job_image_map, output_path, **kwargs):
         assert job_image_map == {"job-1": str(tmp_path / "invoice.jpg")}
         assert pages[0]["fields"]["amount"] == "456"
         assert pages[0]["fields"]["payDate"] == "2026-03-07"
@@ -90,7 +90,7 @@ def test_generate_keeps_manual_purpose_when_marked_edited(mock_app_client, mock_
     })
     mock_engine_for_api.get_job_repo.return_value = mock_job_repo
 
-    def fake_generate_from_layout(pages, job_image_map, output_path):
+    def fake_generate_from_layout(pages, job_image_map, output_path, **kwargs):
         assert pages[0]["fields"]["purpose"] == "手動用途"
         assert job_image_map == {"job-1": str(tmp_path / "invoice.jpg")}
         Path(output_path).write_bytes(b"%PDF-1.4\n%generated\n")

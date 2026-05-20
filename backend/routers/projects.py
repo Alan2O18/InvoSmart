@@ -65,6 +65,11 @@ def _collect_project_option_suggestions(metadata: dict) -> dict[str, list[str]]:
 
     buckets: dict[str, set[str]] = defaultdict(set)
 
+
+    location = str(metadata.get("location") or "").strip()
+    if location:
+        buckets["location"].add(location)
+
     group_name = str(metadata.get("group") or "").strip()
     if group_name:
         buckets["group_name"].add(group_name)

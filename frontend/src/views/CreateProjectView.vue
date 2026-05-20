@@ -83,7 +83,10 @@
         </div>
         <div class="form-group">
           <label for="location">Location</label>
-          <input type="text" id="location" v-model="form.location" />
+          <input type="text" id="location" v-model="form.location" list="location-list" @blur="saveSuggestion('location', form.location)" />
+          <datalist id="location-list">
+            <option v-for="loc in locationSuggestions" :key="loc" :value="loc"></option>
+          </datalist>
         </div>
       </section>
 
@@ -205,6 +208,7 @@ const form = reactive({
 const groups = ref([])
 const availableLeaders = ref([])
 const peopleSuggestions = ref([])
+const locationSuggestions = ref([])
 
 const splitPeople = (raw) => {
   const text = String(raw || '').trim()
@@ -249,10 +253,14 @@ const leaderOptions = computed(() => {
 
 const loadPeopleSuggestions = async () => {
   try {
-    const res = await api.getSuggestions('person_name', '', 200)
-    peopleSuggestions.value = res.data || []
+    const [personRes, locRes] = await Promise.all([
+      api.getSuggestions('person_name', '', 200),
+      api.getSuggestions('location', '', 200)
+    ])
+    peopleSuggestions.value = personRes.data || []
+    locationSuggestions.value = locRes.data || []
   } catch (e) {
-    console.error('Failed to load people suggestions', e)
+    console.error('Failed to load suggestions', e)
   }
 }
 
@@ -264,6 +272,11 @@ const saveSuggestion = async (category, value) => {
     if (category === 'person_name') {
       if (!peopleSuggestions.value.includes(text)) {
         peopleSuggestions.value = [...peopleSuggestions.value, text]
+      }
+    }
+    if (category === 'location') {
+      if (!locationSuggestions.value.includes(text)) {
+        locationSuggestions.value = [...locationSuggestions.value, text]
       }
     }
   } catch (e) {

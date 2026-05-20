@@ -1,228 +1,95 @@
-# v0.0.18 Plan: FileOps Refactoring, Export Refinement & Database Cleanup
+# v0.0.18 Plan: FileOps, Export Refinement & Database Refactoring
 
 ## Goal Description
 
-本版本涵蓋四大目標：
-
-1. **修正匯出格式與命名規範**
-   - 檔名規範：改為 `[ProjectID]「[ProjectName]」_預結算表_{timestamp}`。遇到不合法的 Windows 檔名字元自動替換為底線 `_`。
+1. **修正匯出格式與命名規範**：
+   - 檔名規範：改為 `[ProjectID]「[ProjectName]」_預結算表_{timestamp}` (如 `D-04「身」歷其境_預結算表_1775306216`)。遇到不合法的 Windows 檔名字元將自動替換為「底線 `_`」。
    - 活動名稱格式：`{{活動名稱}}` 替換內容改為 `[ProjectID] [活動名稱]`。
-   - 資料排序：匯出前依指定權重排序類別：`保險` > `膳食(課程會)` > `餐食` > `茶水` > `消耗性教材` > 其他依字元排序，確保同類項目在文件中連續排列並正確合併。
+   - 資料排序：匯出項目前依照指定順序進行類別 (Category) 排序：`保險` > `膳食(課程會)` > `餐食` > `茶水` > `消耗性教材` > 其他依字元排序，確保同類項目在文件中能夠連續排列並正確合併。
+2. **修復 Excel 匯出空表問題**：目前因 `JobRepository.list_jobs()` 效能優化導致 ExcelExporter 讀不到內容而匯出空表。將改採逐筆 `get_job()` 讀取完整資料。
+3. **完成 FileOps 拆分 (延續 v0.0.17 項目)**：將 `backend/engine/file_ops.py` 拆解為 `FileService`、`ImageService` 等單一職責服務。
+4. **重構並清晰化資料庫結構 (Database Refactoring)**：解決現有 `Job` 資料表過於臃腫及結構不清晰的問題。目前 `Job` 表內存在大量冗餘的 JSON 字串欄位（`vlm_result_json`、`manual_json_text`、`flattened_data` 等），且與關聯式表 `InvoiceItem` 並存，導致雙重事實來源 (Dual Source of Truth) 與複雜的資料縫合 (`_stitch_items_from_db`) 邏輯。將全面以關聯式結構為主體進行整併。
 
-2. **修復 Excel 匯出空表問題**
-   - 目前 `JobRepository.list_jobs()` 效能優化省略了 JSON 欄位，導致 `ExcelExporter` 讀不到內容而匯出空表。已部分修正為逐筆 `get_job()` 讀取。
-
-3. **完成 FileOps 拆分 (延續 v0.0.17)**
-   - 將「上帝對象」`file_ops.py`（797 行）徹底解體為 `ImageService`、`CacheService` 等單一職責服務，不使用過渡代理，全面更新所有呼叫端。
-
-4. **重構並清晰化資料庫結構 (Database Refactoring)**
-   - 解決 `Job` 表過於臃腫及雙重事實來源 (Dual Source of Truth) 問題。
-   - 目前 `Job` 表內同時存在 `vlm_result_json`（Text）、`manual_json_text`（Text）、`flattened_data`（Text）等大型 JSON 字串，又與關聯式表 `InvoiceItem` 並存，導致複雜的資料縫合 (`_stitch_items_from_db`) 邏輯。
-   - 確立 `InvoiceItem` 關聯表 + `Job` 上的獨立欄位為唯一主體，VLM 原始 JSON 保留在 DB 中但降級為不可變的唯讀稽核紀錄。
-   - 前端不動，後端負責在讀取/回傳時動態組裝成前端預期的 JSON 格式。
-
-## Design Decisions (已確認)
-
-| 議題 | 決策 |
-|------|------|
-| 資料遷移策略 | 一次性遷移腳本，啟動前執行 |
-| API 契約 | 後端重構，API 回傳格式不變，前端不動 |
-| VLM 原始 JSON 存放 | 保留在資料庫中（`vlm_raw_json` 欄位），不移至檔案系統 |
-| FileOps 拆分策略 | 全面重構，不建立過渡代理 |
-| Flattened Data 策略 | 移除預存快取，匯出時即時 (On-the-fly) 從 DB 查詢組裝 |
-| `rotate_image` 清除邏輯 | 旋轉後不再 `NULL` 掉 JSON 欄位，改為：① 刪除該 Job 的所有 `InvoiceItem`；② 重置 `voucher_id`/`purpose`/`supplier`/`invoice_date`/`total_amount` 為 `None`；③ 將 `vlm_raw_json` 設為 `None`；④ `status` 改回 `ready` |
-
----
 
 ## Proposed Changes
 
 ---
 
-### Phase 1: Export Logic Refinement (匯出修正 — 立即實施，風險最低)
 
-#### [MODIFY] [flattening.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/processing/flattening.py)
-- `aggregate_flattened_jobs`：加入類別排序權重（`保險`=0、`膳食(課程會)`=1、`餐食`=2、`茶水`=3、`消耗性教材`=4），回傳前對 `allFlattenedItems` 排序。
+### Phase 1: Database Migration & Repository Refactoring (資料庫與資料層重構)
 
-#### [MODIFY] [word_exporter.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/engine/word_exporter.py)
-- `base_replacements`：`{{活動名稱}}` 替換值改為 `f"{project_id} {meta.get('name', '')}"`。
-- `process_export` 結尾：檔名生成改為 `[ID]「Name」_預結算表_{ts}.docx`，加入 `re.sub(r'[<>:"/\\|?*]', '_', name)` 剔除 Windows 非法字元。
+#### [MODIFY] `backend/processing/flattening.py`
+- 修改 `aggregate_flattened_jobs` 函數，加入指定的類別排序權重（`保險`、`膳食(課程會)`、`餐食`、`茶水`、`消耗性教材`），回傳前對 `all_flattened_items` 進行排序。
 
-#### [MODIFY] [excel_exporter.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/engine/excel_exporter.py)
-- `archive_to_excel`：Excel 檔名對齊 Word 規範（`[ID]「Name」_預結算表_{ts}.xlsx`），使用相同的非法字元清理函數。
-- 確認逐筆 `get_job()` 讀取已正確實施。
+#### [MODIFY] `backend/engine/word_exporter.py`
+- 更新 `process_export` 中的 `base_replacements`，將 `{{活動名稱}}` 前方補上 `project_id`。
+- 修改輸出的 Word 檔名生成邏輯，加入剔除問題字元與加上戳記，符合 `[ID]「Name (替換非法字元)」_預結算表_{戳記}.docx` 格式。
 
----
+#### [MODIFY] `backend/engine/excel_exporter.py`
+- 修改 `archive_to_excel` 中輸出的 Excel 檔名生成邏輯，對齊與 Word 相同的規範（剔除非法字元並保留戳記）。
+- (已部分實施) 使用 `get_job()` 確保資料完整性。
 
-### Phase 2: Database Schema & Repository Refactoring (資料庫結構重構)
+#### [NEW] `scripts/migrate_v0_0_18.py` (一次性搬移腳本)
+- 讀取資料庫中所有的 `Job`。
+- 解析 `manual_json_text` 或 `vlm_result_json`，將 `voucher_id`、`purpose` 與 `supplier` 等 Header/Summary 資訊抽離出來，回寫至新的關聯欄位。
+- 重建所有 `InvoiceItem` 以確保沒有遺漏。
 
-#### [NEW] [scripts/migrate_v0_0_18.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/scripts/migrate_v0_0_18.py) (一次性遷移腳本)
-- 讀取所有 `Job` 記錄。
-- 優先解析 `manual_json_text`，其次 `vlm_result_json`，從中抽取 `header.voucher_id`、`summary.purpose`、`header.supplier`、`header.date`、`summary.total` 回寫至新增的 `Job` 獨立欄位。
-- 正規化 `vlm_result_json` → `vlm_raw_json`（欄位更名，內容不變）。
-- 確認每筆 Job 的 `InvoiceItem` 完整性（若缺漏則從 JSON 重建）。
-- 清除已廢棄的 `manual_json_text`、`flattened_data`、`flattening_status` 欄位（設為 NULL 或由 Schema Migration 移除）。
+#### [MODIFY] `backend/database/models.py`
+- 重構 `Job` Model：
+  - 新增單項發票必備欄位：`voucher_id`, `purpose`, `supplier`, `date`, `total_amount`，由 JSON 中抽出成獨立明確的主體欄位。
+  - 將 VLM 的原始 JSON 放著不動，但程式未來不再更新它（視為不可變的原始稽核紀錄）。
+  - 移除多餘的 `manual_json_text`。
+  - 移除冗餘供匯出用的 `flattened_data` 及 `flattening_status`。
 
-#### [MODIFY] [models.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/database/models.py)
-**`Job` 表 — 新增欄位：**
-| 欄位 | 型別 | 說明 |
-|------|------|------|
-| `voucher_id` | `String, nullable` | 憑證/發票號碼 |
-| `purpose` | `String, nullable` | 用途說明 |
-| `supplier` | `String, nullable` | 供應商名稱 |
-| `invoice_date` | `String, nullable` | 發票日期 |
-| `total_amount` | `Float, nullable` | 合計金額 |
+- **重構 `Job` Model**：
+  - 移除多餘且重複的 JSON 欄位（如 `manual_json_text`、`vlm_result_json`、`flattened_data`）。
+  - 將憑證的 Header、Summary (如 `voucher_id`, `purpose`) 直接入表作為 `Job` 的獨立欄位，或建立關聯的 `Invoice` 表。
+  - 將 VLM 的原始完整輸出改為單一欄位 `vlm_raw_output` (或將其移出 DB 存至快取/檔案)，僅作備查，不再作為業務邏輯的核心狀態。
 
-**`Job` 表 — 欄位變更：**
-| 原欄位 | 處理方式 |
-|--------|----------|
-| `vlm_result_json` | 更名為 `vlm_raw_json`，降級為唯讀稽核備查 |
-| `manual_json_text` | **移除** — 不再存完整修改後 JSON |
-| `manual_updated_at` | 保留 — 記錄最後人工編輯時間 |
-| `flattened_data` | **移除** — 改為即時查詢 |
-| `flattening_status` | **移除** |
+#### [MODIFY] `backend/repositories/job_repository.py`
+- 移除 `_stitch_items_from_db` 這類將關聯式表與 JSON 字串混淆縫合的 workaround。
+- 確立 **Single Source of Truth** 皆為關聯式欄位與表格。`get_display_result` 與 `get_job_details` 改為直接 Query `Job` 與 `InvoiceItem`，再組裝成 API 需要的回傳格式。
+- 移除不再需要的 `refresh_flattened_data` 邏輯，改由 Exporter 讀取資料後即時處理 (On-the-fly Flattening)。
 
-#### [MODIFY] [job_repository.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/repositories/job_repository.py)
-
-**廢除的方法：**
-- `_stitch_items_from_db` — 不再需要 JSON↔關聯表縫合
-- `_load_persisted_flatten_payload` (在 word_exporter 中) — 不再讀取預存快取
-- `refresh_flattened_data` — 移除預存拍平邏輯
-
-**改寫的方法：**
-- `complete_vlm(job_id, vlm_result, ...)`：
-  1. 將 `vlm_result` JSON 存入 `vlm_raw_json`（唯讀）。
-  2. 從 JSON 抽取 Header/Summary 寫入 `Job` 獨立欄位。
-  3. 同步 `items` 到 `InvoiceItem` 表。
-  4. 不再寫入 `flattened_data`。
-
-- `save_manual_json(job_id, json_data)`：
-  1. 從 `json_data` 抽取 Header/Summary，更新 `Job` 的 `voucher_id`、`purpose`、`supplier` 等欄位。
-  2. 同步 `json_data.items` 到 `InvoiceItem` 表。
-  3. **不再**將完整 JSON 存為 `manual_json_text`。
-  4. 更新 `manual_updated_at`。
-
-- `get_job_details(job_id)` / `get_display_result(job_id)`：
-  1. 查詢 `Job` + `InvoiceItem`。
-  2. 在 Python 層動態組裝成前端預期的樹狀 Dict（`{header: {}, summary: {}, items: []}`）。
-  3. 前端收到的格式與現有完全一致。
-
-- `get_job(job_id)`：
-  1. 回傳扁平 dict，將新欄位映射到原有的 key（`vlm_result_json` 改名 → 後端讀取時仍可見舊名）。
-
-**新增的方法：**
-- `_extract_header_fields(json_data) -> dict`：從 VLM/手動 JSON 提取 `voucher_id`、`purpose`、`supplier`、`date`、`total` 的共用私有工具。
-- `_reconstruct_display_json(job, items) -> dict`：從 DB 欄位 + `InvoiceItem` 列表組裝前端 JSON 格式的共用私有工具。
-- `delete_invoice_items(job_id)`：刪除指定 Job 的所有 `InvoiceItem` 記錄（供 `rotate_image` 重置流程使用）。
+- 廢除舊的 `_stitch_items_from_db` 暴力字串縫合邏輯。
+- **儲存 API (`save_manual_json`)**：解析前端傳入的 JSON，將 Header 拆解寫入 `Job` 欄位，明細寫入 `InvoiceItem`，不再把完整的 修改後 JSON 當字串存起來。
+- **讀取 API (`get_job_details`, `get_display_result`)**：直接 Query `Job` 與 `InvoiceItem` 表，在 Python 內部動態產出前端能吃的樹狀 Dict 格式，實現完全的前端相容（前端不動）。
+- 廢除 `refresh_flattened_data` 邏輯。
 
 ---
 
-### Phase 3: Export Pipeline Adaptation (匯出管線適配 — 銜接 Phase 2)
+### Phase 2: Export Refinement & On-the-Fly Flattening (匯出邏輯與即時扁平化)
 
-#### [MODIFY] [flattening.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/processing/flattening.py)
-- 新增 `build_export_payload_from_db(job_dicts, items_by_job_id)`：接收 DB 查詢結果（非 JSON 字串），即時重組為 Exporter 需要的扁平化結構。
-- 保留 `build_job_flatten_payload` 與 `aggregate_flattened_jobs` 的 **介面**，但內部改為從新結構讀取。
+#### [MODIFY] `backend/processing/flattening.py`
+- 提供 `build_export_payload_from_db(jobs, items)`：直接讀取 DB 結構，不依賴緩存的字串，即時 (On-the-fly) 重組為 Excel 和 Word 需要使用的扁平化資料結構。
+- 在產生前納入排序權重：`保險` > `膳食(課程會)` > `餐食` > `茶水` > `消耗性教材` > 其他依字元。確保同一類別的項目排在一起。
 
-#### [MODIFY] [word_exporter.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/engine/word_exporter.py)
-- `_build_flatten_payload`：不再讀取 `job.flattened_data`，改為從 `job_repo.get_job()` + `InvoiceItem` 查詢即時拍平。
-- 移除 `_load_persisted_flatten_payload` 方法。
-- 移除 `_flatten_cache_path` 與磁碟快取邏輯（`ensure_flatten_cache` 改為每次即時計算，不寫檔）。
-
-#### [MODIFY] [excel_exporter.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/engine/excel_exporter.py)
-- 確認資料來源已改為 `get_job()` 直接讀取（不依賴任何快取）。
-
-#### [MODIFY] [jobs.py (Router)](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/routers/jobs.py)
-- `save_manual_json` 端點：移除 `_precompute_flatten_cache` 的 `asyncio.create_task` 呼叫（因為已不再有預存快取）。
-
-#### [MODIFY] [export.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/engine/export.py)
-- 移除 `precompute_flatten_cache` 方法。
+#### [MODIFY] `backend/engine/word_exporter.py` & `backend/engine/excel_exporter.py`
+- 抽換資料來源邏輯為新的 `build_export_payload_from_db`。
+- 修正檔名：統一改為 `[ProjectID]「[ProjectName]」_預結算表_{timestamp}`，剔除 Windows 非法符號。
+- Word 內建替換：將 `{{活動名稱}}` 改為 `[ProjectID] [活動名稱]`。
 
 ---
 
-### Phase 4: FileOps Complete Decoupling (檔案服務徹底解耦)
+### Phase 3: FileOps Complete Decoupling (檔案服務徹底解耦)
+#### [NEW] `backend/engine/file_service.py`
+- 抽取：目錄創建與安全路徑驗證函數。
 
-**目標**：將 `file_ops.py`（797 行）解體為 3 個獨立服務，然後刪除 `file_ops.py`。
+#### [NEW] `backend/engine/image_service.py`
+- 抽取：依賴於 ImageCodecAdapter 的 JXL, AVIF 轉換邏輯。
 
-#### [NEW] [image_service.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/engine/image_service.py)
-抽取自 `FileOps`：
-- `run_splitting` / `_prepare_tasks` — 圖片分割與 Job 入列
-- `add_project_files` — 檔案上傳與格式轉換
-- `rotate_image` — 圖片旋轉，**重置邏輯同步更新**（見下）
-- `_warp_by_points` — 透視變換
-- `_create_resplit_jobs_from_source` — Resplit 裁切
-- `apply_job_resplit` / `apply_raw_resplit` — Resplit 應用
-- `detect_job_sub_rects` / `detect_raw_sub_rects` — 偵測子區域
-- `optimize_jxl_storage` — JXL 格式轉換
-- `delete_job_files` — Job 關聯檔案清理
-- `flush_deferred_gc` / `_enqueue_deferred_file_gc` — 延遲 GC
-- `_codec_adapter` / `_resolve_project_path` / `_is_within_root` / `_safe_delete_file` — 工具函數
+#### [NEW] `backend/engine/cache_service.py`
+- 抽取：與預覽小圖生成與排程清理的任務。
 
-**`rotate_image` 重置邏輯（取代舊的 NULL JSON 寫法）：**
-```python
-# 舊邏輯 (Phase 2 後失效，因 manual_json_text 已移除)
-update_job(job_id, vlm_result_json=None, manual_json_text=None, ...)
-
-# 新邏輯
-await job_repo.delete_invoice_items(job_id)          # 清除 InvoiceItem
-await job_repo.update_job(
-    job_id,
-    status="ready",
-    vlm_raw_json=None,                               # 清除 VLM 原始紀錄
-    voucher_id=None, purpose=None, supplier=None,    # 重置 Header 欄位
-    invoice_date=None, total_amount=None,
-    validation_json=None, vlm_stats=None, qr_verified=0,
-)
-```
-> **Note**：`job_repo.delete_invoice_items(job_id)` 為 Phase 2 新增的 Repository 方法。
-
-#### [NEW] [cache_service.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/engine/cache_service.py)
-抽取自 `CacheMixin`（`cache_mixin.py` 193 行）：
-- `ensure_preview_cache` — 預覽圖快取
-- `invalidate_preview_cache` — 快取失效
-- `cleanup_project_cache` / `cleanup_all_projects_cache` — 快取定期清理
-- `_render_preview` / `_render_pdf_first_page_to_bgr` — 渲染工具
-- `_get_preview_cache_dir` / `_get_preview_format` / `_build_preview_cache_path` — 路徑工具
-- `_optional_semaphore` / `_image_semaphore` — 並行控制
-
-#### [MODIFY] [file_service.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/engine/file_service.py) (已存在，擴充)
-- 保留現有的 `get_raw_files` / `delete_raw_file`。
-- 從 `FileOps` 吸收通用的路徑工具：`_resolve_project_path`、`_is_within_root`（可共用）。
-
-#### [DELETE] [file_ops.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/engine/file_ops.py)
-- 所有功能已遷移至上述服務，刪除此檔案。
-
-#### [DELETE] [cache_mixin.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/engine/cache_mixin.py)
-- 所有功能已遷移至 `CacheService`，刪除 Mixin。
-
-#### [MODIFY] [core.py](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/engine/core.py)
-- 初始化：`self.file_ops` → 改為 `self.image_service = ImageService(...)` + `self.cache_service = CacheService(...)`。
-- 所有 delegate 方法（`run_splitting`、`rotate_image`、`delete_job`、`cleanup_preview_cache`、`optimize_jxl_storage_all_projects`、`detect_*`、`apply_*`）更新引用。
-
-#### [MODIFY] [files.py (Router)](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/routers/files.py)
-- L133, L175：`engine.file_ops.ensure_preview_cache` → `engine.cache_service.ensure_preview_cache`
-
-#### [MODIFY] [voucher.py (Router)](file:///c:/Users/tange/Desktop/all_project/py%20for%20NKNU%20GA/AI_AGENT_LAB/backend/routers/voucher.py)
-- L309：`engine.file_ops.ensure_preview_cache` → `engine.cache_service.ensure_preview_cache`
-
----
-
----
+#### [MODIFY] `backend/routers/*.py`, `backend/engine/core.py`, 等
+- 全面尋找並更換舊有 `FileOps` 的使用端，將之對應更新到新的 Service instance。徹底消滅 `file_ops.py` (「不建立過渡代理」策略)。
 
 ## Verification Plan
-
 ### Automated Tests
-- `pytest tests/test_engine_excel_exporter.py` — 確認 Excel 資料完整與檔名格式。
-- `pytest tests/test_engine_word_exporter.py` — 確認 Word 資料與檔名格式。
-- 新增 `tests/test_job_repository_v18.py` — 驗證：
-  - `save_manual_json` → 寫入獨立欄位 + `InvoiceItem`。
-  - `get_job_details` → 輸出格式與舊版 JSON 一致。
-  - Round-trip 測試：寫入 → 讀取 → 比對。
-- `pytest` 全量 — 確保整體功能未被破壞。
+- 新增/修復與 `test_engine_excel_exporter.py` 和 `test_engine_word_exporter.py` 關聯的涵蓋率。
+- 撰寫單元測試以驗證 Repository 重裝 JSON 資料的能力是否 100% 和舊版格式一致。
 
 ### Manual Verification
-1. **執行遷移腳本**：`python scripts/migrate_v0_0_18.py`，確認現有 DB 遷移成功且伺服器能正常啟動。
-2. **前端整合測試**：開啟任一專案，進入發票編輯，修改後儲存，F5 刷新確認資料保留。
-3. **匯出測試**：
-   - Excel/Word 匯出，檔名是否為 `[ID]「Name」_預結算表_{ts}`。
-   - Word 文內 `{{活動名稱}}` 是否含 ID。
-   - 表格項目是否依類別排序並正確合併。
-   - Excel 是否非空表。
+1. **執行遷移指令**：跑完腳本，確保原有 DB 正確遷移且能夠順利開機。
+2. **前後端整合測試**：在瀏覽器中開啟任一專案發票進行編輯與存檔，再 F5 刷新頁面，確認畫面維持既有功能且資料能夠被正常的保留與重現。
+3. **匯出測試**：點擊 Excel/Word 匯出，確認特定類別（保險等）排序生效、沒有空檔案問題，檔名遵守要求。

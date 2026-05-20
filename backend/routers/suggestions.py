@@ -22,6 +22,36 @@ def get_suggestion_repo() -> SuggestionRepository:
     """Dependency to provide a SuggestionRepository instance."""
     from backend.database import core
     return SuggestionRepository(session_factory=lambda: core.AsyncSessionLocal())
+
+from typing import Optional, Dict, Any
+
+@router.get("/suggestions/all")
+async def get_all_suggestions(
+    category: Optional[str] = Query(None, description="分類"),
+    repo: SuggestionRepository = Depends(get_suggestion_repo)
+) -> List[Dict[str, Any]]:
+    """取得所有建議詞的完整資訊"""
+    return await repo.get_all(category)
+
+@router.delete("/suggestions/{suggestion_id}")
+async def delete_suggestion(
+    suggestion_id: int,
+    repo: SuggestionRepository = Depends(get_suggestion_repo)
+):
+    """刪除建議詞"""
+    success = await repo.delete(suggestion_id)
+    return {"status": "ok" if success else "failed"}
+
+@router.put("/suggestions/{suggestion_id}")
+async def update_suggestion(
+    suggestion_id: int,
+    request: SuggestionRequest,
+    repo: SuggestionRepository = Depends(get_suggestion_repo)
+):
+    """更新建議詞"""
+    success = await repo.update(suggestion_id, request.category, request.value)
+    return {"status": "ok" if success else "failed"}
+
 @router.get("/suggestions")
 async def get_suggestions(
     category: str = Query(..., description="分類: supplier_name, buyer_name, supplier_tax_id, buyer_tax_id, item_name, shop_name, expense_category"),

@@ -34,6 +34,7 @@ VALID_CATEGORIES = {
     "group_name":      "活動群組名稱",
     "person_name":     "人員姓名（組長/總召/總務）",
     "budget_income_item":"預算收入項目",
+    "location":        "活動地點",
 }
 
 # RAG Prompt 提供的每個分類最大建議數
@@ -94,6 +95,48 @@ class SuggestionRepository:
                 return True
         except Exception as e:
             logger.error(f"[SuggestionRepo] 儲存失敗: {e}")
+            return False
+
+    
+    async def get_all(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
+        async with self.session_factory() as session:
+            stmt = select(Suggestion)
+            if category:
+                stmt = stmt.where(Suggestion.category == category)
+            stmt = stmt.order_by(Suggestion.last_used_at.desc(), Suggestion.count.desc())
+            result = await session.execute(stmt)
+            records = result.scalars().all()
+            return [
+                {
+                    "id": r.id,
+                    "category": r.category,
+                    "value": r.value,
+                    "count": r.count,
+                    "last_used_at": r.last_used_at
+                }
+                for r in records
+            ]
+
+    async def delete(self, suggestion_id: int) -> bool:
+        try:
+            async with self.session_factory() as session:
+                stmt = delete(Suggestion).where(Suggestion.id == suggestion_id)
+                await session.execute(stmt)
+                await session.commit()
+                return True
+        except Exception as e:
+            logger.error(f"[SuggestionRepo] delete error: {e}")
+            return False
+
+    async def update(self, suggestion_id: int, category: str, value: str) -> bool:
+        try:
+            async with self.session_factory() as session:
+                stmt = update(Suggestion).where(Suggestion.id == suggestion_id).values(category=category, value=value)
+                await session.execute(stmt)
+                await session.commit()
+                return True
+        except Exception as e:
+            logger.error(f"[SuggestionRepo] update error: {e}")
             return False
 
     async def bulk_add(self, category: str, values: List[str]) -> int:

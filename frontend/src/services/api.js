@@ -144,6 +144,61 @@ export default {
   },
 
   // =====================
+  // PDF Tasks
+  // =====================
+  listPdfTasks() {
+    return api.get('/api/pdf-tasks')
+  },
+  getPdfTask(taskId) {
+    return api.get(`/api/pdf-tasks/${taskId}`)
+  },
+  createPdfTask(file, title = '') {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('title', title)
+    return api.post('/api/pdf-tasks', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    })
+  },
+  updatePdfTask(taskId, payload) {
+    return api.put(`/api/pdf-tasks/${taskId}`, payload)
+  },
+  deletePdfTask(taskId) {
+    return api.delete(`/api/pdf-tasks/${taskId}`)
+  },
+  applyStampToPdfTask(taskId, payload) {
+    return api.post(`/api/pdf-tasks/${taskId}/apply-stamp`, payload)
+  },
+  compressPdfTask(taskId) {
+    return api.post(`/api/pdf-tasks/${taskId}/compress`)
+  },
+  operatePdfTaskPages(taskId, payload) {
+    return api.post(`/api/pdf-tasks/${taskId}/page-operations`, payload)
+  },
+  getPdfTaskFileUrl(taskId) {
+    return `/api/pdf-tasks/${taskId}/file`
+  },
+
+  // =====================
+  // Stamp Templates
+  // =====================
+  listStampTemplates() {
+    return api.get('/api/stamp-templates')
+  },
+  getStampTemplate(templateId) {
+    return api.get(`/api/stamp-templates/${templateId}`)
+  },
+  createStampTemplate(payload) {
+    return api.post('/api/stamp-templates', payload)
+  },
+  updateStampTemplate(templateId, payload) {
+    return api.put(`/api/stamp-templates/${templateId}`, payload)
+  },
+  deleteStampTemplate(templateId) {
+    return api.delete(`/api/stamp-templates/${templateId}`)
+  },
+
+  // =====================
   // Activity Info
   // =====================
   updateActivityInfo(projectId, info) {
@@ -258,6 +313,16 @@ export default {
   // =====================
   getSuggestions(category, query = '', limit = 20) {
     return api.get(`/api/suggestions`, { params: { category, q: query, limit } })
+  },
+  getAllSuggestions(category = '') {
+    const params = category ? { category } : {}
+    return api.get(`/api/suggestions/all`, { params })
+  },
+  deleteSuggestion(id) {
+    return api.delete(`/api/suggestions/${id}`)
+  },
+  updateSuggestion(id, category, value) {
+    return api.put(`/api/suggestions/${id}`, { category, value })
   },
   addSuggestion(category, value) {
     return api.post(`/api/suggestions`, { category, value })

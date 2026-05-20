@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import numpy as np
 
 from backend.engine.image_service import ImageService
 
@@ -281,11 +282,11 @@ async def test_detect_raw_sub_rects_success(tmp_path):
     service.receipt_splitter.detect_only = MagicMock(return_value=[{"ok": True}])
 
     with patch("backend.engine.image_service.resolve_raw_source_by_filename", return_value=src), patch(
-        "backend.engine.image_service.utils.cv_imread_chinese", return_value="img"
+        "backend.engine.image_service.utils.cv_imread_chinese", return_value=np.zeros((100, 100, 3), dtype=np.uint8)
     ):
         out = await service.detect_raw_sub_rects("proj", "raw.jpg")
 
-    assert out == [{"ok": True}]
+    assert out == {"rects": [{"ok": True}], "full_width": 100, "full_height": 100}
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,7 @@ from PIL import Image
 
 from backend.engine.voucher_text_config import get_text_field_config, STAMP_ZONES, STITCHED_SEAL_CONFIG
 from backend.processing.image_codec_adapter import ImageCodecAdapter
+from backend.utils.stamp_ops import get_rotated_stamp_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -240,60 +241,32 @@ class VoucherGenerator:
         page.insert_text((rect.x0 + 4, rect.y0 + 14), "圖片損壞無法載入", fontsize=10, color=(1, 0, 0))
 
     @staticmethod
-    def _get_stamp_image_bytes(stamp_path: str) -> bytes | None:
+    def _get_rotated_stamp_bytes_wrapper(stamp_path: str, max_angle: int = 10) -> bytes | None:
         """
-        Read stamp image and preserve alpha channel (transparency).
-        Returns PNG bytes that can be inserted into PDF while maintaining transparency.
+        Read stamp image, rotate it, and preserve alpha channel.
         """
         if not stamp_path or not os.path.exists(stamp_path):
             logger.warning(f"[Stamp] 印章文件不存在: {stamp_path}")
             return None
         
         try:
-            with open(stamp_path, "rb") as f:
-                return f.read()
+            return get_rotated_stamp_bytes(stamp_path, max_angle=max_angle)
         except Exception as exc:
-            logger.warning(f"[Stamp] 讀取印章文件失敗 {stamp_path}: {exc}")
+            logger.warning(f"[Stamp] 讀取/旋轉印章文件失敗 {stamp_path}: {exc}")
             return None
 
     @staticmethod
-    def _insert_stamp(page: fitz.Page, stamp_bytes: bytes, rect: fitz.Rect, rotation: int = 0):
+    def _insert_stamp(page: fitz.Page, stamp_bytes: bytes, rect: fitz.Rect):
         """
-        Insert stamp image into PDF at specified rectangle with optional rotation.
-        
-        Args:
-            page: PyMuPDF page object
-            stamp_bytes: PNG image bytes (with alpha channel)
-            rect: fitz.Rect specifying where to place the stamp
-            rotation: Rotation angle in degrees (-180 to 180)
+        Insert stamp image into PDF at specified rectangle.
+        The image should already be rotated if needed.
         """
         if not stamp_bytes:
             return
         
         try:
-            # PyMuPDF insert_image does not directly support rotation via matrix
-            # For rotation, we need to use a transformation matrix
-            # Note: PyMuPDF rotation is limited, so we apply rotation via graphics
-            
-            if rotation != 0:
-                # For non-zero rotation, we use Matrix with angle conversion
-                # rotation_rad = rotation * 3.14159 / 180  # Convert degrees to radians
-                # Create a matrix: fitz.Matrix() then rotate
-                import math
-                angle_rad = math.radians(rotation)
-                
-                # Calculate the center of the rect
-                cx = (rect.x0 + rect.x1) / 2
-                cy = (rect.y0 + rect.y1) / 2
-                
-                # Create transformation matrix for rotation around center
-                # Unfortunately, PyMuPDF insert_image has limitations with rotation
-                # So we'll insert without rotation but log the intent
-                page.insert_image(rect, stream=stamp_bytes)
-                logger.debug(f"[Stamp] 印章已插入 (旋轉意圖: {rotation}°，目前使用直接插入)")
-            else:
-                page.insert_image(rect, stream=stamp_bytes)
-                logger.debug(f"[Stamp] 印章已插入")
+            page.insert_image(rect, stream=stamp_bytes)
+            logger.debug(f"[Stamp] 印章已插入")
         except Exception as exc:
             logger.warning(f"[Stamp] 插入印章失敗: {exc}")
 
@@ -327,11 +300,9 @@ class VoucherGenerator:
             rect_data = zone_config["rect"]
             rect = fitz.Rect(rect_data[0], rect_data[1], rect_data[0] + rect_data[2], rect_data[1] + rect_data[3])
             
-            stamp_bytes = self._get_stamp_image_bytes(stamp_path)
+            stamp_bytes = self._get_rotated_stamp_bytes_wrapper(stamp_path)
             if stamp_bytes:
-                # Random rotation: ±10 degrees
-                rotation = random.randint(-10, 10)
-                self._insert_stamp(page, stamp_bytes, rect, rotation=rotation)
+                self._insert_stamp(page, stamp_bytes, rect)
         
         # Apply stitched seals (騎縫章) on image edges
         if img_rects:
@@ -339,7 +310,7 @@ class VoucherGenerator:
                 # 與正本相符 - on right edge
                 if stamps.get("fin_original"):
                     seal_config = STITCHED_SEAL_CONFIG["fin_original"]
-                    seal_bytes = self._get_stamp_image_bytes(stamps["fin_original"])
+                    seal_bytes = self._get_rotated_stamp_bytes_wrapper(stamps["fin_original"])
                     if seal_bytes:
                         # Position on right edge of image
                         edge_offset = seal_config.get("edge_offset", 5)
@@ -347,13 +318,12 @@ class VoucherGenerator:
                             img_rect.x1 - 20, img_rect.y0,
                             img_rect.x1 + 20, img_rect.y0 + 40
                         )
-                        rotation = random.randint(-10, 10)
-                        self._insert_stamp(page, seal_bytes, seal_rect, rotation=rotation)
+                        self._insert_stamp(page, seal_bytes, seal_rect)
                 
                 # 已稽核 - on left edge
                 if stamps.get("fin_audited"):
                     seal_config = STITCHED_SEAL_CONFIG["fin_audited"]
-                    seal_bytes = self._get_stamp_image_bytes(stamps["fin_audited"])
+                    seal_bytes = self._get_rotated_stamp_bytes_wrapper(stamps["fin_audited"])
                     if seal_bytes:
                         # Position on left edge of image
                         edge_offset = seal_config.get("edge_offset", -5)
@@ -361,8 +331,7 @@ class VoucherGenerator:
                             img_rect.x0 - 20, img_rect.y0,
                             img_rect.x0 + 20, img_rect.y0 + 40
                         )
-                        rotation = random.randint(-10, 10)
-                        self._insert_stamp(page, seal_bytes, seal_rect, rotation=rotation)
+                        self._insert_stamp(page, seal_bytes, seal_rect)
 
     def generate_from_layout(self, pages: List[dict], job_image_map: dict[str, str], output_path: str, stamps: dict[str, str | None] | None = None) -> bool:
         """

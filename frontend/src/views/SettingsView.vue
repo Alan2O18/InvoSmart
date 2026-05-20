@@ -83,93 +83,6 @@
           </div>
         </div>
 
-        <!-- Group Management Section -->
-        <div class="section">
-          <h2>👥 群組人員管理 (Group Management)</h2>
-          <p class="section-desc">同一組可維護多位組長。每位組長可上傳多張電子章，供稽核輪替蓋印使用。</p>
-          
-          <div class="group-management">
-            <div class="add-group-form">
-              <input type="text" v-model="newGroupName" placeholder="組別名稱 (e.g. 餐食組)" />
-              <input type="text" v-model="newLeaderName" placeholder="組長名稱 (e.g. 王大明)" />
-              <button @click="addGroup" :disabled="!newGroupName || !newLeaderName || processingGroup" class="add-btn" type="button">
-                {{ processingGroup ? '處理中...' : '新增組長到群組' }}
-              </button>
-            </div>
-
-            <div v-if="loadingGroups" class="loading-small">載入中...</div>
-            <table v-else class="group-table">
-              <thead>
-                <tr>
-                  <th>組別名稱</th>
-                  <th>組長 (可多位)</th>
-                  <th>電子章</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="g in groups" :key="g.group_name">
-                  <td>{{ g.group_name }}</td>
-                  <td>
-                    <div class="leader-list" v-if="(g.leader_names || []).length > 0">
-                      <div v-for="leader in g.leader_names" :key="`${g.group_name}:${leader}`" class="leader-item">
-                        <span class="leader-name">{{ leader }}</span>
-                        <button
-                          type="button"
-                          class="mini-delete-btn"
-                          :disabled="processingGroup"
-                          @click="deleteLeader(g.group_name, leader)"
-                        >
-                          移除組長
-                        </button>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <div v-if="(g.leaders || []).length > 0" class="stamp-manage-wrap">
-                      <div v-for="leader in g.leaders" :key="`${g.group_name}:${leader.name}:stamps`" class="stamp-block">
-                        <div class="stamp-header">
-                          <span>{{ leader.name }}</span>
-                          <label class="stamp-upload-label">
-                            上傳電子章
-                            <input
-                              type="file"
-                              accept="image/*"
-                              multiple
-                              :disabled="processingGroup"
-                              @change="onStampFilesSelected(g.group_name, leader.name, $event)"
-                            />
-                          </label>
-                        </div>
-                        <div class="stamp-gallery" v-if="(leader.stamps || []).length > 0">
-                          <div v-for="stamp in leader.stamps" :key="stamp.url" class="stamp-item">
-                            <img :src="toAbsoluteUrl(stamp.url)" :alt="stamp.filename" />
-                            <button
-                              type="button"
-                              class="mini-delete-btn"
-                              :disabled="processingGroup"
-                              @click="deleteStamp(g.group_name, leader.name, stamp.filename)"
-                            >
-                              刪除章
-                            </button>
-                          </div>
-                        </div>
-                        <small v-else class="hint">尚未上傳電子章</small>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <button type="button" @click="deleteGroup(g.group_name)" class="delete-btn" :disabled="processingGroup">刪除整組</button>
-                  </td>
-                </tr>
-                <tr v-if="groups.length === 0">
-                  <td colspan="4" class="empty-state">目前還沒有建立任何群組。</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-
         <!-- Admin Tools Section -->
         <div class="section">
           <h2>🛠️ 系統維護工具 (Admin Tools)</h2>
@@ -188,13 +101,80 @@
           </button>
         </div>
 
+
+        <div class="section">
+          <h2>📚 推薦詞庫管理 (Suggestion Management)</h2>
+          <p class="section-desc">管理系統自動完成的推薦詞。你可以編輯或刪除不再使用的詞彙。</p>
+          
+          <div class="form-group">
+            <label>分類 (Category)</label>
+            <select v-model="suggestionCategory" @change="fetchSuggestions" class="form-control">
+              <option value="">請選擇分類</option>
+              <option value="location">活動地點</option>
+              <option value="group_name">活動群組名稱</option>
+              <option value="person_name">人員姓名</option>
+              <option value="item_name">品項名稱</option>
+              <option value="shop_name">店家名稱</option>
+              <option value="supplier_name">供應商名稱</option>
+              <option value="buyer_name">買受人名稱</option>
+              <option value="expense_category">報帳名目</option>
+              <option value="budget_income_item">預算收入項目</option>
+            </select>
+          </div>
+
+          <!-- 新增推薦詞 -->
+          <div class="form-group" v-if="suggestionCategory">
+            <label>新增推薦詞 (Add Suggestion)</label>
+            <div class="add-suggestion-box">
+              <input type="text" v-model="newSuggestionValue" placeholder="請輸入欲新增的推薦詞..." class="form-control" @keyup.enter="addNewSuggestion" />
+              <button class="primary-btn add-btn" @click="addNewSuggestion">➕ 新增</button>
+            </div>
+          </div>
+
+          <!-- 搜尋推薦詞 -->
+          <div class="form-group" v-if="suggestionCategory && suggestions.length > 0">
+            <label>搜尋推薦詞 (Search)</label>
+            <input type="text" v-model="searchQuery" placeholder="搜尋此分類的推薦詞..." class="form-control search-input" />
+          </div>
+
+          <div v-if="suggestionCategory && suggestions.length === 0" class="hint">此分類尚無推薦詞。</div>
+
+          <div v-if="suggestions.length > 0" class="suggestion-list">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>詞彙 (Value)</th>
+                  <th>使用次數 (Count)</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="s in filteredSuggestions" :key="s.id">
+                  <td>
+                    <input v-if="s._editing" type="text" v-model="s._newValue" class="form-control form-control-sm" />
+                    <span v-else>{{ s.value }}</span>
+                  </td>
+                  <td>{{ s.count }}</td>
+                  <td>
+                    <button v-if="s._editing" class="primary-btn small-btn" @click="saveSuggestionEdit(s)">儲存</button>
+                    <button v-if="s._editing" class="secondary-btn small-btn" @click="s._editing = false">取消</button>
+                    
+                    <button v-if="!s._editing" class="secondary-btn small-btn" @click="editSuggestion(s)">編輯</button>
+                    <button v-if="!s._editing" class="danger-btn small-btn" @click="deleteSuggestion(s)">刪除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import api from '../services/api'
 
 const loading = ref(true)
@@ -205,13 +185,6 @@ const modelsInfo = ref('')
 const modelsError = ref('')
 const availableModels = ref([])
 
-// Group state
-const groups = ref([])
-const loadingGroups = ref(false)
-const processingGroup = ref(false)
-const newGroupName = ref('')
-const newLeaderName = ref('')
-
 // Local state mapping
 const settings = ref({
   vision: {
@@ -220,6 +193,76 @@ const settings = ref({
     base_url: '',
     api_key: ''
   }
+})
+
+// Suggestion Management state
+const suggestionCategory = ref('')
+const suggestions = ref([])
+const newSuggestionValue = ref('')
+const searchQuery = ref('')
+
+const fetchSuggestions = async () => {
+  if (!suggestionCategory.value) {
+    suggestions.value = []
+    return
+  }
+  try {
+    const res = await api.getAllSuggestions(suggestionCategory.value)
+    suggestions.value = (res.data || []).map(s => ({
+      ...s,
+      _editing: false,
+      _newValue: s.value
+    }))
+  } catch (e) {
+    alert('無法取得推薦詞: ' + e)
+  }
+}
+
+const addNewSuggestion = async () => {
+  const val = newSuggestionValue.value.trim()
+  if (!val) return
+  try {
+    await api.addSuggestion(suggestionCategory.value, val)
+    newSuggestionValue.value = ''
+    await fetchSuggestions()
+  } catch (e) {
+    alert('新增推薦詞失敗: ' + e)
+  }
+}
+
+const editSuggestion = (s) => {
+  s._editing = true
+  s._newValue = s.value
+}
+
+const saveSuggestionEdit = async (s) => {
+  const val = s._newValue.trim()
+  if (!val) {
+    alert('推薦詞不可為空')
+    return
+  }
+  try {
+    await api.updateSuggestion(s.id, s.category, val)
+    s.value = val
+    s._editing = false
+  } catch (e) {
+    alert('更新推薦詞失敗: ' + e)
+  }
+}
+
+const deleteSuggestion = async (s) => {
+  if (!confirm(`確定要刪除推薦詞「${s.value}」嗎？`)) return
+  try {
+    await api.deleteSuggestion(s.id)
+    suggestions.value = suggestions.value.filter(item => item.id !== s.id)
+  } catch (e) {
+    alert('刪除推薦詞失敗: ' + e)
+  }
+}
+
+const filteredSuggestions = computed(() => {
+  if (!searchQuery.value) return suggestions.value
+  return suggestions.value.filter(s => s.value.toLowerCase().includes(searchQuery.value.toLowerCase()))
 })
 
 // Presets
@@ -235,8 +278,6 @@ const applyPreset = (key) => {
     settings.value.vision.base_url = presets[key]
   }
 }
-
-const toAbsoluteUrl = (path) => api.toAbsoluteUrl(path)
 
 const fetchProviderModels = async () => {
   loadingModels.value = true
@@ -300,93 +341,8 @@ const saveSettings = async () => {
   }
 }
 
-// Group Fetching Operations
-const fetchGroups = async () => {
-  loadingGroups.value = true
-  try {
-    const res = await api.listGroups()
-    groups.value = res.data || []
-  } catch (e) {
-    console.error('Failed to load groups', e)
-  } finally {
-    loadingGroups.value = false
-  }
-}
-
-const addGroup = async () => {
-  if (!newGroupName.value || !newLeaderName.value) return
-  processingGroup.value = true
-  try {
-    await api.upsertGroup(newGroupName.value, newLeaderName.value)
-    newGroupName.value = ''
-    newLeaderName.value = ''
-    await fetchGroups()
-  } catch (e) {
-    alert('Failed to add group: ' + e)
-  } finally {
-    processingGroup.value = false
-  }
-}
-
-const deleteGroup = async (groupName) => {
-  if (!confirm(`確定要刪除群組 "${groupName}" 嗎？`)) return
-  processingGroup.value = true
-  try {
-    await api.deleteGroup(groupName)
-    await fetchGroups()
-  } catch (e) {
-    alert('Failed to delete group: ' + e)
-  } finally {
-    processingGroup.value = false
-  }
-}
-
-const deleteLeader = async (groupName, leaderName) => {
-  if (!confirm(`確定要把組長 "${leaderName}" 從群組 "${groupName}" 移除嗎？`)) return
-  processingGroup.value = true
-  try {
-    await api.deleteGroupLeader(groupName, leaderName)
-    await fetchGroups()
-  } catch (e) {
-    alert('Failed to delete leader: ' + e)
-  } finally {
-    processingGroup.value = false
-  }
-}
-
-const onStampFilesSelected = async (groupName, leaderName, event) => {
-  const selectedFiles = Array.from(event.target?.files || [])
-  if (selectedFiles.length === 0) return
-  processingGroup.value = true
-  try {
-    await api.uploadLeaderStamps(groupName, leaderName, selectedFiles)
-    await fetchGroups()
-  } catch (e) {
-    alert('Failed to upload stamps: ' + e)
-  } finally {
-    processingGroup.value = false
-    if (event?.target) {
-      event.target.value = ''
-    }
-  }
-}
-
-const deleteStamp = async (groupName, leaderName, filename) => {
-  if (!confirm(`確定刪除電子章 "${filename}" 嗎？`)) return
-  processingGroup.value = true
-  try {
-    await api.deleteLeaderStamp(groupName, leaderName, filename)
-    await fetchGroups()
-  } catch (e) {
-    alert('Failed to delete stamp: ' + e)
-  } finally {
-    processingGroup.value = false
-  }
-}
-
 onMounted(() => {
   fetchSettings()
-  fetchGroups()
 })
 </script>
 
@@ -567,189 +523,6 @@ onMounted(() => {
   color: #888;
 }
 
-/* Group Management Styles */
-.group-management {
-  background: #1a1a1a;
-  padding: 1.5rem;
-  border-radius: 8px;
-  border: 1px solid #444;
-}
-
-.add-group-form {
-  display: flex;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.add-group-form input {
-  flex: 1;
-  padding: 0.75rem;
-  background: #2a2a2a;
-  border: 1px solid #444;
-  color: #fff;
-  border-radius: 4px;
-}
-
-.add-btn {
-  background: #0ea5e9;
-  color: white;
-  border: none;
-  padding: 0 1.5rem;
-  border-radius: 4px;
-  cursor: pointer;
-  font-weight: bold;
-}
-
-.add-btn:hover:not(:disabled) {
-  background: #0284c7;
-}
-
-.add-btn:disabled {
-  background: #444;
-  cursor: not-allowed;
-}
-
-.group-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.group-table th, .group-table td {
-  padding: 1rem;
-  text-align: left;
-  border-bottom: 1px solid #333;
-  vertical-align: top;
-}
-
-.group-table th {
-  color: #888;
-  font-weight: normal;
-}
-
-.delete-btn {
-  background: #ef4444;
-  color: white;
-  border: none;
-  padding: 0.5rem 1rem;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.delete-btn:hover:not(:disabled) {
-  background: #dc2626;
-}
-
-.delete-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.empty-state {
-  text-align: center;
-  color: #888;
-  padding: 2rem !important;
-}
-
-.loading-small {
-  text-align: center;
-  padding: 1rem;
-  color: #888;
-}
-
-.leader-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.leader-item {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.leader-name {
-  background: #1e293b;
-  color: #cbd5e1;
-  border: 1px solid #334155;
-  border-radius: 999px;
-  padding: 0.15rem 0.65rem;
-  font-size: 0.78rem;
-}
-
-.mini-delete-btn {
-  border: 1px solid #ef4444;
-  color: #fca5a5;
-  background: transparent;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.74rem;
-  padding: 0.2rem 0.45rem;
-}
-
-.mini-delete-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.stamp-manage-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-}
-
-.stamp-block {
-  border: 1px solid #334155;
-  border-radius: 8px;
-  padding: 0.5rem;
-  background: #111827;
-}
-
-.stamp-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
-  margin-bottom: 0.35rem;
-}
-
-.stamp-upload-label {
-  font-size: 0.74rem;
-  color: #93c5fd;
-  cursor: pointer;
-}
-
-.stamp-upload-label input {
-  display: block;
-  margin-top: 0.25rem;
-  max-width: 170px;
-  font-size: 0.72rem;
-}
-
-.stamp-gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
-  gap: 0.4rem;
-}
-
-.stamp-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  align-items: stretch;
-}
-
-.stamp-item img {
-  width: 100%;
-  height: 74px;
-  object-fit: contain;
-  background: #0b1220;
-  border: 1px solid #1e293b;
-  border-radius: 4px;
-  padding: 0.2rem;
-}
-
 /* Admin Tools Section */
 .admin-tools {
   display: flex;
@@ -778,5 +551,89 @@ onMounted(() => {
   margin-top: 0.25rem;
   font-size: 0.82rem;
   color: #888;
+}
+
+/* Suggestion Management Styles */
+.add-suggestion-box {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.add-suggestion-box input {
+  flex: 1;
+}
+
+.add-btn {
+  background: #0284c7;
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem !important;
+  border-radius: 4px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.add-btn:hover {
+  background: #0369a1;
+}
+
+.search-input {
+  margin-bottom: 1rem;
+}
+
+.suggestion-list {
+  margin-top: 1.5rem;
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+.table th, .table td {
+  padding: 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #444;
+}
+
+.table th {
+  background: #1a1a1a;
+  color: #0ea5e9;
+  font-weight: bold;
+}
+
+.table td {
+  vertical-align: middle;
+}
+
+.small-btn {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+  border-radius: 4px;
+  cursor: pointer;
+  border: none;
+  margin-right: 0.4rem;
+  font-weight: bold;
+}
+
+.primary-btn {
+  background: #0ea5e9;
+  color: white;
+}
+
+.primary-btn:hover {
+  background: #0284c7;
+}
+
+.danger-btn {
+  background: #dc2626;
+  color: white;
+}
+
+.danger-btn:hover {
+  background: #b91c1c;
 }
 </style>

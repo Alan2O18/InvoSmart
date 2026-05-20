@@ -140,3 +140,43 @@ async def test_build_rag_context_populated(suggestion_repo):
     assert "▸ 常見品項名稱：Item Z" in context
     # verify shop name not in context since we didn't add any
     assert "常見店章名稱" not in context
+
+
+@pytest.mark.asyncio
+async def test_location_suggestion_lifecycle(suggestion_repo):
+    # 1. Add location suggestions
+    success1 = await suggestion_repo.add_or_update("location", "Room 401")
+    success2 = await suggestion_repo.add_or_update("location", "Conference Hall")
+    assert success1 is True
+    assert success2 is True
+
+    # 2. Search location suggestions
+    results = await suggestion_repo.search("location")
+    assert len(results) == 2
+    assert "Room 401" in results
+    assert "Conference Hall" in results
+
+    # 3. Retrieve all suggestions under location category
+    all_suggestions = await suggestion_repo.get_all("location")
+    assert len(all_suggestions) == 2
+    room_record = next(r for r in all_suggestions if r["value"] == "Room 401")
+    
+    # 4. Update location suggestion
+    update_success = await suggestion_repo.update(room_record["id"], "location", "Room 402")
+    assert update_success is True
+
+    # Verify updated search
+    results_updated = await suggestion_repo.search("location")
+    assert "Room 402" in results_updated
+    assert "Room 401" not in results_updated
+
+    # 5. Delete location suggestion
+    delete_success = await suggestion_repo.delete(room_record["id"])
+    assert delete_success is True
+
+    # Verify deleted
+    results_after_delete = await suggestion_repo.search("location")
+    assert len(results_after_delete) == 1
+    assert "Room 402" not in results_after_delete
+    assert "Conference Hall" in results_after_delete
+

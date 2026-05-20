@@ -83,7 +83,10 @@
         </div>
         <div class="form-group">
           <label for="location">活動地點</label>
-          <input type="text" id="location" v-model="form.location" />
+          <input type="text" id="location" v-model="form.location" list="location-list" @blur="saveSuggestion('location', form.location)" />
+          <datalist id="location-list">
+            <option v-for="loc in locationSuggestions" :key="loc" :value="loc"></option>
+          </datalist>
         </div>
       </section>
 
@@ -253,6 +256,7 @@ const availableLeaders = ref([])
 const personSuggestions = ref([])
 const budgetIncomeSuggestions = ref([])
 const expenseCategorySuggestions = ref([])
+const locationSuggestions = ref([])
 
 const splitPeople = (raw) => {
   const text = String(raw || '').trim()
@@ -297,14 +301,16 @@ const leaderOptions = computed(() => {
 
 const loadSuggestions = async () => {
   try {
-    const [peopleRes, incomeRes, expenseRes] = await Promise.all([
+    const [peopleRes, incomeRes, expenseRes, locationRes] = await Promise.all([
       api.getSuggestions('person_name', '', 200),
       api.getSuggestions('budget_income_item', '', 200),
       api.getSuggestions('expense_category', '', 200),
+      api.getSuggestions('location', '', 200),
     ])
     personSuggestions.value = peopleRes.data || []
     budgetIncomeSuggestions.value = incomeRes.data || []
     expenseCategorySuggestions.value = expenseRes.data || []
+    locationSuggestions.value = locationRes.data || []
   } catch (e) {
     console.error('Failed to load suggestions', e)
   }
@@ -323,6 +329,9 @@ const saveSuggestion = async (category, value) => {
     }
     if (category === 'expense_category' && !expenseCategorySuggestions.value.includes(text)) {
       expenseCategorySuggestions.value = [...expenseCategorySuggestions.value, text]
+    }
+    if (category === 'location' && !locationSuggestions.value.includes(text)) {
+      locationSuggestions.value = [...locationSuggestions.value, text]
     }
   } catch (e) {
     console.error(`Failed to save suggestion ${category}:`, e)

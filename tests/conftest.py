@@ -178,8 +178,11 @@ def mock_engine_for_api():
     Patches the engine for API tests using dependency injection.
     """
     from contextlib import ExitStack
+    from unittest.mock import AsyncMock
     
     mock = MagicMock()
+    mock.recover_pending_tasks = AsyncMock()
+    mock.stop_workers = AsyncMock()
     mock.project_repo.list_projects.return_value = []
     mock.project_repo.get_project_status.return_value = {}
     mock.project_repo.list_groups.return_value = []
@@ -215,7 +218,25 @@ def mock_app_client(mock_engine_for_api):
     Essential for rapidly testing Router boundaries without database hits.
     """
     from fastapi.testclient import TestClient
-    return TestClient(app)
+    from backend.dependencies import get_db, get_sync_db
+    
+    # Provide simple yield mocks so we don't hit 503
+    async def override_get_db():
+        from unittest.mock import AsyncMock
+        yield AsyncMock()
+        
+    def override_get_sync_db():
+        from unittest.mock import MagicMock
+        yield MagicMock()
+        
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_sync_db] = override_get_sync_db
+    
+    with TestClient(app) as client:
+        yield client
+        
+    app.dependency_overrides.pop(get_db, None)
+    app.dependency_overrides.pop(get_sync_db, None)
 
 
 @pytest.fixture(scope="function")

@@ -1,596 +1,557 @@
 <template>
-  <div class="stamp-source-upload">
-    <div class="header">
-      <h1>印章圖片上傳與管理</h1>
-      <p class="subtitle">上傳掃描圖或照片，框選個別印章並分配給人員</p>
+  <div class="upload-page">
+    <header class="page-header">
+      <div>
+        <h1>印章圖片 / PDF 上傳與框選</h1>
+        <p>上傳包含印章的原始圖檔或掃描 PDF，框選每一顆印章並指定擁有者。</p>
+      </div>
+      <div>
+        <button class="secondary" @click="goBack">返回上層</button>
+      </div>
+    </header>
+
+    <div v-if="error" class="error-banner">{{ error }}</div>
+
+    <!-- Step 1: File Selection -->
+    <div class="upload-section" v-if="!activeImageSrc">
+      <div class="upload-box">
+        <label for="stamp-file">點擊選擇圖片或 PDF 檔 (.png, .jpg, .pdf)</label>
+        <input 
+          id="stamp-file" 
+          type="file" 
+          accept="image/*,application/pdf"
+          @change="handleFileChange" 
+        />
+      </div>
+      <p v-if="loading" class="loading-msg">檔案處理中，請稍候...</p>
     </div>
 
-    <div class="container">
-      <!-- 上傳區 -->
-      <section class="upload-section">
-        <div class="upload-box" @click="triggerFileInput" :class="{ dragging: isDragging }"
-             @dragover.prevent="isDragging = true"
-             @dragleave.prevent="isDragging = false"
-             @drop.prevent="handleDrop">
-          <div class="upload-content">
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-              <polyline points="17 8 12 3 7 8"></polyline>
-              <line x1="12" y1="3" x2="12" y2="15"></line>
-            </svg>
-            <p>拖放檔案到這裡或點擊上傳</p>
-            <span class="hint">支援 PNG, JPG, GIF (推薦 PNG)</span>
-          </div>
-          <input type="file" ref="fileInput" @change="handleFileSelect" accept="image/*" style="display: none">
+    <!-- Step 2: Editor Interface (Fabric.js) -->
+    <div class="editor-section" v-show="activeImageSrc">
+      <div class="toolbar">
+        <div class="tool-group">
+          <strong>1. 框選印章：</strong>
+          <button @click="startDrawing" :class="{ active: isDrawingMode }">
+            {{ isDrawingMode ? '請在右圖拖曳新增框' : '+ 新增框選' }}
+          </button>
         </div>
 
-        <div v-if="uploadedImages.length" class="uploaded-images">
-          <h3>已上傳的圖片 ({{ uploadedImages.length }})</h3>
-          <div class="image-grid">
-            <div v-for="(img, idx) in uploadedImages" :key="idx" class="image-card">
-              <img :src="img.preview" @click="selectImage(idx)">
-              <button @click.stop="removeImage(idx)" class="remove-btn">✕</button>
-              <div v-if="selectedImageIndex === idx" class="selection-indicator">選中</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 框選編輯區 -->
-      <section v-if="selectedImage" class="editor-section">
-        <div class="editor-container">
-          <h3>框選印章</h3>
-          <div class="canvas-wrapper">
-            <img :src="selectedImage.preview" @mousedown="startSelection" @mousemove="updateSelection" @mouseup="endSelection" @mouseleave="endSelection" style="cursor: crosshair;">
-            <canvas ref="selectionCanvas" class="selection-overlay" :width="canvasWidth" :height="canvasHeight"></canvas>
-          </div>
-
-          <div class="stamp-assignment">
-            <h4>將選中的印章分配給人員</h4>
-            <div class="form-group">
-              <label>選擇人員</label>
-              <select v-model="selectedPerson">
-                <option value="">-- 選擇人員 --</option>
-                <option v-for="person in persons" :key="person.id" :value="person.id">
-                  {{ person.name }} ({{ person.role }})
-                </option>
-              </select>
-            </div>
-
-            <button v-if="selectedRect" @click="extractAndSave" class="primary full-width">
-              保存此印章 ({{ stampCount }})
-            </button>
-          </div>
+        <div class="tool-group">
+          <strong>2. 設定屬性：</strong>
+          <select v-model="selectedOwnerId" :disabled="!activeObject" title="選擇這顆印章是誰的">
+            <option disabled value="">（請先點選框）選擇人員</option>
+            <option v-for="p in persons" :key="p.id" :value="p.id">
+              {{ p.name }} ({{ p.role }})
+            </option>
+          </select>
+          <select v-model="selectedMode" :disabled="!activeObject" title="選擇去背模式">
+            <option value="red">紅印章 (red)</option>
+            <option value="edge">邊緣保留 (edge)</option>
+          </select>
+          <button @click="applySelection" :disabled="!activeObject || !selectedOwnerId" class="apply-btn">
+            確認此框
+          </button>
+          <button @click="removeActiveSelection" :disabled="!activeObject" class="danger">
+            移除此框
+          </button>
         </div>
 
-        <div class="extracted-stamps">
-          <h3>已提取的印章 ({{ extractedStamps.length }})</h3>
-          <div class="stamp-preview-grid">
-            <div v-for="(stamp, idx) in extractedStamps" :key="idx" class="stamp-preview">
-              <img :src="stamp.preview">
-              <div class="stamp-info">
-                <p>{{ stamp.personName }}</p>
-                <button @click="removeStamp(idx)" class="remove-small">刪除</button>
-              </div>
-            </div>
-          </div>
+        <div class="tool-group actions">
+          <strong>3. 儲存：</strong>
+          <button class="primary" @click="submitAllStamps" :disabled="isSubmitting || mappedBoxes.length === 0">
+            {{ isSubmitting ? '上傳中...' : `儲存所有印章 (${mappedBoxes.length} 顆)` }}
+          </button>
+          <button class="secondary" @click="resetSession">重新上傳</button>
         </div>
-      </section>
+      </div>
 
-      <!-- 成功提示 -->
-      <div v-if="successMsg" class="success-msg">{{ successMsg }}</div>
-      <div v-if="errorMsg" class="error-msg">{{ errorMsg }}</div>
+      <div class="canvas-container" id="editor-container" ref="containerRef">
+        <canvas id="stamp-fabric"></canvas>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
+import * as fabric from 'fabric'
+import * as pdfjsLib from 'pdfjs-dist'
 import axios from 'axios'
+import api from '../services/api'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-const api = axios.create({ baseURL: API_BASE })
+// Define PDF.js Worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.mjs', import.meta.url).toString()
 
-const fileInput = ref(null)
-const isDragging = ref(false)
-const uploadedImages = ref([])
-const selectedImageIndex = ref(null)
-const selectedPerson = ref('')
+const router = useRouter()
+const route = useRoute()
+
+const error = ref('')
+const loading = ref(false)
+const isSubmitting = ref(false)
+
 const persons = ref([])
-const selectionCanvas = ref(null)
-const canvasWidth = ref(0)
-const canvasHeight = ref(0)
-const isSelecting = ref(false)
-const selectedRect = ref(null)
-const extractedStamps = ref([])
-const successMsg = ref('')
-const errorMsg = ref('')
-const stampCount = ref(0)
+const activeImageSrc = ref(null) // Data URL or Object URL of the image to edit
+const rawFileObj = ref(null)     // The original file (PDF/Image) to send to backend if possible
 
-// Computed
-const selectedImage = computed(() => uploadedImages.value[selectedImageIndex.value] || null)
+// Editor state
+let canvas = null
+const containerRef = ref(null)
+const isDrawingMode = ref(false)
+const activeObject = ref(null)
+const selectedOwnerId = ref('')
+const selectedMode = ref('red')
+const mappedBoxes = ref([]) // Visual list of configured objects
 
-// 加載人員列表
-const loadPersons = async () => {
+// Fabric Draw tracking
+let isDragging = false
+let startX = 0
+let startY = 0
+let activeRect = null
+
+const fetchPersons = async () => {
   try {
-    const response = await api.get('/persons')
-    persons.value = response.data
-  } catch (error) {
-    errorMsg.value = `載入人員失敗: ${error.message}`
+    const res = await api.listPersons()
+    persons.value = res.data || []
+    
+    // Auto-select if ?owner=XX in query
+    if (route.query.owner) {
+      selectedOwnerId.value = parseInt(route.query.owner, 10)
+    }
+  } catch (e) {
+    error.value = '無法載入人員名單'
   }
 }
 
-// 觸發文件輸入
-const triggerFileInput = () => {
-  fileInput.value?.click()
+const goBack = () => {
+  router.push('/stamps')
 }
 
-// 文件選擇
-const handleFileSelect = (event) => {
-  const files = Array.from(event.target.files || [])
-  files.forEach(file => {
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      uploadedImages.value.push({
-        file,
-        preview: e.target.result,
-        stamps: []
-      })
-      selectedImageIndex.value = uploadedImages.value.length - 1
+// =======================
+// File Handling (Image or PDF)
+// =======================
+const handleFileChange = async (e) => {
+  const file = e.target.files[0]
+  if (!file) return
+  error.value = ''
+  loading.value = true
+  rawFileObj.value = file
+
+  try {
+    if (file.type === 'application/pdf') {
+      await processPdf(file)
+    } else if (file.type.startsWith('image/')) {
+      const url = URL.createObjectURL(file)
+      activeImageSrc.value = url
+      await initEditor(url)
+    } else {
+      throw new Error('不支援的檔案格式，請上傳 PDF 或圖片。')
     }
-    reader.readAsDataURL(file)
+  } catch (err) {
+    error.value = '處理檔案失敗：' + (err.message || err)
+    resetSession()
+  } finally {
+    loading.value = false
+  }
+}
+
+const processPdf = async (file) => {
+  const arrayBuffer = await file.arrayBuffer()
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+  
+  // Render Page 1 to canvas (simplified for now to handle most scans)
+  const page = await pdf.getPage(1)
+  const scale = 2.0 // High resolution for clipping
+  const viewport = page.getViewport({ scale })
+
+  const offscreen = document.createElement('canvas')
+  const ctx = offscreen.getContext('2d')
+  offscreen.width = viewport.width
+  offscreen.height = viewport.height
+
+  await page.render({
+    canvasContext: ctx,
+    viewport: viewport
+  }).promise
+
+  // Convert rendered PDF page to data URL image
+  const dataUrl = offscreen.toDataURL('image/png')
+  activeImageSrc.value = dataUrl
+  
+  // Update rawFileObj so the backend receives the converted PNG instead of PDF
+  // (Because backend registering expects an Image file to cv2.imdecode)
+  const blob = await (await fetch(dataUrl)).blob()
+  rawFileObj.value = new File([blob], "pdf_page_1.png", { type: "image/png" })
+  
+  await initEditor(dataUrl)
+}
+
+// =======================
+// Fabric.js Editor
+// =======================
+const initEditor = async (url) => {
+  await nextTick()
+  
+  if (canvas) {
+    canvas.dispose()
+  }
+  canvas = new fabric.Canvas('stamp-fabric', { selection: false })
+  
+  fabric.Image.fromURL(url, (img) => {
+    // scale to fit container width
+    const containerWidth = document.getElementById('editor-container').offsetWidth || 800
+    const scale = containerWidth / img.width
+    
+    canvas.setWidth(img.width * scale)
+    canvas.setHeight(img.height * scale)
+    
+    img.set({
+      originX: 'left',
+      originY: 'top',
+      scaleX: scale,
+      scaleY: scale,
+      selectable: false,
+      evented: false,
+    })
+    
+    canvas.setBackgroundImage(img, canvas.renderAll.bind(canvas))
+    
+    setupCanvasEvents()
   })
 }
 
-// 拖放
-const handleDrop = (event) => {
-  isDragging.value = false
-  const files = Array.from(event.dataTransfer?.files || [])
-  const fileInput_elem = fileInput.value
-  if (fileInput_elem) {
-    fileInput_elem.files = new DataTransfer().items.add(...files)[0]
-    handleFileSelect({ target: fileInput_elem })
-  }
-}
+const setupCanvasEvents = () => {
+  canvas.on('mouse:down', (o) => {
+    if (!isDrawingMode.value) return
+    isDragging = true
+    const pointer = canvas.getPointer(o.e)
+    startX = pointer.x
+    startY = pointer.y
+    activeRect = new fabric.Rect({
+      left: startX,
+      top: startY,
+      width: 0,
+      height: 0,
+      fill: 'rgba(255, 0, 0, 0.2)',
+      stroke: 'red',
+      strokeWidth: 2,
+      selectable: true
+    })
+    canvas.add(activeRect)
+  })
 
-// 選擇圖片
-const selectImage = (idx) => {
-  selectedImageIndex.value = idx
-  selectedRect.value = null
-  stampCount.value = extractedStamps.value.length
-}
-
-// 移除圖片
-const removeImage = (idx) => {
-  uploadedImages.value.splice(idx, 1)
-  if (selectedImageIndex.value === idx) {
-    selectedImageIndex.value = uploadedImages.value.length ? 0 : null
-  }
-}
-
-// 框選邏輯
-const startSelection = (event) => {
-  if (!selectedImage.value) return
-  isSelecting.value = true
-  const rect = event.target.getBoundingClientRect()
-  const startX = event.clientX - rect.left
-  const startY = event.clientY - rect.top
-  selectedRect.value = { x: startX, y: startY, width: 0, height: 0 }
-}
-
-const updateSelection = (event) => {
-  if (!isSelecting.value || !selectedRect.value) return
-  const img = event.target
-  if (!img || !img.src) return
-  const rect = img.getBoundingClientRect()
-  const currentX = event.clientX - rect.left
-  const currentY = event.clientY - rect.top
-  
-  selectedRect.value.width = currentX - selectedRect.value.x
-  selectedRect.value.height = currentY - selectedRect.value.y
-  
-  drawSelection()
-}
-
-const endSelection = () => {
-  isSelecting.value = false
-}
-
-// 繪製選擇框
-const drawSelection = () => {
-  const canvas = selectionCanvas.value
-  if (!canvas || !selectedImage.value || !selectedRect.value) return
-  
-  const img = new Image()
-  img.onload = () => {
-    canvasWidth.value = img.width
-    canvasHeight.value = img.height
+  canvas.on('mouse:move', (o) => {
+    if (!isDragging) return
+    const pointer = canvas.getPointer(o.e)
     
-    const ctx = canvas.getContext('2d')
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
-    ctx.strokeStyle = '#059669'
-    ctx.lineWidth = 2
-    ctx.strokeRect(
-      selectedRect.value.x,
-      selectedRect.value.y,
-      selectedRect.value.width,
-      selectedRect.value.height
-    )
-  }
-  img.src = selectedImage.value.preview
+    if (pointer.x < startX) {
+      activeRect.set({ left: pointer.x })
+    }
+    if (pointer.y < startY) {
+      activeRect.set({ top: pointer.y })
+    }
+    activeRect.set({
+      width: Math.abs(pointer.x - startX),
+      height: Math.abs(pointer.y - startY)
+    })
+    canvas.renderAll()
+  })
+
+  canvas.on('mouse:up', (o) => {
+    if (!isDrawingMode.value || !isDragging) return
+    isDragging = false
+    
+    if (activeRect && activeRect.width < 10) {
+      canvas.remove(activeRect)
+    } else if (activeRect) {
+      activeRect.set({
+        cornerColor: 'blue',
+        cornerSize: 10,
+        transparentCorners: false
+      })
+      canvas.setActiveObject(activeRect)
+      onSelectionCreated(activeRect)
+    }
+    activeRect = null
+    isDrawingMode.value = false
+    canvas.selection = true
+  })
+
+  canvas.on('selection:created', (e) => onSelectionCreated(e.selected[0]))
+  canvas.on('selection:updated', (e) => onSelectionCreated(e.selected[0]))
+  canvas.on('selection:cleared', () => {
+    activeObject.value = null
+  })
 }
 
-// 提取並保存印章
-const extractAndSave = async () => {
-  if (!selectedPerson.value || !selectedRect.value || !selectedImage.value) {
-    errorMsg.value = '請選擇人員並框選印章範圍'
+const startDrawing = () => {
+  isDrawingMode.value = !isDrawingMode.value
+  canvas.selection = !isDrawingMode.value
+}
+
+const onSelectionCreated = (obj) => {
+  activeObject.value = obj
+  // Restore mapped data if it exists
+  if (obj.stampData) {
+    selectedOwnerId.value = obj.stampData.owner_id
+    selectedMode.value = obj.stampData.mode
+  }
+}
+
+const applySelection = () => {
+  if (!activeObject.value) return
+  if (!selectedOwnerId.value) {
+    alert("請選擇該印章的擁有者。")
     return
   }
 
-  try {
-    // 轉換座標到原始圖片尺寸
-    const img = new Image()
-    img.onload = async () => {
-      const canvas = document.createElement('canvas')
-      const rect = selectedRect.value
-      canvas.width = Math.abs(rect.width)
-      canvas.height = Math.abs(rect.height)
-      
-      const ctx = canvas.getContext('2d')
-      ctx.drawImage(
-        img,
-        Math.min(rect.x, rect.x + rect.width),
-        Math.min(rect.y, rect.y + rect.height),
-        Math.abs(rect.width),
-        Math.abs(rect.height),
-        0, 0,
-        canvas.width,
-        canvas.height
-      )
+  // Store data firmly on the object
+  activeObject.value.stampData = {
+    owner_id: selectedOwnerId.value,
+    mode: selectedMode.value,
+    personName: persons.value.find(p => p.id === selectedOwnerId.value)?.name || '未命名'
+  }
+  
+  // Style visually to show it's configured
+  activeObject.value.set({
+    stroke: 'green',
+    fill: 'rgba(0, 255, 0, 0.2)'
+  })
+  
+  // Text label (optional)
+  canvas.renderAll()
+  
+  // Update external array for tracking
+  syncMappedBoxes()
+}
 
-      // 保存到提取列表
-      const preview = canvas.toDataURL('image/png')
-      const personName = persons.value.find(p => p.id === parseInt(selectedPerson.value))?.name || '未知'
-      extractedStamps.value.push({
-        preview,
-        personId: selectedPerson.value,
-        personName,
-        data: canvas.toDataURL('image/png')
-      })
+const removeActiveSelection = () => {
+  if (!activeObject.value) return
+  canvas.remove(activeObject.value)
+  activeObject.value = null
+  syncMappedBoxes()
+}
 
-      stampCount.value = extractedStamps.value.length
-      successMsg.value = `印章已保存 (共 ${extractedStamps.value.length} 個)`
-      setTimeout(() => { successMsg.value = '' }, 3000)
-      selectedRect.value = null
+const syncMappedBoxes = () => {
+  const allObjects = canvas.getObjects('rect')
+  mappedBoxes.value = allObjects.filter(obj => obj.stampData).map(obj => obj.stampData)
+}
+
+// =======================
+// Submission
+// =======================
+const submitAllStamps = async () => {
+  syncMappedBoxes()
+  if (mappedBoxes.value.length === 0) {
+    error.value = '請新增並確認至少一個印章框選。'
+    return
+  }
+
+  isSubmitting.value = true
+  error.value = ''
+
+  const allObjects = canvas.getObjects('rect')
+  const scale = canvas.backgroundImage.scaleX || 1.0
+
+  // Group by owner, because API `POST /api/stamps/register` takes ONLY one `owner_id` per call!
+  // Oh, wait! Our backend API schema ONLY allows a single `owner_id` per POST!
+  // "mode: str, owner_id: str, selections: str = Form(...)"
+  
+  const groups = {}
+  for (const obj of allObjects) {
+    if (!obj.stampData) continue
+    
+    // Calculate original image coordinates
+    // Fabric bounding rect values are scaled against the rendered canvas
+    const x = Math.round(obj.left / scale)
+    const y = Math.round(obj.top / scale)
+    const w = Math.round((obj.width * obj.scaleX) / scale)
+    const h = Math.round((obj.height * obj.scaleY) / scale)
+    
+    const ownerId = obj.stampData.owner_id
+    const mode = obj.stampData.mode
+    
+    const sel = { x, y, w, h, owner_id: ownerId }
+    
+    const groupKey = `${ownerId}_${mode}`
+    if (!groups[groupKey]) {
+      groups[groupKey] = {
+        owner_id: ownerId,
+        mode: mode,
+        selections: []
+      }
     }
-    img.src = selectedImage.value.preview
-  } catch (error) {
-    errorMsg.value = `保存失敗: ${error.message}`
+    groups[groupKey].selections.push(sel)
+  }
+
+  let successCount = 0
+  let errs = []
+
+  // Send sequentially
+  for (const key of Object.keys(groups)) {
+    const grp = groups[key]
+    const formData = new FormData()
+    formData.append('file', rawFileObj.value) // The original Image OR PDF-converted PNG
+    formData.append('mode', grp.mode)
+    formData.append('owner_id', grp.owner_id)
+    formData.append('selections', JSON.stringify(grp.selections))
+
+    try {
+      // Use axios pointing to the backend
+      const baseURL = window.location.origin.replace(/:5173$/, ':8000')
+      await axios.post(`${baseURL}/api/stamps/register`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      })
+      successCount += grp.selections.length
+    } catch (e) {
+      errs.push(`人員 ID ${grp.owner_id}: ${e.message || e}`)
+    }
+  }
+
+  isSubmitting.value = false
+
+  if (errs.length > 0) {
+    error.value = `上傳完成，但有部分錯誤：${errs.join(', ')}`
+  } else {
+    alert(`成功儲存 ${successCount} 顆印章！`)
+    router.push('/stamps')
   }
 }
 
-// 移除印章
-const removeStamp = (idx) => {
-  extractedStamps.value.splice(idx, 1)
-  stampCount.value = extractedStamps.value.length
+const resetSession = () => {
+  activeImageSrc.value = null
+  rawFileObj.value = null
+  if (canvas) {
+    canvas.dispose()
+    canvas = null
+  }
+  mappedBoxes.value = []
+  error.value = ''
 }
 
-// 組件掛載
 onMounted(() => {
-  loadPersons()
+  fetchPersons()
+})
+
+onBeforeUnmount(() => {
+  if (canvas) canvas.dispose()
 })
 </script>
 
 <style scoped>
-.stamp-source-upload {
-  min-height: 100vh;
-  background: #0f1419;
-  padding: 2rem;
-}
-
-.header {
-  margin-bottom: 2rem;
-}
-
-.header h1 {
-  font-size: 1.75rem;
+.upload-page {
+  padding: 1.5rem;
   color: #e5e7eb;
-  margin: 0;
-}
-
-.subtitle {
-  color: #9ca3af;
-  margin: 0.5rem 0 0 0;
-}
-
-.container {
   max-width: 1200px;
   margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
 }
 
-/* 上傳區 */
-.upload-section {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.upload-box {
-  border: 2px dashed #4b5563;
-  border-radius: 8px;
-  padding: 3rem;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.upload-box:hover {
-  border-color: #059669;
-  background: rgba(5, 150, 105, 0.05);
-}
-
-.upload-box.dragging {
-  border-color: #059669;
-  background: rgba(5, 150, 105, 0.1);
-}
-
-.upload-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  color: #9ca3af;
-}
-
-.upload-content svg {
-  color: #059669;
-}
-
-.upload-content p {
-  font-size: 1.1rem;
-  margin: 0;
-  color: #e5e7eb;
-}
-
-.hint {
-  font-size: 0.875rem;
-  color: #6b7280;
-}
-
-/* 圖片網格 */
-.uploaded-images h3 {
-  color: #e5e7eb;
-  margin: 0 0 1rem 0;
-}
-
-.image-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 1rem;
-}
-
-.image-card {
-  position: relative;
-  border-radius: 8px;
-  overflow: hidden;
-  cursor: pointer;
-  border: 2px solid #374151;
-  transition: border-color 0.3s;
-}
-
-.image-card:hover {
-  border-color: #059669;
-}
-
-.image-card img {
-  width: 100%;
-  height: 120px;
-  object-fit: cover;
-  display: block;
-}
-
-.image-card .remove-btn {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  background: #dc2626;
-  color: white;
-  border: none;
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  cursor: pointer;
-  font-size: 0.875rem;
-}
-
-.image-card .selection-indicator {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  background: rgba(5, 150, 105, 0.9);
-  color: white;
-  text-align: center;
-  padding: 0.25rem;
-  font-size: 0.75rem;
-  font-weight: bold;
-}
-
-/* 編輯區 */
-.editor-section {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 2rem;
-}
-
-.editor-container {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.editor-container h3,
-.extracted-stamps h3 {
-  color: #e5e7eb;
-  margin: 0;
-}
-
-.editor-container h4 {
-  color: #d1d5db;
-  margin: 0.5rem 0 1rem 0;
-  font-size: 0.95rem;
-}
-
-.canvas-wrapper {
-  position: relative;
-  display: inline-block;
-  border-radius: 8px;
-  overflow: hidden;
-  background: #1f2937;
-}
-
-.canvas-wrapper img {
-  max-width: 100%;
-  height: auto;
-  display: block;
-}
-
-.selection-overlay {
-  position: absolute;
-  top: 0;
-  left: 0;
-}
-
-/* 表單 */
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.form-group label {
-  color: #d1d5db;
-  font-size: 0.9rem;
-  font-weight: 500;
-}
-
-.form-group select {
-  padding: 0.65rem;
-  background: #1f2937;
-  border: 1px solid #4b5563;
-  border-radius: 6px;
-  color: #e5e7eb;
-  font-size: 0.95rem;
-}
-
-.form-group select:focus {
-  outline: none;
-  border-color: #059669;
-}
-
-/* 按鈕 */
-.primary {
-  padding: 0.75rem 1.5rem;
-  background: #059669;
-  color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 600;
-  transition: background 0.3s;
-}
-
-.primary:hover {
-  background: #047857;
-}
-
-.primary.full-width {
-  width: 100%;
-}
-
-.remove-small {
-  padding: 0.25rem 0.5rem;
-  background: #dc2626;
-  color: white;
-  border: none;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  cursor: pointer;
-}
-
-/* 提取的印章 */
-.extracted-stamps {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.stamp-preview-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  gap: 1rem;
-}
-
-.stamp-preview {
-  border: 1px solid #374151;
-  border-radius: 8px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.stamp-preview img {
-  width: 100%;
-  height: 100px;
-  object-fit: cover;
-  display: block;
-}
-
-.stamp-info {
-  padding: 0.5rem;
-  background: #1f2937;
+.page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 0.5rem;
+  border-bottom: 1px solid #374151;
+  padding-bottom: 1rem;
+  margin-bottom: 2rem;
 }
 
-.stamp-info p {
+.page-header h1 {
+  font-size: 1.8rem;
+  margin: 0 0 0.5rem 0;
+}
+.page-header p {
+  color: #9cb3af;
   margin: 0;
-  color: #9ca3af;
-  font-size: 0.75rem;
-  flex: 1;
-  text-align: center;
 }
 
-/* 提示訊息 */
-.success-msg {
-  padding: 0.75rem;
-  background: rgba(6, 78, 59, 0.35);
-  border: 1px solid #10b981;
-  border-radius: 6px;
-  color: #a7f3d0;
+button {
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  background: #374151;
+  color: #fff;
+}
+button:hover:not(:disabled) {
+  opacity: 0.8;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
-.error-msg {
-  padding: 0.75rem;
-  background: rgba(127, 29, 29, 0.35);
+.primary { background: #059669; font-weight: bold; }
+.secondary { background: #1d4ed8; }
+.danger { background: #dc2626; color: #fff; }
+.apply-btn { background: #10b981; color: #fff; }
+button.active { background: #fbbf24; color: #000; font-weight: bold; }
+
+.error-banner {
+  background: rgba(220, 38, 38, 0.2);
   border: 1px solid #ef4444;
+  color: #fca5a5;
+  padding: 1rem;
   border-radius: 6px;
-  color: #fecaca;
+  margin-bottom: 1.5rem;
 }
 
-/* 響應式 */
-@media (max-width: 768px) {
-  .editor-section {
-    grid-template-columns: 1fr;
-  }
+.upload-section {
+  text-align: center;
+  padding: 3rem;
+  border: 2px dashed #4b5563;
+  border-radius: 8px;
+  background: #1f2937;
+}
+.upload-box label {
+  display: block;
+  font-size: 1.25rem;
+  margin-bottom: 1rem;
+  cursor: pointer;
+  color: #60a5fa;
+}
 
-  .image-grid {
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-  }
+.editor-section {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  background: #1f2937;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid #334155;
+  align-items: center;
+}
+
+.tool-group {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  border-right: 1px solid #4b5563;
+  padding-right: 1.5rem;
+}
+.tool-group.actions {
+  border-right: none;
+  margin-left: auto;
+}
+
+select {
+  padding: 0.4rem;
+  border-radius: 4px;
+  background: #374151;
+  color: white;
+  border: 1px solid #4b5563;
+}
+
+.canvas-container {
+  border: 1px solid #4b5563;
+  background: #111827;
+  min-height: 500px;
+  position: relative;
+  overflow: auto;
 }
 </style>

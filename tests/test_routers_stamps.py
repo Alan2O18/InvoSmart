@@ -54,15 +54,21 @@ def stamp_client(tmp_path):
 
 def test_register_list_and_delete_stamp_roundtrip(stamp_client):
     image_bytes = _build_sheet_image_bytes()
+    # Create a person first to own the stamp
+    person_resp = stamp_client.post(
+        '/api/persons',
+        json={'name': '測試印章人', 'role': '經辦', 'department': '測試部'}
+    )
+    assert person_resp.status_code == 200
+    person_id = person_resp.json()['id']
+
     selections = [
         {
             'x': 50,
             'y': 55,
             'w': 95,
             'h': 95,
-            'name': '測試社章',
-            'category': '社團',
-            'group_name': '美術組',
+            'owner_id': person_id,
         }
     ]
 
@@ -87,7 +93,7 @@ def test_register_list_and_delete_stamp_roundtrip(stamp_client):
     assert listed.status_code == 200
     items = listed.json()
     assert len(items) == 1
-    assert items[0]['name'] == '測試社章'
+    assert items[0]['owner_id'] == person_id
 
     delete_resp = stamp_client.delete(f"/api/stamps/{created['id']}")
     assert delete_resp.status_code == 200
@@ -108,7 +114,7 @@ def test_register_rejects_invalid_mode(stamp_client):
         "/api/stamps/register",
         data={
             "mode": "blue",
-            "selections": json.dumps([{"x": 1, "y": 1, "w": 10, "h": 10, "name": "A", "category": "社章"}], ensure_ascii=False),
+            "selections": json.dumps([{"x": 1, "y": 1, "w": 10, "h": 10, "owner_id": 1}], ensure_ascii=False),
         },
         files={"file": ("sheet.png", image_bytes, "image/png")},
     )

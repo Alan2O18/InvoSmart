@@ -552,7 +552,9 @@ async def test_detect_raw_sub_rects_supports_dotted_stem_lookup(file_ops, mock_d
     with patch("backend.engine.file_ops.utils.cv_imread_chinese", side_effect=fake_read):
         result = await file_ops.detect_raw_sub_rects("proj1", "receipt.v2")
 
-    assert len(result) == 1
+    assert len(result["rects"]) == 1
+    assert result["full_width"] == 24
+    assert result["full_height"] == 24
     assert Path(captured["path"]).resolve() == raw_path.resolve()
 
 

@@ -25,6 +25,7 @@ from backend.routers.config import router as config_router
 from backend.routers.voucher import router as voucher_router
 from backend.routers.stamps import router as stamps_router
 from backend.routers.persons import router as persons_router
+from backend.routers.pdf_tasks import router as pdf_tasks_router
 
 from fastapi.staticfiles import StaticFiles
 import json
@@ -55,7 +56,8 @@ print("="*60)
 async def lifespan(app: FastAPI):
     # Startup: Initialize DB and Engine before accepting requests
     from backend.dependencies import get_engine, reset_engine
-    from backend.database.core import init_db, get_session_factory
+    from backend.database.core import init_db
+    import backend.database.core as db_core
     from backend.repositories.person_repository import PersonRepository
     
     # 1. Initialize global database tables asynchronously
@@ -63,7 +65,7 @@ async def lifespan(app: FastAPI):
     
     # 2. Initialize virtual persons (虛擬實體: 與正本相符、已稽核、社團關防)
     try:
-        async with get_session_factory().begin() as session:
+        async with db_core.AsyncSessionLocal() as session:
             person_repo = PersonRepository(session)
             virtual_ids = await person_repo.ensure_virtual_persons()
             logger.info(f"[Startup] Virtual persons ensured: {virtual_ids}")
@@ -147,6 +149,7 @@ app.include_router(config_router, prefix="/api/config", tags=["config"])
 app.include_router(voucher_router, prefix="/api/voucher", tags=["voucher"])
 app.include_router(stamps_router, prefix="/api", tags=["stamps"])
 app.include_router(persons_router, prefix="/api", tags=["persons"])
+app.include_router(pdf_tasks_router, prefix="/api", tags=["pdf_tasks"])
 app.include_router(websocket.router, tags=["websocket"])
 
 @app.get("/")

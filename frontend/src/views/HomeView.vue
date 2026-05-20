@@ -3,7 +3,7 @@
     <div class="header">
       <h1>活動列表</h1>
       <div class="header-actions">
-        <button @click="$router.push('/stamps')" class="stamps-btn">🖋 印章管理</button>
+        <button @click="$router.push('/management')" class="stamps-btn">🖋 印章管理</button>
         <button @click="$router.push('/create')" class="create-btn">+ 新增活動</button>
       </div>
     </div>

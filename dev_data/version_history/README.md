@@ -17,3 +17,12 @@
 - `v0_0_12.md`: JXL 編碼器切換（pyvips -> imagecodecs）與預覽 API 修復，解決 JXL 前端預覽斷鏈
 - `v0_0_13.md`: JXL 全鏈路相容性收尾（Adapter 讀取端、FileOps/Voucher/Router 統一路徑、pytest 補強）
 - `v0_0_14.md`: 儲存空間清理與手動二切上線（啟動清理、JXL 優化、detect/apply-resplit、前端 ResplitModal）
+- `v0_0_15_stamp_management.md`: 印章管理與群組/組長流程整理
+- `v0_0_16_refactoring_and_cleanup.md`: 重構與清理版本，收斂舊實作與雜訊
+- `v0_0_17_architecture_and_cleanup.md`: 架構整理與廢棄流程清理
+- `v0_0_18_fileops_db_refactoring.md`: FileOps 與資料庫重構
+- `v0_0_19_resplit_ui.md`: 二切/重切 UI 與流程調整
+- `v0_0_20.md`: 印章綁定與自動蓋章系統
+- `v0_0_21.md`: 使用者體驗與路由架構重構
+- `v0_0_22.md`: 系統修復與模板管理升級
+- `v0_0_23.md`: 嚴重缺陷修復與驗證收尾

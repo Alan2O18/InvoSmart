@@ -2,7 +2,7 @@
 # 匯總所有路由器供 main.py 使用
 
 from fastapi import APIRouter
-from . import projects, files, processing, exports, jobs, groups, correction
+from . import projects, files, processing, exports, jobs, groups, correction, pdf_tasks
 
 # 主路由器 - 合併所有子路由
 router = APIRouter()
