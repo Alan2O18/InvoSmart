@@ -274,12 +274,12 @@ const getImageUrl = (path) => {
   if (!path) return '';
   const filename = path.split('\\').pop().split('/').pop();
   const v = imageVersions.value[filename] || 0;
-  return `http://localhost:8000/api/projects/${encodeURIComponent(projectId)}/preview/split/${encodeURIComponent(filename)}?v=${v}`;
+  return api.toAbsoluteUrl(`/api/projects/${encodeURIComponent(projectId)}/preview/split/${encodeURIComponent(filename)}?v=${v}`);
 }
 
 const getRawImageUrl = (filename) => {
   if (!filename) return '';
-  return `http://localhost:8000/api/projects/${encodeURIComponent(projectId)}/preview/raw/${encodeURIComponent(filename)}`;
+  return api.toAbsoluteUrl(`/api/projects/${encodeURIComponent(projectId)}/preview/raw/${encodeURIComponent(filename)}`);
 }
 
 const getFilename = (path) => {
@@ -385,7 +385,7 @@ const runArchive = async () => {
 }
 
 const openVoucherEditor = () => {
-  router.push(`/project/${projectId}/voucher-editor`)
+  router.push({ name: 'voucher-editor', params: { id: projectId } })
 }
 
 const handleFileUpload = async (event, type) => {
@@ -443,7 +443,7 @@ const runSingleProcessing = async (job) => {
 }
 
 const editJob = (job) => {
-  router.push({ path: `/project/${projectId}/voucher-editor`, query: { editJobId: job.job_id } })
+  router.push({ name: 'job-editor', params: { id: projectId }, query: { jobId: job.job_id } })
 }
 
 const openResplitModal = (rawFile) => {
@@ -491,10 +491,18 @@ const handleResplitApplied = async () => {
 
 .back-btn {
   background: transparent;
-  border: 1px solid #666;
-  color: #e0e0e0;
-  padding: 0.5rem 1rem;
+  border: 1px solid #4b5563;
+  color: #d1d5db;
+  padding: 6px 12px;
+  border-radius: 4px;
   cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+.back-btn:hover {
+  border-color: #9ca3af;
+  color: white;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .status-badge {

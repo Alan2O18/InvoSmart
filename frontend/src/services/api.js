@@ -56,10 +56,10 @@ export default {
     return api.get(`/api/projects/${projectId}/raw_files`)
   },
   deleteRawFile(projectId, filename) {
-    return api.delete(`/api/projects/${projectId}/raw_files/${filename}`)
+    return api.delete(`/api/projects/${projectId}/raw_files/${encodeURIComponent(filename)}`)
   },
   rotateImage(projectId, filename, angle) {
-    return api.post(`/api/projects/${projectId}/rotate/${filename}?angle=${angle}`)
+    return api.post(`/api/projects/${projectId}/rotate/${encodeURIComponent(filename)}?angle=${angle}`)
   },
 
   // =====================
@@ -69,7 +69,7 @@ export default {
     return api.post(`/api/projects/${projectId}/run_split`)
   },
   runSplitSingle(projectId, filename) {
-    return api.post(`/api/projects/${projectId}/split/${filename}`)
+    return api.post(`/api/projects/${projectId}/split/${encodeURIComponent(filename)}`)
   },
 
   // VLM-First: 統一處理入口

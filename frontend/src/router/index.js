@@ -26,6 +26,11 @@ const router = createRouter({
       component: () => import('../views/ProjectDetailView.vue')
     },
     {
+      path: '/project/:id/edit-job',
+      name: 'job-editor',
+      component: () => import('../views/JobEditorView.vue')
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('../views/SettingsView.vue')

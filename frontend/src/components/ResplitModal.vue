@@ -161,7 +161,7 @@ const rawFilename = computed(() => {
 
 const imageUrl = computed(() => {
   if (!props.projectId || !rawFilename.value) return ''
-  return `http://localhost:8000/api/projects/${encodeURIComponent(props.projectId)}/preview/raw/${encodeURIComponent(rawFilename.value)}?v=${cacheToken.value}`
+  return api.toAbsoluteUrl(`/api/projects/${encodeURIComponent(props.projectId)}/preview/raw/${encodeURIComponent(rawFilename.value)}?v=${cacheToken.value}`)
 })
 
 // CSS transform applied to the layer containing both img and svg overlay
@@ -415,13 +415,22 @@ const fetchDetectedRects = async () => {
     }
 
     const normalized = detected.map((r, i) => normalizeRect(r, i)).filter(Boolean)
-    rects.value = normalized.length > 0 ? normalized : [createDefaultRect()]
+    if (normalized.length > 0) {
+      rects.value = normalized
+    } else if (naturalSize.width > 0) {
+      rects.value = [createDefaultRect()]
+    } else {
+      rects.value = []
+    }
     selectedRectId.value = rects.value[0]?.id || null
   } catch (err) {
     const message = err?.response?.data?.detail || err?.message || '偵測失敗'
     error.value = `偵測失敗：${message}`
-    rects.value = [createDefaultRect()]
-    selectedRectId.value = rects.value[0]?.id || null
+    if (naturalSize.width > 0) {
+      rects.value = [createDefaultRect()]
+    } else {
+      rects.value = []
+    }
   } finally {
     loading.value = false
   }

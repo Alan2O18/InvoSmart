@@ -286,7 +286,8 @@ class ImageService:
             if not image_path.exists():
                 raise FileNotFoundError(f"Image {safe_filename} not found in splits")
 
-            image = await asyncio.to_thread(utils.cv_imread_chinese, str(image_path))
+            codec = self._codec_adapter()
+            image = await asyncio.to_thread(codec.read_image, image_path)
             if image is None:
                 raise ValueError("Failed to read image")
 
@@ -301,9 +302,12 @@ class ImageService:
 
             image = await asyncio.to_thread(_rotate_image_sync, image, angle)
 
-            write_ok = await asyncio.to_thread(utils.cv_imwrite_chinese, str(image_path), image)
-            if not write_ok:
-                raise IOError(f"Failed to write rotated image: {image_path}")
+            await asyncio.to_thread(
+                codec.write_archival_image,
+                image_path,
+                image,
+                fallback_suffix=image_path.suffix,
+            )
             self.invalidate_preview_cache(project_id, str(image_path))
             try:
                 max_width = self._thumb_max_width()

@@ -24,7 +24,7 @@
       </span>
     </section>
 
-    <div class="content" v-if="ready" :class="{ 'with-sidebar': showMetadataEditor }">
+    <div class="content" v-if="ready">
       <aside class="left-panel">
         <h3>可用發票</h3>
         <div class="invoice-list">
@@ -99,7 +99,7 @@
               <span class="empty-icon">📄</span>
               <h3>尚無可用發票</h3>
               <p>請先回到專案頁面上傳發票，完成 VLM 辨識與人工審核後，<br/>發票才會出現在這裡。</p>
-              <button @click="goBack">← 返回專案</button>
+              <button class="empty-back-btn" @click="goBack">← 返回專案</button>
             </div>
           </div>
           <canvas ref="canvasRef"></canvas>
@@ -115,72 +115,6 @@
           </ul>
         </div>
       </main>
-
-      <aside class="right-panel" v-if="showMetadataEditor">
-        <div class="sidebar-header">
-          <h3>修改發票資料</h3>
-          <button type="button" class="close-btn" @click="closeMetadataEditor">✕</button>
-        </div>
-        <div class="sidebar-body">
-          <div class="form-group-vertical">
-            <label>發票編號 (Voucher ID)</label>
-            <input v-model="editForm.header.voucher_id" />
-          </div>
-          <div class="form-group-vertical">
-            <label>供應商 (Supplier)</label>
-            <input v-model="editForm.header.supplier" />
-          </div>
-          <div class="form-group-vertical">
-            <label>日期 (Date)</label>
-            <input v-model="editForm.header.date" placeholder="YYYY-MM-DD" />
-          </div>
-          <div class="form-group-vertical">
-            <label>用途 (Purpose)</label>
-            <textarea v-model="editForm.summary.purpose" rows="2"></textarea>
-          </div>
-          <div class="form-group-vertical">
-            <label>總金額 (Total Amount)</label>
-            <input v-model.number="editForm.summary.total" type="number" />
-          </div>
-
-          <div class="items-section">
-            <h4>明細項目 (Items)</h4>
-            <div class="meta-item-row" v-for="(item, idx) in editForm.items" :key="idx">
-              <div class="item-header">
-                <span>項目 {{ idx + 1 }}</span>
-                <button type="button" @click="removeItemRow(idx)" class="remove-item-btn">✕</button>
-              </div>
-              <div class="form-group-vertical">
-                <label>品名</label>
-                <input v-model="item.description" />
-              </div>
-              <div class="form-group-vertical">
-                <label>類別</label>
-                <input v-model="item.category" />
-              </div>
-              <div class="form-row">
-                <div class="form-group-vertical">
-                  <label>數量</label>
-                  <input v-model.number="item.qty" type="number" @input="calcItemTotal(item)" />
-                </div>
-                <div class="form-group-vertical">
-                  <label>單價</label>
-                  <input v-model.number="item.price" type="number" @input="calcItemTotal(item)" />
-                </div>
-                <div class="form-group-vertical">
-                  <label>總額</label>
-                  <input v-model.number="item.total" type="number" />
-                </div>
-              </div>
-            </div>
-            <button type="button" class="add-item-btn" @click="addItemRow">+ 新增明細</button>
-          </div>
-        </div>
-        <div class="sidebar-footer">
-          <button type="button" class="secondary" @click="closeMetadataEditor">取消</button>
-          <button type="button" class="primary" @click="saveMetadata">儲存修改</button>
-        </div>
-      </aside>
     </div>
 
     <div v-else class="loading">載入資料中...</div>
@@ -210,105 +144,8 @@ import {
 const route = useRoute()
 const router = useRouter()
 
-const showMetadataEditor = ref(false)
-const selectedInvoiceForEdit = ref(null)
-const editForm = reactive({
-  header: {
-    voucher_id: '',
-    supplier: '',
-    date: ''
-  },
-  summary: {
-    purpose: '',
-    total: 0
-  },
-  items: []
-})
-
 const openMetadataEditor = (invoice) => {
-  selectedInvoiceForEdit.value = invoice
-  const result = invoice.result || {}
-  const header = result.header || {}
-  const summary = result.summary || {}
-  const items = result.items || []
-
-  const mappedItems = items.map(item => ({
-    category: item.category || '未分類',
-    description: item.description || item.name || '',
-    qty: item.qty ?? item.quantity ?? 1,
-    price: item.price ?? 0,
-    total: item.total ?? 0,
-    remark: item.remark || ''
-  }))
-
-  Object.assign(editForm.header, {
-    voucher_id: header.voucher_id || header.invoice_id || '',
-    supplier: header.supplier || '',
-    date: header.date || ''
-  })
-  Object.assign(editForm.summary, {
-    purpose: summary.purpose || '',
-    total: summary.total ?? 0
-  })
-  editForm.items = mappedItems
-
-  showMetadataEditor.value = true
-}
-
-const closeMetadataEditor = () => {
-  showMetadataEditor.value = false
-  selectedInvoiceForEdit.value = null
-}
-
-const addItemRow = () => {
-  editForm.items.push({
-    category: '未分類',
-    description: '',
-    qty: 1,
-    price: 0,
-    total: 0,
-    remark: ''
-  })
-}
-
-const removeItemRow = (idx) => {
-  editForm.items.splice(idx, 1)
-}
-
-const calcItemTotal = (item) => {
-  item.total = (item.qty || 0) * (item.price || 0)
-}
-
-const saveMetadata = async () => {
-  if (!selectedInvoiceForEdit.value) return
-  const jobId = selectedInvoiceForEdit.value.jobId
-  try {
-    const payload = {
-      header: {
-        voucher_id: editForm.header.voucher_id,
-        invoice_id: editForm.header.voucher_id,
-        supplier: editForm.header.supplier,
-        date: editForm.header.date
-      },
-      summary: {
-        purpose: editForm.summary.purpose,
-        total: editForm.summary.total
-      },
-      items: editForm.items
-    }
-    
-    await api.saveManualJson(projectId, jobId, payload)
-    
-    const localInvoice = invoices.value.find(i => i.jobId === jobId)
-    if (localInvoice) {
-      localInvoice.result = payload
-    }
-    
-    alert('修改已儲存！')
-    closeMetadataEditor()
-  } catch (err) {
-    alert('儲存失敗：' + (err.message || err))
-  }
+  router.push({ name: 'job-editor', params: { id: projectId }, query: { jobId: invoice.jobId } })
 }
 
 const projectId = route.params.id
@@ -1230,22 +1067,6 @@ onMounted(async () => {
   recalculatePageFields(activePage.value, { onlyFillEmpty: true })
   recalculateVoucherNumbers()
 
-  // Auto-open metadata editor if editJobId is passed in query parameters
-  const editJobId = route.query.editJobId
-  if (editJobId && invoices.value) {
-    const match = invoices.value.find(i => i.jobId === editJobId)
-    if (match) {
-      openMetadataEditor(match)
-      const pageIndex = pages.value.findIndex(p => p.images.some(img => img.jobId === editJobId))
-      if (pageIndex !== -1 && pageIndex !== activePageIndex.value) {
-        activePageIndex.value = pageIndex
-        await nextTick()
-        await loadActivePageToCanvas()
-        recalculatePageFields(activePage.value, { onlyFillEmpty: true })
-      }
-    }
-  }
-
   autosaveTimer = window.setInterval(saveLayout, 30000)
 })
 
@@ -1297,6 +1118,41 @@ watch(voucherTextConfig, () => {
   min-height: 100vh;
   background: #1e1e1e;
   color: #f3f4f6;
+}
+
+.back-btn {
+  background: transparent;
+  border: 1px solid #4b5563;
+  color: #d1d5db;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+.back-btn:hover {
+  border-color: #9ca3af;
+  color: white;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.header-left h2 {
+  margin: 0;
+  font-size: 1.25rem;
+}
+
+.empty-back-btn {
+  background: #2563eb;
+  border: none;
+  color: #fff;
+  padding: 8px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background 0.2s;
+}
+.empty-back-btn:hover {
+  background: #1d4ed8;
 }
 
 .editor-header {

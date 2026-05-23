@@ -26,6 +26,12 @@ class ImageCodecAdapter:
 
     def read_image(self, path: str | Path) -> np.ndarray:
         """Read an image from any supported format and return OpenCV-style ndarray (BGR)."""
+        source = Path(path)
+        if source.suffix.lower() == ".jxl":
+            import imagecodecs
+            import cv2
+            arr = imagecodecs.jpegxl_decode(source.read_bytes())
+            return cv2.cvtColor(arr, cv2.COLOR_RGB2BGR)
         return utils.cv_imread_chinese(str(path))
 
     def read_image_pil(self, path: str | Path) -> Image.Image:
