@@ -54,4 +54,9 @@ schema.txt
 
 # Temporary patches
 patch_*.py
-patch_*.js
+patch_*.js
+
+# PDF task working files (runtime-generated, not for version control)
+backend/data/pdf_tasks/
+dummy.pdf
+
