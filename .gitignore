@@ -1,18 +1,33 @@
-# Dependencies and build
-logs
-__pycache__
-*/__pycache__
+# Byte-compiled / optimized / DLL files
+**/__pycache__/
+*.py[cod]
+*$py.class
 
-# Test artifacts
-*.log
+# OS / IDE
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Environments & Configurations
+.env
+config.prod.json
+
+# Databases & Runtime Data
+*.db
+*.db.bak
+workspace/
+_group_stamps/
+backend/data/pdf_tasks/
+logs/
+
+# Test artifacts & Coverage
 .coverage
-.pytest_cache
-
-# Development temps
-*.pyc
-*.pyo
-
-# Debug and test outputs (auto-generated)
+.pytest_cache/
+.ruff_cache/
+coverage.json
+coverage.xml
+*.log
 debug*.log
 debug*.txt
 *_test_output*.txt
@@ -20,43 +35,17 @@ debug*.txt
 vlm_test_*.json
 vlm_test_*.md
 
-# Temporary scripts
-repro_*.py
-demo_*.py
-
-# IDE
-.vscode/
-.idea/
-
-# Ignore specific files
-test.py
-testB.py
-
-# Production config (may contain secrets)
-config.prod.json
-
-# Environment variables
-.env
-
-# Database files
-*.db
-*.db.bak
-
-# Project user workspaces and stamp groups
-workspace/
-_group_stamps/
-
-# Test coverage and schema artifacts
-coverage.json
-coverage.xml
+# Temporary files & Dump logs
 openapi_dump*.json
 schema.txt
-
-# Temporary patches
 patch_*.py
 patch_*.js
-
-# PDF task working files (runtime-generated, not for version control)
-backend/data/pdf_tasks/
+repro_*.py
+demo_*.py
+test.py
+testB.py
 dummy.pdf
-
+
+# Frontend build distribution & dependencies
+frontend/dist/
+frontend/node_modules/
