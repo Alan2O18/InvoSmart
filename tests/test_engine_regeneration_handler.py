@@ -1,5 +1,4 @@
 import pytest
-import pandas as pd
 from unittest.mock import AsyncMock, MagicMock, patch
 from backend.engine.regeneration_handler import RegenerationHandler
 
@@ -20,34 +19,45 @@ def regeneration_handler(mock_project_repo, mock_excel_exporter):
     return RegenerationHandler(mock_project_repo, mock_excel_exporter)
 
 @pytest.mark.asyncio
-@patch('backend.engine.regeneration_handler.pd.read_excel')
-async def test_regenerate_missing_column(mock_read_excel, regeneration_handler):
-    # Mock dataframe missing '人工修正'
-    mock_df = pd.DataFrame({"檔名": ["file1.jpg"]})
-    mock_read_excel.return_value = mock_df
+@patch('backend.engine.regeneration_handler.openpyxl.load_workbook')
+async def test_regenerate_missing_column(mock_load_workbook, regeneration_handler):
+    wb = MagicMock()
+    wb.sheetnames = ["主表"]
+    ws = MagicMock()
+    ws.iter_rows.return_value = iter([
+        ("檔名",),
+        ("file1.jpg",)
+    ])
+    wb.__getitem__.return_value = ws
+    mock_load_workbook.return_value = wb
     
     result = await regeneration_handler.regenerate_from_archive("proj1", "fake.xlsx", {})
     assert result is None
 
 @pytest.mark.asyncio
-@patch('backend.engine.regeneration_handler.pd.read_excel')
-async def test_regenerate_read_error(mock_read_excel, regeneration_handler):
-    mock_read_excel.side_effect = Exception("Excel format error")
+@patch('backend.engine.regeneration_handler.openpyxl.load_workbook')
+async def test_regenerate_read_error(mock_load_workbook, regeneration_handler):
+    mock_load_workbook.side_effect = Exception("Excel format error")
     
     result = await regeneration_handler.regenerate_from_archive("proj1", "fake.xlsx", {})
     assert result is None
 
 @pytest.mark.asyncio
-@patch('backend.engine.regeneration_handler.pd.read_excel')
+@patch('backend.engine.regeneration_handler.openpyxl.load_workbook')
 @patch('backend.processing.llm_handler.LLMHandler')
 @patch('backend.repositories.job_repository.JobRepository')
-async def test_regenerate_success(mock_job_repo_class, mock_llm_handler_class, mock_read_excel, regeneration_handler):
-    # Mock DataFrame with valid data
-    mock_df = pd.DataFrame({
-        "檔名": ["file1.jpg", "file2.jpg"],
-        "人工修正": ["corrected1", None] # Note one valid, one empty
-    })
-    mock_read_excel.return_value = mock_df
+async def test_regenerate_success(mock_job_repo_class, mock_llm_handler_class, mock_load_workbook, regeneration_handler):
+    # Mock workbook with valid rows
+    wb = MagicMock()
+    wb.sheetnames = ["主表"]
+    ws = MagicMock()
+    ws.iter_rows.return_value = iter([
+        ("檔名", "人工修正"),
+        ("file1.jpg", "corrected1"),
+        ("file2.jpg", None)
+    ])
+    wb.__getitem__.return_value = ws
+    mock_load_workbook.return_value = wb
     
     # Mock inner LLMHandler behavior
     mock_llm_handler = MagicMock()
@@ -81,16 +91,19 @@ async def test_regenerate_success(mock_job_repo_class, mock_llm_handler_class, m
     assert "TEST" in kwargs["vlm_result_json"]
 
 @pytest.mark.asyncio
-@patch('backend.engine.regeneration_handler.pd.read_excel')
+@patch('backend.engine.regeneration_handler.openpyxl.load_workbook')
 @patch('backend.processing.llm_handler.LLMHandler')
 @patch('backend.repositories.job_repository.JobRepository')
-async def test_regenerate_job_mismatch(mock_job_repo_class, mock_llm_handler_class, mock_read_excel, regeneration_handler):
-    # Tests the logging branch where file names do not match DB
-    mock_df = pd.DataFrame({
-        "檔名": ["unmatched.jpg"],
-        "人工修正": ["corrected"]
-    })
-    mock_read_excel.return_value = mock_df
+async def test_regenerate_job_mismatch(mock_job_repo_class, mock_llm_handler_class, mock_load_workbook, regeneration_handler):
+    wb = MagicMock()
+    wb.sheetnames = ["主表"]
+    ws = MagicMock()
+    ws.iter_rows.return_value = iter([
+        ("檔名", "人工修正"),
+        ("unmatched.jpg", "corrected")
+    ])
+    wb.__getitem__.return_value = ws
+    mock_load_workbook.return_value = wb
     
     mock_llm_handler_class.return_value = MagicMock()
     
@@ -100,7 +113,6 @@ async def test_regenerate_job_mismatch(mock_job_repo_class, mock_llm_handler_cla
     ]
     mock_job_repo_class.return_value = mock_job_repo
     
-    # It shouldn't crash, but shouldn't update jobs either
     result = await regeneration_handler.regenerate_from_archive("proj1", "fake.xlsx", {})
     
     assert result == "new_archive.xlsx" # Re-archiving still happens

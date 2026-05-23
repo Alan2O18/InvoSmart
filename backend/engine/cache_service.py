@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 from PIL import Image, features
 
-from backend.processing.image_codec_adapter import ImageCodecAdapter
+from backend.engine.image_codec_adapter import ImageCodecAdapter
 
 logger = logging.getLogger(__name__)
 

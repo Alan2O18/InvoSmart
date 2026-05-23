@@ -8,11 +8,8 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.database.models import Event, InvoiceItem, Job, Project
-from backend.processing.flattening import build_job_flatten_payload
 
 logger = logging.getLogger(__name__)
-
-_UNSET = object()
 
 
 def _coerce_float(value: Any) -> Optional[float]:
@@ -27,39 +24,9 @@ def _coerce_float(value: Any) -> Optional[float]:
 class JobRepository:
     """Data access layer for job persistence (VLM-First, Global DB)."""
 
-    # Process-local compatibility store for removed v0.0.18 flatten cache fields.
-    _compat_flatten_state: dict[tuple[str, str], dict[str, Any]] = {}
-
     def __init__(self, project_id: str, session_factory: Callable[[], AsyncSession]):
         self.project_id = project_id
         self.session_factory = session_factory
-
-    def _compat_flatten_key(self, job_id: str) -> tuple[str, str]:
-        return (self.project_id, job_id)
-
-    def _set_compat_flatten_state(
-        self,
-        job_id: str,
-        *,
-        flattened_data: Any = _UNSET,
-        flattening_status: Any = _UNSET,
-    ) -> None:
-        key = self._compat_flatten_key(job_id)
-        current = dict(self._compat_flatten_state.get(key) or {})
-
-        if flattened_data is not _UNSET:
-            current["flattened_data"] = flattened_data
-        if flattening_status is not _UNSET:
-            current["flattening_status"] = flattening_status
-
-        if current.get("flattened_data") is None and current.get("flattening_status") is None:
-            self._compat_flatten_state.pop(key, None)
-            return
-
-        self._compat_flatten_state[key] = current
-
-    def _clear_compat_flatten_state(self, job_id: str) -> None:
-        self._compat_flatten_state.pop(self._compat_flatten_key(job_id), None)
 
     @staticmethod
     def _is_legacy_manual_payload(payload: dict[str, Any]) -> bool:
@@ -143,16 +110,11 @@ class JobRepository:
                 "source_format": job.source_format,
                 "preview_cache_path": job.preview_cache_path,
                 "manual_json_text": getattr(job, "manual_json_text", None),
-                "flattened_data": getattr(job, "flattened_data", None),
-                "flattening_status": getattr(job, "flattening_status", None),
+                "flattened_data": None,
+                "flattening_status": None,
                 "created_at": job.created_at,
                 "updated_at": job.updated_at,
             }
-
-            compat = self._compat_flatten_state.get(self._compat_flatten_key(job_id))
-            if compat:
-                payload["flattened_data"] = compat.get("flattened_data")
-                payload["flattening_status"] = compat.get("flattening_status")
 
             return payload
 
@@ -162,8 +124,6 @@ class JobRepository:
             stmt = delete(Job).where(Job.project_id == self.project_id, Job.job_id == job_id)
             result = await session.execute(stmt)
             await session.commit()
-            if result.rowcount:
-                self._clear_compat_flatten_state(job_id)
             return result.rowcount > 0
 
     async def update_job(self, job_id: str, **fields) -> bool:
@@ -171,8 +131,8 @@ class JobRepository:
         if not fields:
             return False
 
-        compat_flattened_data = fields.pop("flattened_data", _UNSET)
-        compat_flattening_status = fields.pop("flattening_status", _UNSET)
+        fields.pop("flattened_data", None)
+        fields.pop("flattening_status", None)
 
         alias_map = {}
         ignored_fields: set[str] = set()
@@ -195,25 +155,6 @@ class JobRepository:
                     continue
                 if hasattr(job, mapped):
                     setattr(job, mapped, value)
-
-            if fields.get("status") and fields.get("status") != "done":
-                self._clear_compat_flatten_state(job_id)
-                if hasattr(job, "flattened_data"):
-                    job.flattened_data = None
-                if hasattr(job, "flattening_status"):
-                    job.flattening_status = None
-
-            if compat_flattened_data is not _UNSET or compat_flattening_status is not _UNSET:
-                self._set_compat_flatten_state(
-                    job_id,
-                    flattened_data=compat_flattened_data,
-                    flattening_status=compat_flattening_status,
-                )
-
-                if hasattr(job, "flattened_data") and compat_flattened_data is not _UNSET:
-                    job.flattened_data = compat_flattened_data
-                if hasattr(job, "flattening_status") and compat_flattening_status is not _UNSET:
-                    job.flattening_status = compat_flattening_status
 
             job.updated_at = time.time()
             await session.commit()
@@ -413,42 +354,6 @@ class JobRepository:
             grouped.setdefault(row.job_id, []).append(self._invoice_item_to_payload(row))
         return grouped
 
-    async def refresh_flattened_data(
-        self,
-        job_id: str,
-        *,
-        force: bool = False,
-        persist: bool = True,
-    ) -> Optional[Dict[str, Any]]:
-        """Compatibility helper: build flatten payload on-the-fly from DB truth."""
-        del force
-
-        job = await self.get_job(job_id)
-        if not job:
-            return None
-
-        display = await self.get_display_result(job_id)
-        if not isinstance(display, dict) or not display:
-            return None
-
-        async with self.session_factory() as session:
-            project_group = await self._get_project_group(session)
-
-        source = "manual" if job.get("manual_updated_at") else "vlm"
-        payload = build_job_flatten_payload(
-            display,
-            project_group=project_group,
-            source=source,
-            job_id=job_id,
-        )
-        if persist:
-            self._set_compat_flatten_state(
-                job_id,
-                flattened_data=json.dumps(payload, ensure_ascii=False),
-                flattening_status="done",
-            )
-        return payload
-
     # ---------------------
     # VLM-First Specific
     # ---------------------
@@ -490,23 +395,6 @@ class JobRepository:
 
             await self._sync_items_to_db(session, job_id, vlm_result if isinstance(vlm_result, dict) else {})
 
-            project_group = await self._get_project_group(session)
-            flattened_payload = build_job_flatten_payload(
-                vlm_result if isinstance(vlm_result, dict) else {},
-                project_group=project_group,
-                source="vlm",
-                job_id=job_id,
-            )
-            self._set_compat_flatten_state(
-                job_id,
-                flattened_data=json.dumps(flattened_payload, ensure_ascii=False),
-                flattening_status="done",
-            )
-            if hasattr(job, "flattened_data"):
-                job.flattened_data = json.dumps(flattened_payload, ensure_ascii=False)
-            if hasattr(job, "flattening_status"):
-                job.flattening_status = "done"
-
             session.add(
                 Event(
                     job_id=job_id,
@@ -542,23 +430,6 @@ class JobRepository:
             job.updated_at = now
 
             await self._sync_items_to_db(session, job_id, payload)
-
-            project_group = await self._get_project_group(session)
-            flattened_payload = build_job_flatten_payload(
-                payload,
-                project_group=project_group,
-                source="manual",
-                job_id=job_id,
-            )
-            self._set_compat_flatten_state(
-                job_id,
-                flattened_data=json.dumps(flattened_payload, ensure_ascii=False),
-                flattening_status="done",
-            )
-            if hasattr(job, "flattened_data"):
-                job.flattened_data = json.dumps(flattened_payload, ensure_ascii=False)
-            if hasattr(job, "flattening_status"):
-                job.flattening_status = "done"
 
             session.add(
                 Event(
@@ -671,10 +542,6 @@ class JobRepository:
             result_del = await session.execute(delete(Job).where(Job.project_id == self.project_id))
             await session.commit()
 
-            keys_to_remove = [key for key in self._compat_flatten_state.keys() if key[0] == self.project_id]
-            for key in keys_to_remove:
-                self._compat_flatten_state.pop(key, None)
-
             return int(result_del.rowcount or 0)
 
     # ---------------------
@@ -728,14 +595,6 @@ class JobRepository:
         if not manual_json_text and job.get("manual_updated_at") and isinstance(display_result, dict):
             manual_json_text = json.dumps(display_result, ensure_ascii=False)
 
-        compat_flattened_data = job.get("flattened_data")
-        parsed_flattened_data = None
-        if compat_flattened_data:
-            try:
-                parsed_flattened_data = json.loads(compat_flattened_data)
-            except Exception:
-                parsed_flattened_data = None
-
         return {
             "job_id": job["job_id"],
             "image_path": job["image_path"],
@@ -749,8 +608,8 @@ class JobRepository:
             "qr_verified": bool(job.get("qr_verified")),
             "manual_json_text": manual_json_text,
             # Deprecated fields retained for response shape compatibility.
-            "flattened_data": parsed_flattened_data,
-            "flattening_status": job.get("flattening_status"),
+            "flattened_data": None,
+            "flattening_status": None,
             "manual_updated_at": job.get("manual_updated_at"),
             "created_at": job["created_at"],
             "updated_at": job["updated_at"],

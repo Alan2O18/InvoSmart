@@ -132,6 +132,10 @@ const props = defineProps({
     type: Boolean,
     required: true,
   },
+  defaultOwnerId: {
+    type: [Number, String],
+    default: null,
+  },
 })
 
 const emit = defineEmits(['update:modelValue', 'registered'])
@@ -324,7 +328,7 @@ const finishDraw = () => {
     enabled: true,
     name: `手動印章 ${boxes.value.length + 1}`,
     category: mode.value === 'red' ? '社團' : '稽核',
-    owner_id: null,
+    owner_id: props.defaultOwnerId || null,
   })
 
   drawing.value = false

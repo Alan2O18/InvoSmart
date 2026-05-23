@@ -5,20 +5,20 @@ import time
 import json
 import tempfile
 import re
-import pandas as pd
-import sqlite3
+import openpyxl
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 from pathlib import Path
 from datetime import datetime
 from typing import Optional
 from backend.utils.parser import extract_structured_data
-
-logger = logging.getLogger(__name__)
 from backend.repositories.job_repository import JobRepository
 
+logger = logging.getLogger(__name__)
 
 
 class ExcelExporter:
-    """Handles Excel export functionality."""
+    """Handles Excel export functionality using native openpyxl."""
     
     def __init__(self, project_repo):
         self.project_repo = project_repo
@@ -66,9 +66,7 @@ class ExcelExporter:
             if job_data:
                 jobs_list.append(job_data)
         
-        df_jobs = pd.DataFrame(jobs_list)
-
-        # Define new column layout
+        # Define columns layout
         main_cols = [
             "狀態",
             "檔名",
@@ -82,14 +80,19 @@ class ExcelExporter:
             "人工修正",
             "VLM結果本文",
         ]
+        
+        detail_cols = [
+            "狀態", "檔名", "來源檔案(位置)", "專案", "發票號碼", "供應商", 
+            "報帳名目", "品項名稱", "數量", "單價", "小計"
+        ]
+
         main_rows = []
         detail_rows = []
 
-        for _, row in df_jobs.iterrows():
+        for row in jobs_list:
             job_id = row.get("job_id")
-            filename = (
-                row.get("image_path") and Path(row.get("image_path")).name or None
-            )
+            image_path = row.get("image_path")
+            filename = Path(image_path).name if image_path else None
             
             # Parse stats from JSON fields
             vlm_time = 0
@@ -135,7 +138,6 @@ class ExcelExporter:
             vlm_body_text = self._generate_text_from_vlm_result(parsed_vlm)
 
             # extract_structured_data handles flat structure
-            # Priority: display_result > vlm_result_json
             structured = extract_structured_data(display_result)
             if not structured:
                 structured = extract_structured_data(raw_vlm)
@@ -155,7 +157,7 @@ class ExcelExporter:
                 {
                     "狀態": job_status,
                     "檔名": filename,
-                    "來源檔案(位置)": row.get("image_path"),
+                    "來源檔案(位置)": image_path,
                     "VLM處理時間": vlm_time,
                     "總時間": total,
                     "備註": None,
@@ -174,7 +176,7 @@ class ExcelExporter:
                     {
                         "狀態": job_status,
                         "檔名": filename,
-                        "來源檔案(位置)": row.get("image_path"),
+                        "來源檔案(位置)": image_path,
                         "專案": project_id,
                         "發票號碼": structured.get("invoice_id", "") or structured.get("voucher_id", "") or row.get("voucher_id", ""),
                         "供應商": supplier,
@@ -185,14 +187,6 @@ class ExcelExporter:
                         "小計": it.get("total", ""),
                     }
                 )
-
-        df_main = pd.DataFrame(main_rows, columns=main_cols)
-        df_detail = pd.DataFrame(
-            detail_rows, columns=[
-                "狀態", "檔名", "來源檔案(位置)", "專案", "發票號碼", "供應商", 
-                "報帳名目", "品項名稱", "數量", "單價", "小計"
-            ]
-        )
 
         if not excel_name:
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -208,39 +202,68 @@ class ExcelExporter:
             excel_name = f"{safe_project_id}「{safe_project_name}」_預結算表_{ts}.xlsx"
         out_path = root / excel_name
 
-        # 選 engine: 優先 xlsxwriter，再 openpyxl；都沒有就 fallback CSV
-        engine = None
-        try:
-            import xlsxwriter  # type: ignore
-            engine = "xlsxwriter"
-        except Exception:
-            try:
-                import openpyxl  # type: ignore
-                engine = "openpyxl"
-            except Exception:
-                engine = None
+        # Create workbook and worksheets
+        wb = openpyxl.Workbook()
+        
+        # Main Sheet
+        ws_main = wb.active
+        ws_main.title = "主表"
+        ws_main.append(main_cols)
+        for r in main_rows:
+            ws_main.append([r.get(c) for c in main_cols])
 
-        fd, tmp = tempfile.mkstemp(dir=str(out_path.parent))
+        # Detail Sheet
+        ws_detail = wb.create_sheet("細項表")
+        ws_detail.append(detail_cols)
+        for r in detail_rows:
+            ws_detail.append([r.get(c) for c in detail_cols])
+
+        # Style Definitions
+        header_font = Font(name="Microsoft JhengHei", size=11, bold=True)
+        cell_font = Font(name="Microsoft JhengHei", size=10)
+        header_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+        thin_side = Side(style='thin', color='D0D0D0')
+        thin_border = Border(left=thin_side, right=thin_side, top=thin_side, bottom=thin_side)
+        
+        for ws in [ws_main, ws_detail]:
+            # Format headers
+            for col_idx in range(1, ws.max_column + 1):
+                cell = ws.cell(row=1, column=col_idx)
+                cell.font = header_font
+                cell.fill = header_fill
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+                cell.border = thin_border
+            
+            # Format data cells
+            for r_idx in range(2, ws.max_row + 1):
+                for col_idx in range(1, ws.max_column + 1):
+                    cell = ws.cell(row=r_idx, column=col_idx)
+                    cell.font = cell_font
+                    cell.border = thin_border
+                    val = cell.value
+                    if isinstance(val, (int, float)):
+                        cell.alignment = Alignment(horizontal="right", vertical="center")
+                    else:
+                        cell.alignment = Alignment(horizontal="left", vertical="center")
+            
+            # Auto-fit columns
+            for col in ws.columns:
+                max_len = 0
+                col_letter = get_column_letter(col[0].column)
+                for cell in col:
+                    val = str(cell.value or '')
+                    val_len = 0
+                    for char in val:
+                        val_len += 2 if ord(char) > 127 else 1
+                    max_len = max(max_len, val_len)
+                ws.column_dimensions[col_letter].width = min(max(max_len + 3, 10), 50)
+
+        # Write safely
+        fd, tmp = tempfile.mkstemp(dir=str(out_path.parent), suffix=".xlsx")
         os.close(fd)
         try:
-            if engine:
-                with pd.ExcelWriter(tmp, engine=engine) as writer:
-                    df_main.to_excel(writer, sheet_name="主表", index=False)
-                    df_detail.to_excel(writer, sheet_name="細項表", index=False)
-                os.replace(tmp, str(out_path))
-            else:
-                # fallback: 兩個 CSV（放在同一 folder，並改名）
-                csv_main = str(out_path.with_suffix(".main.csv"))
-                csv_detail = str(out_path.with_suffix(".detail.csv"))
-                df_main.to_csv(csv_main, index=False)
-                df_detail.to_csv(csv_detail, index=False)
-                os.unlink(tmp)
-                logger.warning(
-                    "No Excel engine found; exported CSV instead: %s, %s",
-                    csv_main,
-                    csv_detail,
-                )
-                out_path = Path(csv_main)  # 回傳其中一個路徑作為代表
+            wb.save(tmp)
+            os.replace(tmp, str(out_path))
         except Exception as e:
             try:
                 os.unlink(tmp)

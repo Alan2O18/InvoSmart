@@ -108,14 +108,14 @@ class ImageCodecAdapter:
                 last_err: Exception | None = None
                 for attempt in range(1, max_retries + 1):
                     try:
-                        # Use direct numpy-to-jxl encoding (no intermediate PNG)
-                        result = encode_image_to_jxl(
+                        # Use direct numpy-to-jxl encoding (no intermediate PNG), return raw bytes and write to disk
+                        encoded_bytes = encode_image_to_jxl(
                             image,
-                            str(output_path),
                             lossless=jxl_options["lossless"],
                             effort=jxl_options["effort"],
                         )
-                        return result
+                        output_path.write_bytes(encoded_bytes)
+                        return output_path
                     except Exception as exc:
                         last_err = exc
                         logger.warning(

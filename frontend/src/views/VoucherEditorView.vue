@@ -24,16 +24,15 @@
       </span>
     </section>
 
-    <div class="content" v-if="ready">
+    <div class="content" v-if="ready" :class="{ 'with-sidebar': showMetadataEditor }">
       <aside class="left-panel">
         <h3>可用發票</h3>
         <div class="invoice-list">
-          <button
+          <div
             v-for="invoice in invoices"
             :key="invoice.jobId"
             class="invoice-item"
-            :disabled="invoiceUsageMap[invoice.jobId]"
-            @click="addInvoiceToActivePage(invoice)"
+            :class="{ used: invoiceUsageMap[invoice.jobId] }"
           >
             <img :src="getFullImageUrl(invoice.imageUrl)" alt="發票縮圖" class="invoice-thumb" loading="lazy" />
             <div class="invoice-info">
@@ -41,7 +40,11 @@
               <span class="amount">${{ invoice.result?.total_amount ?? invoice.result?.summary?.total ?? invoice.result?.total ?? 0 }}</span>
             </div>
             <div class="invoice-id" style="font-size:10px; color:#aaa; margin-top:2px;">{{ invoice.jobId.slice(-6) }}</div>
-          </button>
+            <div class="invoice-actions" style="display: flex; gap: 4px; width: 100%; margin-top: 6px;">
+              <button type="button" style="flex: 1; padding: 4px; font-size: 11px;" class="mini-btn primary" :disabled="invoiceUsageMap[invoice.jobId]" @click="addInvoiceToActivePage(invoice)">加入</button>
+              <button type="button" style="flex: 1; padding: 4px; font-size: 11px;" class="mini-btn secondary" @click="openMetadataEditor(invoice)">修改</button>
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -112,6 +115,72 @@
           </ul>
         </div>
       </main>
+
+      <aside class="right-panel" v-if="showMetadataEditor">
+        <div class="sidebar-header">
+          <h3>修改發票資料</h3>
+          <button type="button" class="close-btn" @click="closeMetadataEditor">✕</button>
+        </div>
+        <div class="sidebar-body">
+          <div class="form-group-vertical">
+            <label>發票編號 (Voucher ID)</label>
+            <input v-model="editForm.header.voucher_id" />
+          </div>
+          <div class="form-group-vertical">
+            <label>供應商 (Supplier)</label>
+            <input v-model="editForm.header.supplier" />
+          </div>
+          <div class="form-group-vertical">
+            <label>日期 (Date)</label>
+            <input v-model="editForm.header.date" placeholder="YYYY-MM-DD" />
+          </div>
+          <div class="form-group-vertical">
+            <label>用途 (Purpose)</label>
+            <textarea v-model="editForm.summary.purpose" rows="2"></textarea>
+          </div>
+          <div class="form-group-vertical">
+            <label>總金額 (Total Amount)</label>
+            <input v-model.number="editForm.summary.total" type="number" />
+          </div>
+
+          <div class="items-section">
+            <h4>明細項目 (Items)</h4>
+            <div class="meta-item-row" v-for="(item, idx) in editForm.items" :key="idx">
+              <div class="item-header">
+                <span>項目 {{ idx + 1 }}</span>
+                <button type="button" @click="removeItemRow(idx)" class="remove-item-btn">✕</button>
+              </div>
+              <div class="form-group-vertical">
+                <label>品名</label>
+                <input v-model="item.description" />
+              </div>
+              <div class="form-group-vertical">
+                <label>類別</label>
+                <input v-model="item.category" />
+              </div>
+              <div class="form-row">
+                <div class="form-group-vertical">
+                  <label>數量</label>
+                  <input v-model.number="item.qty" type="number" @input="calcItemTotal(item)" />
+                </div>
+                <div class="form-group-vertical">
+                  <label>單價</label>
+                  <input v-model.number="item.price" type="number" @input="calcItemTotal(item)" />
+                </div>
+                <div class="form-group-vertical">
+                  <label>總額</label>
+                  <input v-model.number="item.total" type="number" />
+                </div>
+              </div>
+            </div>
+            <button type="button" class="add-item-btn" @click="addItemRow">+ 新增明細</button>
+          </div>
+        </div>
+        <div class="sidebar-footer">
+          <button type="button" class="secondary" @click="closeMetadataEditor">取消</button>
+          <button type="button" class="primary" @click="saveMetadata">儲存修改</button>
+        </div>
+      </aside>
     </div>
 
     <div v-else class="loading">載入資料中...</div>
@@ -119,7 +188,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, reactive } from 'vue'
 import * as fabric from 'fabric'
 import { useRoute, useRouter } from 'vue-router'
 import { useActiveElement, useEventListener, useThrottleFn } from '@vueuse/core'
@@ -140,6 +209,107 @@ import {
 
 const route = useRoute()
 const router = useRouter()
+
+const showMetadataEditor = ref(false)
+const selectedInvoiceForEdit = ref(null)
+const editForm = reactive({
+  header: {
+    voucher_id: '',
+    supplier: '',
+    date: ''
+  },
+  summary: {
+    purpose: '',
+    total: 0
+  },
+  items: []
+})
+
+const openMetadataEditor = (invoice) => {
+  selectedInvoiceForEdit.value = invoice
+  const result = invoice.result || {}
+  const header = result.header || {}
+  const summary = result.summary || {}
+  const items = result.items || []
+
+  const mappedItems = items.map(item => ({
+    category: item.category || '未分類',
+    description: item.description || item.name || '',
+    qty: item.qty ?? item.quantity ?? 1,
+    price: item.price ?? 0,
+    total: item.total ?? 0,
+    remark: item.remark || ''
+  }))
+
+  Object.assign(editForm.header, {
+    voucher_id: header.voucher_id || header.invoice_id || '',
+    supplier: header.supplier || '',
+    date: header.date || ''
+  })
+  Object.assign(editForm.summary, {
+    purpose: summary.purpose || '',
+    total: summary.total ?? 0
+  })
+  editForm.items = mappedItems
+
+  showMetadataEditor.value = true
+}
+
+const closeMetadataEditor = () => {
+  showMetadataEditor.value = false
+  selectedInvoiceForEdit.value = null
+}
+
+const addItemRow = () => {
+  editForm.items.push({
+    category: '未分類',
+    description: '',
+    qty: 1,
+    price: 0,
+    total: 0,
+    remark: ''
+  })
+}
+
+const removeItemRow = (idx) => {
+  editForm.items.splice(idx, 1)
+}
+
+const calcItemTotal = (item) => {
+  item.total = (item.qty || 0) * (item.price || 0)
+}
+
+const saveMetadata = async () => {
+  if (!selectedInvoiceForEdit.value) return
+  const jobId = selectedInvoiceForEdit.value.jobId
+  try {
+    const payload = {
+      header: {
+        voucher_id: editForm.header.voucher_id,
+        invoice_id: editForm.header.voucher_id,
+        supplier: editForm.header.supplier,
+        date: editForm.header.date
+      },
+      summary: {
+        purpose: editForm.summary.purpose,
+        total: editForm.summary.total
+      },
+      items: editForm.items
+    }
+    
+    await api.saveManualJson(projectId, jobId, payload)
+    
+    const localInvoice = invoices.value.find(i => i.jobId === jobId)
+    if (localInvoice) {
+      localInvoice.result = payload
+    }
+    
+    alert('修改已儲存！')
+    closeMetadataEditor()
+  } catch (err) {
+    alert('儲存失敗：' + (err.message || err))
+  }
+}
 
 const projectId = route.params.id
 const maxPages = 10
@@ -1060,6 +1230,22 @@ onMounted(async () => {
   recalculatePageFields(activePage.value, { onlyFillEmpty: true })
   recalculateVoucherNumbers()
 
+  // Auto-open metadata editor if editJobId is passed in query parameters
+  const editJobId = route.query.editJobId
+  if (editJobId && invoices.value) {
+    const match = invoices.value.find(i => i.jobId === editJobId)
+    if (match) {
+      openMetadataEditor(match)
+      const pageIndex = pages.value.findIndex(p => p.images.some(img => img.jobId === editJobId))
+      if (pageIndex !== -1 && pageIndex !== activePageIndex.value) {
+        activePageIndex.value = pageIndex
+        await nextTick()
+        await loadActivePageToCanvas()
+        recalculatePageFields(activePage.value, { onlyFillEmpty: true })
+      }
+    }
+  }
+
   autosaveTimer = window.setInterval(saveLayout, 30000)
 })
 
@@ -1363,5 +1549,146 @@ button:disabled {
 }
 .remove-btn:hover {
   background: #dc2626;
+}
+
+/* ── Sidebar Metadata Editor ── */
+.right-panel {
+  border-left: 1px solid #333;
+  padding: 12px;
+  background: #1a1a1a;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  box-sizing: border-box;
+}
+.sidebar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #333;
+  padding-bottom: 8px;
+  margin-bottom: 12px;
+}
+.sidebar-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #60a5fa;
+}
+.sidebar-header .close-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+.sidebar-header .close-btn:hover {
+  color: white;
+}
+.sidebar-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.form-group-vertical {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.form-group-vertical label {
+  font-size: 0.8rem;
+  color: #aaa;
+}
+.form-group-vertical input, .form-group-vertical textarea {
+  width: 100%;
+  padding: 6px;
+  background: #111827;
+  border: 1px solid #374151;
+  color: white;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+.items-section {
+  border-top: 1px solid #333;
+  padding-top: 12px;
+  margin-top: 8px;
+}
+.items-section h4 {
+  margin: 0 0 8px 0;
+  font-size: 0.9rem;
+  color: #fbbf24;
+}
+.meta-item-row {
+  border: 1px solid #374151;
+  border-radius: 6px;
+  padding: 8px;
+  background: #1f2937;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.8rem;
+  color: #aaa;
+}
+.remove-item-btn {
+  background: transparent;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 1rem;
+}
+.add-item-btn {
+  width: 100%;
+  padding: 6px;
+  background: transparent;
+  border: 1px dashed #60a5fa;
+  color: #60a5fa;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+  font-size: 0.85rem;
+}
+.add-item-btn:hover {
+  background: rgba(96, 165, 250, 0.1);
+}
+.sidebar-footer {
+  border-top: 1px solid #333;
+  padding-top: 12px;
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.sidebar-footer button {
+  padding: 6px 12px;
+  border-radius: 4px;
+  border: none;
+  font-weight: bold;
+  cursor: pointer;
+}
+.sidebar-footer .secondary {
+  background: transparent;
+  border: 1px solid #444;
+  color: #ccc;
+}
+.sidebar-footer .secondary:hover {
+  background: #333;
+}
+.sidebar-footer .primary {
+  background: #60a5fa;
+  color: white;
+}
+.sidebar-footer .primary:hover {
+  background: #2563eb;
+}
+
+.content.with-sidebar {
+  grid-template-columns: 280px 1fr 380px;
 }
 </style>

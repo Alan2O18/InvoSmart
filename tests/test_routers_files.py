@@ -159,7 +159,7 @@ def test_get_raw_preview_matches_dotted_stem_without_extension(mock_app_client, 
     raw_file.write_bytes(b"raw-bytes")
 
     mock_engine_for_api.project_repo._project_root.return_value = Path(project_root)
-    mock_engine_for_api.file_ops.ensure_preview_cache = AsyncMock(return_value=None)
+    mock_engine_for_api.cache_service.ensure_preview_cache = AsyncMock(return_value=None)
 
     response = mock_app_client.get("/api/projects/proj1/preview/raw/receipt.v1")
     assert response.status_code == 200
@@ -192,7 +192,7 @@ def test_get_split_preview_prefers_cache(mock_app_client, mock_engine_for_api, t
     cache_file.write_bytes(b"cache")
 
     mock_engine_for_api.project_repo._project_root.return_value = Path(project_root)
-    mock_engine_for_api.file_ops.ensure_preview_cache = AsyncMock(
+    mock_engine_for_api.cache_service.ensure_preview_cache = AsyncMock(
         return_value={"path": str(cache_file), "media_type": "image/jpeg"}
     )
 
@@ -212,7 +212,7 @@ def test_get_raw_preview_prefers_cache(mock_app_client, mock_engine_for_api, tmp
     cache_file.write_bytes(b"cache")
 
     mock_engine_for_api.project_repo._project_root.return_value = Path(project_root)
-    mock_engine_for_api.file_ops.ensure_preview_cache = AsyncMock(
+    mock_engine_for_api.cache_service.ensure_preview_cache = AsyncMock(
         return_value={"path": str(cache_file), "media_type": "image/jpeg"}
     )
 

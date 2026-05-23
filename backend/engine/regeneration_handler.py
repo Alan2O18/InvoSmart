@@ -2,14 +2,14 @@
 import logging
 import time
 import json
-import pandas as pd
+import openpyxl
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
 
 
 class RegenerationHandler:
-    """Handles regeneration of LLM results from human corrections."""
+    """Handles regeneration of LLM results from human corrections using openpyxl."""
     
     def __init__(self, project_repo, excel_exporter):
         self.project_repo = project_repo
@@ -37,13 +37,49 @@ class RegenerationHandler:
 
         # --- Read the Excel file ---
         try:
-            df = pd.read_excel(excel_path, sheet_name="主表")
-            if "人工修正" not in df.columns:
-                logger.error(f"Column '人工修正' not found in Excel file '{excel_path}'")
+            wb = openpyxl.load_workbook(excel_path, read_only=True)
+            if "主表" not in wb.sheetnames:
+                logger.error(f"Sheet '主表' not found in Excel file '{excel_path}'")
+                wb.close()
                 return None
+            ws = wb["主表"]
         except Exception as e:
             logger.error(f"Failed to read Excel file '{excel_path}': {e}")
             return None
+
+        # Parse headers and rows
+        rows_iter = ws.iter_rows(values_only=True)
+        try:
+            headers = next(rows_iter)
+        except StopIteration:
+            logger.error("Excel sheet '主表' is empty")
+            wb.close()
+            return None
+
+        if not headers or "人工修正" not in headers:
+            logger.error(f"Column '人工修正' not found in Excel file '{excel_path}'")
+            wb.close()
+            return None
+
+        manual_idx = headers.index("人工修正")
+        filename_idx = headers.index("檔名") if "檔名" in headers else -1
+
+        rows_data = []
+        for r in rows_iter:
+            if not r:
+                continue
+            filename = r[filename_idx] if (filename_idx != -1 and filename_idx < len(r)) else None
+            manual_correction = r[manual_idx] if (manual_idx < len(r)) else None
+
+            # Skip empty entries
+            if manual_correction is None or str(manual_correction).strip() == "" or filename is None or str(filename).strip() == "":
+                continue
+
+            rows_data.append({
+                "檔名": str(filename).strip(),
+                "人工修正": str(manual_correction).strip()
+            })
+        wb.close()
 
         # --- Initialize LLM Handler ---
         try:
@@ -57,18 +93,15 @@ class RegenerationHandler:
         from backend.repositories.job_repository import JobRepository
         job_repo = JobRepository(project_id, session_factory=AsyncSessionLocal)
         
-        for index, row in df.iterrows():
-            manual_correction = row.get("人工修正")
-            filename = row.get("檔名")
-
-            if pd.isna(manual_correction) or not manual_correction or not filename:
-                continue
+        for item in rows_data:
+            filename = item["檔名"]
+            manual_correction = item["人工修正"]
 
             # Find the job from the global DB
             all_jobs = await job_repo.list_jobs()
             matched_job = None
             for j in all_jobs:
-                if j.get("image_path", "").endswith(str(filename)):
+                if j.get("image_path", "").endswith(filename):
                     matched_job = j
                     break
             

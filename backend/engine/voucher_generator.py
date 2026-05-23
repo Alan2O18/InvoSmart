@@ -10,7 +10,7 @@ from typing import List
 from PIL import Image
 
 from backend.engine.voucher_text_config import get_text_field_config, STAMP_ZONES, STITCHED_SEAL_CONFIG
-from backend.processing.image_codec_adapter import ImageCodecAdapter
+from backend.engine.image_codec_adapter import ImageCodecAdapter
 from backend.utils.stamp_ops import get_rotated_stamp_bytes
 
 logger = logging.getLogger(__name__)

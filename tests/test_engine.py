@@ -179,7 +179,7 @@ class TestEngineFileOps:
         await engine.project_repo.register_project("split_proj", "Split", str(engine.project_repo.workspace_root / "split_proj"))
         engine.project_repo._ensure_layout(engine.project_repo._project_root("split_proj"))
         
-        # Mock file ops
+        # Mock resplit service
         async def mock_splitting(project_id, target_files=None):
             root = engine.project_repo._project_root(project_id)
             (root / "分割發票" / "split_1.jpg").touch()
@@ -187,7 +187,7 @@ class TestEngineFileOps:
             await tm.insert_job("split_1", "分割發票/split_1.jpg")
             return {"status": "split_completed"}
         
-        engine.file_ops.run_splitting = MagicMock(side_effect=mock_splitting)
+        engine.resplit_service.run_splitting = MagicMock(side_effect=mock_splitting)
         
         res = await engine.run_splitting("split_proj")
         assert res["status"] == "split_completed"
@@ -288,8 +288,8 @@ class TestEngineFileOps:
         root = engine.project_repo._project_root("rotate_proj")
         img_path = root / "分割發票" / "test.jpg"
         
-        # Mock cv2 imread/imwrite to avoid real image processing
-        engine.file_ops.rotate_image = AsyncMock(return_value={"status": "rotated", "path": str(img_path)})
+        # Mock image_service rotate_image to avoid real image processing
+        engine.image_service.rotate_image = AsyncMock(return_value={"status": "rotated", "path": str(img_path)})
         
         res = await engine.rotate_image("rotate_proj", "test.jpg", 90)
         assert res["status"] == "rotated"
@@ -334,9 +334,9 @@ class TestEngineFileOps:
         """Test run_split_single delegation."""
         from unittest.mock import AsyncMock
         engine = test_engine
-        engine.file_ops.run_splitting = AsyncMock(return_value={"status": "done"})
+        engine.resplit_service.run_splitting = AsyncMock(return_value={"status": "done"})
         res = await engine.run_split_single("split_proj", "file1.jpg")
-        engine.file_ops.run_splitting.assert_called_once_with("split_proj", target_files=["file1.jpg"])
+        engine.resplit_service.run_splitting.assert_called_once_with("split_proj", target_files=["file1.jpg"])
         assert res["status"] == "done"
 
     async def test_run_splitting_rejects_archived_project(self, test_engine):
@@ -461,7 +461,7 @@ class TestEngineJobManagement:
         tm = engine.get_job_repo("del_job")
         await tm.insert_job("to_delete", "test.jpg")
 
-        with patch.object(engine.file_ops, "delete_job_files", AsyncMock(return_value={"job_found": True})) as mock_cleanup:
+        with patch.object(engine.image_service, "delete_job_files", AsyncMock(return_value={"job_found": True})) as mock_cleanup:
             result = await engine.delete_job("del_job", "to_delete")
 
         mock_cleanup.assert_called_once_with("del_job", "to_delete")
@@ -471,7 +471,7 @@ class TestEngineJobManagement:
 
     async def test_cleanup_preview_cache_delegate(self, test_engine):
         engine = test_engine
-        with patch.object(engine.file_ops, "cleanup_all_projects_cache", AsyncMock(return_value={"deleted_files": 3})) as mock_cleanup:
+        with patch.object(engine.image_service, "cleanup_all_projects_cache", AsyncMock(return_value={"deleted_files": 3})) as mock_cleanup:
             result = await engine.cleanup_preview_cache(max_age_hours=12)
 
         mock_cleanup.assert_called_once_with(max_age_hours=12)
@@ -482,25 +482,25 @@ class TestEngineJobManagement:
         await engine.project_repo.register_project("resplit_proj", "Resplit", str(engine.project_repo.workspace_root / "resplit_proj"))
         engine.project_repo._ensure_layout(engine.project_repo._project_root("resplit_proj"))
 
-        with patch.object(engine.file_ops, "detect_job_sub_rects", AsyncMock(return_value=[{"points": [], "area": 1.0}])) as mock_detect:
+        with patch.object(engine.resplit_service, "detect_job_sub_rects", AsyncMock(return_value=[{"points": [], "area": 1.0}])) as mock_detect:
             detected = await engine.detect_job_sub_rects("resplit_proj", "job-1")
 
         assert len(detected) == 1
         mock_detect.assert_called_once_with("resplit_proj", "job-1")
 
-        with patch.object(engine.file_ops, "apply_job_resplit", AsyncMock(return_value={"status": "resplit_applied"})) as mock_apply:
+        with patch.object(engine.resplit_service, "apply_job_resplit", AsyncMock(return_value={"status": "resplit_applied"})) as mock_apply:
             result = await engine.apply_job_resplit("resplit_proj", "job-1", [{"points": [[0, 0], [1, 0], [1, 1], [0, 1]]}])
 
         mock_apply.assert_called_once()
         assert result["status"] == "resplit_applied"
 
-        with patch.object(engine.file_ops, "detect_raw_sub_rects", AsyncMock(return_value=[{"points": [], "area": 1.0}])) as mock_detect_raw:
+        with patch.object(engine.resplit_service, "detect_raw_sub_rects", AsyncMock(return_value=[{"points": [], "area": 1.0}])) as mock_detect_raw:
             raw_detected = await engine.detect_raw_sub_rects("resplit_proj", "raw_1.jpg")
 
         assert len(raw_detected) == 1
         mock_detect_raw.assert_called_once_with("resplit_proj", "raw_1.jpg")
 
-        with patch.object(engine.file_ops, "apply_raw_resplit", AsyncMock(return_value={"status": "resplit_applied"})) as mock_apply_raw:
+        with patch.object(engine.resplit_service, "apply_raw_resplit", AsyncMock(return_value={"status": "resplit_applied"})) as mock_apply_raw:
             raw_result = await engine.apply_raw_resplit("resplit_proj", "raw_1.jpg", [{"points": [[0, 0], [1, 0], [1, 1], [0, 1]]}])
 
         mock_apply_raw.assert_called_once()

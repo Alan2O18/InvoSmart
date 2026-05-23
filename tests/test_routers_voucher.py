@@ -1,6 +1,6 @@
 import io
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import fitz
 from PIL import Image
@@ -210,15 +210,14 @@ def test_get_template_returns_done_invoices_with_result(mock_app_client, mock_en
             "thumb_max_width": 800,
         },
     )
-    monkeypatch.setattr(
-        "backend.routers.voucher._template_preview_payload",
-        lambda *_: {
+    mock_engine_for_api.pdf_task_service.get_template_preview_payload = MagicMock(
+        return_value={
             "templatePng": "mock_png",
             "pageWidth": 595.0,
             "pageHeight": 842.0,
             "previewPixelWidth": 1190,
             "previewPixelHeight": 1684,
-        },
+        }
     )
 
     response = mock_app_client.get("/api/voucher/proj1/template")

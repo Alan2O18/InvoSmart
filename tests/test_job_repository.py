@@ -39,8 +39,8 @@ class TestJobRepository:
             assert "validation_json" in columns
             assert "qr_verified" in columns
             assert "manual_json_text" in columns
-            assert "flattened_data" in columns
-            assert "flattening_status" in columns
+            assert "flattened_data" not in columns
+            assert "flattening_status" not in columns
             # Old columns should NOT exist
             assert "stage" not in columns
             assert "ocr_result_json" not in columns
@@ -154,10 +154,6 @@ class TestJobRepository:
         assert json.loads(job["validation_json"]) == validation
         assert json.loads(job["vlm_stats"]) == stats
         assert job["qr_verified"] == 1
-        assert job["flattening_status"] == "done"
-        flattened = json.loads(job["flattened_data"])
-        assert flattened["source"] == "vlm"
-        assert flattened["jobId"] == "j_vlm"
 
     async def test_emit_event(self, repo, async_session_factory):
         """Test event logging."""
@@ -262,10 +258,6 @@ class TestJobRepository:
         assert job["manual_json_text"] is not None
         saved_manual = json.loads(job["manual_json_text"])
         assert saved_manual["header"]["buyer"] == "A Edited"
-        assert job["flattening_status"] == "done"
-        flattened = json.loads(job["flattened_data"])
-        assert flattened["source"] == "manual"
-        assert len(flattened["items"]) == 2
         
         # 2. Verify InvoiceItems were actually extracted and saved to DB
         async with async_session_factory() as session:
@@ -287,40 +279,4 @@ class TestJobRepository:
         assert display["header"]["buyer"] == "A Edited"
         assert len(display["items"]) == 2
 
-    async def test_refresh_flattened_data_uses_project_group(self, repo, async_session_factory):
-        from backend.database.models import Project
 
-        async with async_session_factory() as session:
-            session.add(Project(project_id="test_proj", meta_data={"group": "器材費"}))
-            await session.commit()
-
-        await repo.insert_job("job_flat", "img.jpg", "done")
-        await repo.update_job(
-            "job_flat",
-            vlm_result_json=json.dumps({
-                "header": {"voucher_id": "V-1"},
-                "items": [{"category": "耗材", "name": "紙", "total": 30}],
-            }, ensure_ascii=False),
-            status="done",
-        )
-
-        payload = await repo.refresh_flattened_data("job_flat", force=True)
-        assert payload is not None
-        assert payload["projectGroup"] == "器材費"
-        assert payload["items"][0]["project_group"] == "器材費"
-
-    async def test_update_job_clears_flattened_data_when_status_resets(self, repo, async_session_factory):
-        from backend.database.models import Project
-
-        async with async_session_factory() as session:
-            session.add(Project(project_id="test_proj"))
-            await session.commit()
-
-        await repo.insert_job("job_reset", "img.jpg", "ready")
-        await repo.complete_vlm("job_reset", {"items": [{"name": "A", "total": 10}]})
-
-        cleared = await repo.update_job("job_reset", status="pending")
-        assert cleared is True
-        job = await repo.get_job("job_reset")
-        assert job["flattened_data"] is None
-        assert job["flattening_status"] is None

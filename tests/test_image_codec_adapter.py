@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from backend.processing.image_codec_adapter import ImageCodecAdapter
+from backend.engine.image_codec_adapter import ImageCodecAdapter
 
 
 def test_codec_adapter_defaults_to_jpg():
@@ -45,11 +45,10 @@ def test_codec_adapter_write_jxl_invokes_encoder(tmp_path):
 
     image = np.zeros((10, 10, 3), dtype=np.uint8)
     output = tmp_path / "out.jxl"
-    fake_encoded = output
-    fake_encoded.touch()
+    fake_bytes = b"fake jxl bytes"
 
     with patch.object(jxl_mod, "is_jxl_available", return_value=True), \
-         patch.object(jxl_mod, "encode_image_to_jxl", return_value=fake_encoded) as mock_encode:
+         patch.object(jxl_mod, "encode_image_to_jxl", return_value=fake_bytes) as mock_encode:
 
         adapter = ImageCodecAdapter({
             "archival_format": "jxl",
@@ -59,11 +58,11 @@ def test_codec_adapter_write_jxl_invokes_encoder(tmp_path):
 
     mock_encode.assert_called_once_with(
         image,
-        str(output),
         lossless=True,
         effort=6,
     )
-    assert result == fake_encoded
+    assert result == output
+    assert output.read_bytes() == fake_bytes
 
 
 def test_build_archival_path_preserves_dotted_stem_tokens(tmp_path):

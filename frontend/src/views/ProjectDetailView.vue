@@ -4,7 +4,7 @@
       <div style="display: flex; gap: 1rem; align-items: center; justify-content: flex-start;">
         <button @click="$router.push('/')" class="back-btn">← 返回列表</button>
         <h1 style="margin: 0;">{{ project.name || project.project_id }}</h1>
-        <button @click="$router.push(`/edit/${project.project_id}`)" class="edit-btn">編輯預算與報表</button>
+        <button @click="showSettingsModal = true" class="edit-btn">編輯預算與報表</button>
       </div>
       <div class="header-info">
         <span class="activity-id">活動編號：{{ project.project_id }}</span>
@@ -166,6 +166,12 @@
       :raw-file="selectedResplitRaw"
       @applied="handleResplitApplied"
     />
+
+    <ProjectSettingsModal
+      v-model="showSettingsModal"
+      :project-id="projectId"
+      @saved="fetchProjectData"
+    />
   </div>
   <div v-else class="loading">Loading...</div>
 </template>
@@ -175,6 +181,7 @@ import { ref, onMounted, computed, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../services/api'
 import ResplitModal from '../components/ResplitModal.vue'
+import ProjectSettingsModal from '../components/ProjectSettingsModal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -183,6 +190,7 @@ const project = ref(null)
 const progress = ref(null)
 const jobs = ref([])
 const receiptJobs = computed(() => jobs.value.filter(j => !j.source_pdf_path))
+const showSettingsModal = ref(false)
 const rawFiles = ref([])
 const loading = ref(false)
 const uploadProgress = ref(0)
@@ -238,6 +246,9 @@ const fetchProjectData = async () => {
 onMounted(() => {
   fetchProjectData()
   pollInterval = setInterval(fetchProjectData, 2000)
+  if (route.query.edit === 'true') {
+    showSettingsModal.value = true
+  }
 })
 
 onUnmounted(() => {
@@ -426,7 +437,7 @@ const runSingleProcessing = async (job) => {
 }
 
 const editJob = (job) => {
-  router.push(`/project/${projectId}/edit-job?jobId=${job.job_id}`)
+  router.push({ path: `/project/${projectId}/voucher-editor`, query: { editJobId: job.job_id } })
 }
 
 const openResplitModal = (rawFile) => {

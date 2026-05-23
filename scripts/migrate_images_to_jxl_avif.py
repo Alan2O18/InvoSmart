@@ -8,7 +8,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from backend.processing.jxl_encoder_backend import encode_to_jxl, is_jxl_available
+from backend.utils.utils import cv_imread_chinese
+from backend.processing.jxl_encoder_backend import encode_image_to_jxl, is_jxl_available
 
 logger = logging.getLogger("migrate_images_to_jxl_avif")
 
@@ -131,8 +132,11 @@ def run(args) -> int:
                 if archival_format == "jxl" and jxl_enabled:
                     jxl_path = source.with_suffix(".jxl")
                     if not jxl_path.exists():
-                        written = encode_to_jxl(str(source), str(jxl_path))
-                        new_files.append(str(written.resolve()))
+                        img_arr = cv_imread_chinese(str(source))
+                        if img_arr is not None:
+                            jxl_bytes = encode_image_to_jxl(img_arr)
+                            jxl_path.write_bytes(jxl_bytes)
+                            new_files.append(str(jxl_path.resolve()))
             except Exception as exc:
                 logger.error("Failed to process %s: %s", source, exc)
                 errors += 1

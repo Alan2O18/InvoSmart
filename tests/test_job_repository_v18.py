@@ -125,10 +125,6 @@ async def test_round_trip_manual_write_read_and_flatten_payload(repo):
     assert display["summary"]["purpose"] == "保險費"
     assert display["items"][0]["category"] == "保險"
 
-    flattened = await repo.refresh_flattened_data("job_roundtrip", force=True)
-    assert flattened is not None
-    assert flattened["projectGroup"] == "教材費"
-    assert flattened["sumTotal"] == 50
 
 
 @pytest.mark.asyncio

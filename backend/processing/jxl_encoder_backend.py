@@ -4,20 +4,9 @@ from __future__ import annotations
 JXL Encoder Backend
 ====================
 Probes for pyvips availability at first call and caches the result.
-
-Usage::
-
-    from backend.processing.jxl_encoder_backend import is_jxl_available, encode_to_jxl
-
-    if is_jxl_available():
-        encode_to_jxl("/path/source.png", "/path/output.jxl")
-    else:
-        # fall back to a different format
-        ...
 """
 
 import logging
-from pathlib import Path
 from typing import Any
 
 import cv2
@@ -67,14 +56,13 @@ def _quality_to_distance(quality: int) -> float:
 
 def encode_image_to_jxl(
     image: np.ndarray,
-    output_path: str,
     quality: int = 85,
     *,
     lossless: bool = False,
     effort: int = 1,
-) -> Path:
+) -> bytes:
     """
-    Encode a numpy image array (BGR) to JPEG-XL at *output_path*.
+    Encode a numpy image array (BGR) to JPEG-XL bytes.
 
     Requires imagecodecs with JXL support.
     """
@@ -114,35 +102,4 @@ def encode_image_to_jxl(
         except TypeError:
             encoded = imagecodecs.jpegxl_encode(image_rgb)
 
-    with open(output_path, "wb") as f:
-        f.write(encoded)
-
-    return Path(output_path)
-
-
-def encode_to_jxl(
-    source_path: str,
-    output_path: str,
-    quality: int = 85,
-    *,
-    lossless: bool = False,
-    effort: int = 1,
-) -> Path:
-    """
-    Encode *source_path* image (file) to JPEG-XL at *output_path*.
-    Legacy wrapper for compatibility with older file-based logic.
-    """
-    from backend.utils import utils
-
-    image = utils.cv_imread_chinese(source_path)
-    if image is None:
-        raise ValueError(f"Could not read source image for JXL encoding: {source_path}")
-
-    return encode_image_to_jxl(
-        image,
-        output_path,
-        quality,
-        lossless=lossless,
-        effort=effort,
-    )
-
+    return encoded

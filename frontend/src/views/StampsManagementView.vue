@@ -105,6 +105,12 @@
         </article>
       </div>
     </section>
+
+    <StampAssignDialog
+      v-model="showAssignDialog"
+      :default-owner-id="selectedAssignOwnerId"
+      @registered="fetchData"
+    />
   </div>
 </template>
 
@@ -113,9 +119,13 @@ import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
 import { useStampStore } from '../store/stamp'
+import StampAssignDialog from '../components/StampAssignDialog.vue'
 
 const router = useRouter()
 const stampStore = useStampStore()
+
+const showAssignDialog = ref(false)
+const selectedAssignOwnerId = ref(null)
 
 const persons = ref([])
 const templates = ref([])
@@ -229,11 +239,13 @@ const handleDeleteTemplate = async (templateId) => {
 }
 
 const goToUploadView = () => {
-  router.push('/stamps/upload')
+  selectedAssignOwnerId.value = null
+  showAssignDialog.value = true
 }
 
 const goToUploadViewWithPerson = (ownerId) => {
-  router.push({ path: '/stamps/upload', query: { owner: ownerId } })
+  selectedAssignOwnerId.value = ownerId
+  showAssignDialog.value = true
 }
 
 onMounted(() => {

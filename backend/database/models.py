@@ -58,9 +58,7 @@ class Job(Base):
     source_format = Column(String, nullable=True)   # e.g. "jpg", "jxl", "png"
     preview_cache_path = Column(String, nullable=True)  # abs path to the latest preview cache file
 
-    # Deprecated flatten cache columns retained for backward compatibility.
-    flattened_data = Column(Text, nullable=True)
-    flattening_status = Column(String, nullable=True)
+
 
     created_at = Column(Float, default=lambda: time.time())
     updated_at = Column(Float, default=lambda: time.time(), onupdate=lambda: time.time())

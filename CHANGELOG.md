@@ -4,6 +4,76 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [V0.0.25] - 2026-05-23
+
+### 🏗️ 大型架構重構：3 層邊界強制 + 前端視圖整合 (Breaking Architecture Redesign)
+
+**V0.0.25 Focus**: 消除所有 Router 層對 `cv2`/`numpy`/`fitz` 的直接引用；建立 `ResplitService`、`PdfTaskService`、`ImageCodecAdapter` 三個新服務類別；刪除 5 個孤立前端視圖並將其功能整合進主視圖；以及資料庫 Phase 1 正規化（移除 `flattened_data`）。
+
+### Added
+
+#### Backend — 新服務與倉庫
+- **`backend/engine/resplit_service.py`** — `ResplitService`：單一職責分割服務，含自動分割 & 手動二切邏輯（≤500 行）
+- **`backend/engine/pdf_task_service.py`** — `PdfTaskService`：封裝所有 PyMuPDF 操作（頁面刪除/重排/新增、蓋章、壓縮、模板預覽），讓 Router 零 `fitz` 引用
+- **`backend/engine/image_codec_adapter.py`**（移位）— 從 `processing/` 遷移至 `engine/`，file write 行為歸屬正確層次
+- **`backend/repositories/pdf_task_repo.py`** — `PdfTaskRepository`：JSON + PDF 檔案式倉庫，管理 `backend/data/pdf_tasks/`
+- **`backend/repositories/stamp_template_repo.py`** — `StampTemplateRepository`：JSON 檔案式倉庫，管理 `backend/data/stamp_templates/`
+- **`tests/test_resplit_service.py`** — ResplitService 單元測試（自動分割 & 手動二切）
+
+#### Frontend — 新元件
+- **`frontend/src/components/ProjectSettingsModal.vue`** — 專案設定 Modal，含活動資訊、財務預算、Word 匯出功能（從 `EditProjectView` 拆出）
+- **`VoucherEditorView.vue`** — 右側 Metadata 修改 Sidebar（從 `JobEditorView` 整合進來）；含 `editJobId` 查詢參數自動展開功能
+
+### Removed
+
+#### Backend — 刪除過時元件
+- **`backend/engine/file_ops.py`** — 完全刪除，無任何 shim 或兼容包裝
+- **`backend/processing/image_codec_adapter.py`** — 移位至 `engine/`（非刪除）
+- **`scripts/migrate_db_flatten_jobs.py`** — `flattened_data` 欄位已正規化，遷移腳本無存在意義
+
+#### Backend — 刪除舊測試
+- **`tests/test_engine_file_ops.py`** — 對應 `file_ops.py` 的測試；測試內容重新分配至 `test_engine_image_service.py` 和 `test_resplit_service.py`
+- **`tests/test_migrate_flatten_jobs_script.py`** — 對應已刪除遷移腳本
+
+#### Frontend — 刪除孤立視圖
+- `frontend/src/views/StampSourceUploadView.vue` → 整合進 `StampsManagementView`
+- `frontend/src/views/StampZoneConfigView.vue` → 整合進 `StampsManagementView`
+- `frontend/src/views/EditProjectView.vue` → 整合進 `ProjectDetailView` + `ProjectSettingsModal`
+- `frontend/src/views/VoucherTemplateConfigView.vue` → 整合進 `SettingsView`
+- `frontend/src/views/JobEditorView.vue` → 整合進 `VoucherEditorView` Sidebar
+
+### Changed
+
+#### Backend — 層邊界修正
+- **`backend/routers/pdf_tasks.py`** — 移除所有 `import fitz`；改透過 `PdfTaskService` 呼叫
+- **`backend/routers/voucher.py`** — 移除 `import fitz`；頁面擷取邏輯下移至 `PdfTaskService`
+- **`backend/engine/core.py`** — 注入 `ResplitService`、`PdfTaskService`、`PdfTaskRepository`、`StampTemplateRepository`；移除 `self.file_ops` 兼容引用
+- **`backend/engine/image_service.py`** — 移除分割相關方法（已移至 `ResplitService`）；維持旋轉、快取、預覽 warm-up 職責
+- **`backend/engine/excel_exporter.py`** — 完全改用 `openpyxl`（移除 `pandas` 和 `xlsxwriter`）
+- **`backend/engine/regeneration_handler.py`** — 改用 `openpyxl.load_workbook(read_only=True)` 取代 pandas Excel 讀取
+- **`backend/processing/jxl_encoder_backend.py`** — `encode_image_to_jxl` 改回傳 raw `bytes`（移除 file write 副作用）
+- **`backend/database/models.py`** — 移除 `flattened_data` 和 `flattening_status` 欄位
+- **`backend/repositories/job_repository.py`** — 移除 ~28 個 `flattened_data` 相關方法與 ORM 查詢（含 `refresh_flattened_data`）
+- **`requirements.txt`** — 移除 `pandas`、`xlsxwriter`、`requests`
+- **`.gitignore`** — 新增 DB 檔、workspace、patch 腳本、coverage 產物的忽略規則
+
+#### Frontend — 路由整合
+- **`frontend/src/router/index.js`** — 移除 5 個已刪除視圖的路由與 import
+- **`frontend/src/views/ProjectDetailView.vue`** — `editJob()` 改導向 `/voucher-editor?editJobId=xxx`；整合 `ProjectSettingsModal`
+- **`frontend/src/views/VoucherEditorView.vue`** — `onMounted` 檢查 `editJobId` query 參數，自動展開右側 Sidebar 並切換對應頁面
+- **`frontend/src/views/StampsManagementView.vue`** — 整合 `StampAssignDialog` 為內嵌精靈 Modal
+- **`frontend/src/views/HomeView.vue`** — 點擊「編輯」導向 `/project/:id?edit=true` 觸發設定 Modal
+- **`frontend/package.json`** — 移除 `pdfjs-dist`
+
+### Fixed
+- **`tests/test_routers_voucher.py`** — `pdf_task_service.get_template_preview_payload` mock 改用同步 `MagicMock`（原用 `AsyncMock` 導致 `to_thread` 收到 coroutine 物件而非結果）
+
+### Test Metrics
+- **Total Tests:** 618 passed, 0 failed
+- **Execution Time:** ~75.5s
+
+---
+
 ## [V0.0.12] - 2026-03-29
 
 ### 🎯 JXL 管線修正與預覽影像全鏈路修復

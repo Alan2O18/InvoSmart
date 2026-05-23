@@ -21,10 +21,14 @@ from typing import Optional, Dict
 
 from backend.repositories.project_repository import ProjectRepository
 from backend.repositories.job_repository import JobRepository
+from backend.repositories.pdf_task_repo import PdfTaskRepository
+from backend.repositories.stamp_template_repo import StampTemplateRepository
 from backend.processing.receipt_splitter import ReceiptSplitter
 
 from .workers import global_receipt_worker_loop
 from .image_service import ImageService
+from .resplit_service import ResplitService
+from .pdf_task_service import PdfTaskService
 from .cache_service import CacheService
 from .file_service import FileService
 from .export import ExportHandler
@@ -68,8 +72,18 @@ class Engine:
             file_service=self.file_service,
             cache_service=self.cache_service,
         )
-        # Backward compatibility: legacy callers/tests still reference `engine.file_ops`.
-        self.file_ops = self.image_service
+        self.resplit_service = ResplitService(
+            self.project_repo,
+            self.receipt_splitter,
+            self,
+            self.image_service,
+        )
+        self.pdf_task_repo = PdfTaskRepository()
+        self.stamp_template_repo = StampTemplateRepository()
+        self.pdf_task_service = PdfTaskService(
+            self.pdf_task_repo,
+            self.stamp_template_repo,
+        )
         self.export_handler = ExportHandler(self.project_repo, self)
         
         # 憑證產生組件
@@ -310,14 +324,14 @@ class Engine:
     async def run_splitting(self, project_id: str, target_files: Optional[list[str]] = None):
         logger.info(f"[分割] 開始處理專案: {project_id}, 目標檔案={target_files}")
         await self._ensure_project_editable(project_id)
-        result = await self.image_service.run_splitting(project_id, target_files)
+        result = await self.resplit_service.run_splitting(project_id, target_files)
         logger.info(f"[分割] 完成: {project_id}")
         return result
 
     async def run_split_single(self, project_id: str, filename: str):
         """Split a single raw file."""
         logger.info(f"[分割] 單檔處理: {project_id}/{filename}")
-        result = await self.image_service.run_splitting(project_id, target_files=[filename])
+        result = await self.resplit_service.run_splitting(project_id, target_files=[filename])
         logger.info(f"[分割] 單檔完成: {filename}")
         return result
 
@@ -342,7 +356,7 @@ class Engine:
         return await job_repo.save_manual_json(job_id, json_data)
 
     async def cleanup_preview_cache(self, max_age_hours: int = 24):
-        return await self.file_ops.cleanup_all_projects_cache(max_age_hours=max_age_hours)
+        return await self.image_service.cleanup_all_projects_cache(max_age_hours=max_age_hours)
 
     async def optimize_jxl_storage_all_projects(self, force: bool = False):
         projects = await self.project_repo.list_projects()
@@ -367,18 +381,18 @@ class Engine:
         }
 
     async def detect_job_sub_rects(self, project_id: str, job_id: str):
-        return await self.image_service.detect_job_sub_rects(project_id, job_id)
+        return await self.resplit_service.detect_job_sub_rects(project_id, job_id)
 
     async def apply_job_resplit(self, project_id: str, job_id: str, sub_rects: list[dict]):
         await self._ensure_project_editable(project_id)
-        return await self.image_service.apply_job_resplit(project_id, job_id, sub_rects)
+        return await self.resplit_service.apply_job_resplit(project_id, job_id, sub_rects)
 
     async def detect_raw_sub_rects(self, project_id: str, raw_filename: str):
-        return await self.image_service.detect_raw_sub_rects(project_id, raw_filename)
+        return await self.resplit_service.detect_raw_sub_rects(project_id, raw_filename)
 
     async def apply_raw_resplit(self, project_id: str, raw_filename: str, sub_rects: list[dict]):
         await self._ensure_project_editable(project_id)
-        return await self.image_service.apply_raw_resplit(project_id, raw_filename, sub_rects)
+        return await self.resplit_service.apply_raw_resplit(project_id, raw_filename, sub_rects)
 
     async def run_excel(self, project_id: str):
         return await self.export_handler.run_excel(project_id)

@@ -5,7 +5,7 @@ from unittest.mock import patch
 import numpy as np
 from PIL import Image
 
-from backend.processing.image_codec_adapter import ImageCodecAdapter
+from backend.engine.image_codec_adapter import ImageCodecAdapter
 from backend.utils.utils import cv_imread_chinese
 
 
@@ -13,7 +13,7 @@ def test_read_image_delegates_to_utils_cv_imread_chinese():
     adapter = ImageCodecAdapter({})
     fake_image = np.zeros((8, 8, 3), dtype=np.uint8)
 
-    with patch("backend.processing.image_codec_adapter.utils.cv_imread_chinese", return_value=fake_image) as mock_read:
+    with patch("backend.engine.image_codec_adapter.utils.cv_imread_chinese", return_value=fake_image) as mock_read:
         result = adapter.read_image("sample.jpg")
 
     mock_read.assert_called_once_with("sample.jpg")

@@ -69,7 +69,7 @@ const goToProject = (id) => {
 }
 
 const editProject = (project) => {
-  router.push(`/edit/${project.project_id}`)
+  router.push({ path: `/project/${project.project_id}`, query: { edit: 'true' } })
 }
 
 const deleteProject = async (project) => {

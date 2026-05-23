@@ -157,20 +157,16 @@ def test_jxl_archival_invokes_encoder_when_available(tmp_path):
     source = split / "r.jpg"
     _make_jpeg(source)
 
-    def _fake_encode(src: str, out: str, quality: int = 85):
-        out_path = Path(out)
-        out_path.write_bytes(b"jxl")
-        return out_path
-
     args = _make_args(str(tmp_path), archival_format="jxl")
-    with patch("scripts.migrate_images_to_jxl_avif.is_jxl_available", return_value=True), patch(
-        "scripts.migrate_images_to_jxl_avif.encode_to_jxl", side_effect=_fake_encode
-    ) as mock_encode:
+    with patch("scripts.migrate_images_to_jxl_avif.is_jxl_available", return_value=True), \
+         patch("scripts.migrate_images_to_jxl_avif.cv_imread_chinese", return_value=np.zeros((8, 8, 3), dtype=np.uint8)), \
+         patch("scripts.migrate_images_to_jxl_avif.encode_image_to_jxl", return_value=b"jxl") as mock_encode:
         rc = run(args)
 
     assert rc == 0
     mock_encode.assert_called_once()
     assert source.with_suffix(".jxl").exists()
+    assert source.with_suffix(".jxl").read_bytes() == b"jxl"
 
 
 def test_jxl_archival_skips_when_encoder_unavailable(tmp_path):

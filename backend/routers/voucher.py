@@ -13,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List
 
-import fitz
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from PIL import Image
@@ -30,7 +29,7 @@ from backend.engine.voucher_text_config import (
 from backend.engine.voucher_generator import VoucherGenerator
 from backend.engine.stamp_service import StampService
 from backend.models.voucher_payload import VoucherLayoutPayloadDraft, VoucherLayoutPayloadStrict
-from backend.processing.image_codec_adapter import ImageCodecAdapter
+from backend.engine.image_codec_adapter import ImageCodecAdapter
 from backend.repositories.voucher_layout_repo import VoucherLayoutRepository, sanitize_project_id
 from backend.repositories.stamp_repository import StampRepository
 from backend.utils.config import load_config
@@ -155,18 +154,7 @@ def _resolve_page_fields(page: dict[str, Any], page_results: list[dict[str, Any]
     return fields
 
 
-@functools.lru_cache(maxsize=8)
-def _template_preview_payload(template_path: str, mtime: float) -> dict:
-    with fitz.open(template_path) as doc:
-        page = doc[0]
-        pix = page.get_pixmap(dpi=144)
-        return {
-            "templatePng": base64.b64encode(pix.tobytes("png")).decode("utf-8"),
-            "pageWidth": float(page.rect.width),
-            "pageHeight": float(page.rect.height),
-            "previewPixelWidth": int(pix.width),
-            "previewPixelHeight": int(pix.height),
-        }
+# _template_preview_payload removed - delegated to PdfTaskService
 
 
 def _load_image_bytes(image_path: str, thumb: bool, max_width: int) -> tuple[bytes, str]:
@@ -231,13 +219,13 @@ async def save_template_layout(payload: _TemplateLayoutPayload):
 
 
 @router.get("/config/template-preview")
-async def get_template_preview():
+async def get_template_preview(engine: Engine = Depends(get_engine)):
     """Return the voucher template PNG as base64 (lightweight, no project data)."""
     settings = get_voucher_settings()
     template_path = settings["template_pdf_path"]
     if not os.path.exists(template_path):
         raise HTTPException(status_code=500, detail={"error": "INTERNAL_ERROR", "detail": "Voucher template not found"})
-    return await asyncio.to_thread(_template_preview_payload, template_path, os.path.getmtime(template_path))
+    return await asyncio.to_thread(engine.pdf_task_service.get_template_preview_payload, template_path)
 
 
 @router.get("/{project_id}/template")
@@ -268,7 +256,7 @@ async def get_template(project_id: str, engine: Engine = Depends(get_engine)):
             }
         )
 
-    preview_payload = await asyncio.to_thread(_template_preview_payload, template_path, os.path.getmtime(template_path))
+    preview_payload = await asyncio.to_thread(engine.pdf_task_service.get_template_preview_payload, template_path)
 
     metadata = project.get("metadata") or {}
     budget_item = metadata.get("group") or metadata.get("group_name") or ""
@@ -310,17 +298,7 @@ async def get_voucher_image(
 
     if thumb:
         try:
-            preview = None
-            cache_service = getattr(engine, "cache_service", None)
-            ensure_preview = getattr(cache_service, "ensure_preview_cache", None) if cache_service else None
-            if ensure_preview is None or not inspect.iscoroutinefunction(ensure_preview):
-                legacy_file_ops = getattr(engine, "file_ops", None)
-                ensure_preview = getattr(legacy_file_ops, "ensure_preview_cache", None) if legacy_file_ops else None
-
-            if ensure_preview is not None:
-                maybe_preview = ensure_preview(project_id, image_path, max_width=max_width)
-                preview = await maybe_preview if inspect.isawaitable(maybe_preview) else maybe_preview
-
+            preview = await engine.image_service.ensure_preview_cache(project_id, image_path, max_width=max_width)
             if preview and os.path.exists(preview["path"]):
                 return FileResponse(path=preview["path"], media_type=preview["media_type"])
         except Exception as preview_err:  # noqa: BLE001

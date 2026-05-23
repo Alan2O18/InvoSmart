@@ -2,7 +2,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from backend.engine.file_ops import FileOps
+from backend.engine.image_service import ImageService
 
 
 @pytest.mark.asyncio
@@ -14,13 +14,14 @@ async def test_deferred_gc_only_deletes_when_unreferenced(tmp_path):
 
     engine_ref = MagicMock()
     engine_ref.config = {}
+    engine_ref.file_service = None
 
     job_repo = MagicMock()
     job_repo.get_job = AsyncMock()
     job_repo.list_jobs = AsyncMock()
     engine_ref.get_job_repo = MagicMock(return_value=job_repo)
 
-    file_ops = FileOps(project_repo, receipt_splitter=MagicMock(), engine_ref=engine_ref)
+    image_service = ImageService(project_repo, receipt_splitter=MagicMock(), engine_ref=engine_ref)
 
     shared = project_root / "分割發票" / "shared.jpg"
     shared.parent.mkdir(parents=True, exist_ok=True)
@@ -38,15 +39,16 @@ async def test_deferred_gc_only_deletes_when_unreferenced(tmp_path):
         {"job_id": "job-2", "image_path": str(shared)},
     ]
 
-    stage1 = await file_ops.delete_job_files("proj1", "job-1")
+    stage1 = await image_service.delete_job_files("proj1", "job-1")
     assert stage1["deferred_files"]
     assert shared.exists()
 
-    stage2 = await file_ops.flush_deferred_gc("proj1")
+    stage2 = await image_service.flush_deferred_gc("proj1")
     assert stage2["kept_referenced"]
     assert shared.exists()
 
     job_repo.list_jobs.return_value = []
-    stage3 = await file_ops.flush_deferred_gc("proj1")
+    stage3 = await image_service.flush_deferred_gc("proj1")
     assert stage3["deleted_files"]
     assert not shared.exists()
+

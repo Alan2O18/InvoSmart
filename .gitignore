@@ -34,3 +34,24 @@ testB.py
 
 # Production config (may contain secrets)
 config.prod.json
+
+# Environment variables
+.env
+
+# Database files
+*.db
+*.db.bak
+
+# Project user workspaces and stamp groups
+workspace/
+_group_stamps/
+
+# Test coverage and schema artifacts
+coverage.json
+coverage.xml
+openapi_dump*.json
+schema.txt
+
+# Temporary patches
+patch_*.py
+patch_*.js

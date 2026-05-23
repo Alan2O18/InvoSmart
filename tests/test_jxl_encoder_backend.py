@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 import backend.processing.jxl_encoder_backend as jxl_mod
-from backend.processing.jxl_encoder_backend import encode_to_jxl, is_jxl_available
+from backend.processing.jxl_encoder_backend import is_jxl_available
 
 
 @pytest.fixture(autouse=True)
@@ -48,45 +48,24 @@ def test_encode_image_to_jxl_raises_when_unavailable():
 
     with patch("backend.processing.jxl_encoder_backend.is_jxl_available", return_value=False):
         with pytest.raises(RuntimeError, match="JXL encoder"):
-            jxl_mod.encode_image_to_jxl(np.zeros((5, 5, 3), dtype=np.uint8), "/does/not/matter.jxl")
+            jxl_mod.encode_image_to_jxl(np.zeros((5, 5, 3), dtype=np.uint8))
 
 
 def test_encode_image_to_jxl_delegates_to_imagecodecs(tmp_path):
-    """When encoder is available, encode_image_to_jxl calls imagecodecs.jpegxl_encode."""
+    """When encoder is available, encode_image_to_jxl calls imagecodecs.jpegxl_encode and returns bytes."""
     import numpy as np
 
     fake_imagecodecs = MagicMock()
     fake_imagecodecs.jpegxl_encode.return_value = b"fakejxl"
 
-    output = tmp_path / "out.jxl"
     img = np.zeros((10, 10, 3), dtype=np.uint8)
 
     with patch("backend.processing.jxl_encoder_backend.is_jxl_available", return_value=True), \
          patch.dict("sys.modules", {"imagecodecs": fake_imagecodecs}):
-        result = jxl_mod.encode_image_to_jxl(img, str(output), lossless=True, effort=7)
+        result = jxl_mod.encode_image_to_jxl(img, lossless=True, effort=7)
 
     fake_imagecodecs.jpegxl_encode.assert_called_once()
     assert fake_imagecodecs.jpegxl_encode.call_args.kwargs.get("lossless") is True
     assert fake_imagecodecs.jpegxl_encode.call_args.kwargs.get("effort") == 7
-    assert str(result) == str(output)
-    assert output.exists()
-    assert output.read_bytes() == b"fakejxl"
-
-
-def test_encode_to_jxl_wrapper(tmp_path):
-    """encode_to_jxl reads the file and delegates to encode_image_to_jxl."""
-    import numpy as np
-    output = tmp_path / "out.jxl"
-
-    with patch("backend.utils.utils.cv_imread_chinese") as mock_imread, \
-         patch.object(jxl_mod, "encode_image_to_jxl") as mock_encode:
-
-        mock_imread.return_value = np.zeros((5, 5, 3))
-        mock_encode.return_value = output
-
-        result = encode_to_jxl("dummy.png", str(output))
-
-        mock_imread.assert_called_once_with("dummy.png")
-        mock_encode.assert_called_once()
-        assert result == output
+    assert result == b"fakejxl"
 
