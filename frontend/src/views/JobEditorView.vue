@@ -164,6 +164,25 @@ const fetchJobList = async () => {
     }
 }
 
+const normalizeJobData = (parsedData) => {
+  const empty = {
+    receipt_type: '電子發票證明聯',
+    header: { supplier: '', buyer: '', invoice_id: '', date: '' },
+    items: [{ name: '', qty: null, price: null, total: null, category: '' }],
+    summary: { subtotal: null, tax: null, total: null },
+    verification: { handwritten_total_chinese: '', stamp_shop_name: '', qr_code_detected: false }
+  }
+  if (!parsedData) return empty
+  return {
+    ...empty,
+    ...parsedData,
+    header: { ...empty.header, ...(parsedData.header || {}) },
+    items: parsedData.items || empty.items,
+    summary: { ...empty.summary, ...(parsedData.summary || {}) },
+    verification: { ...empty.verification, ...(parsedData.verification || {}) }
+  }
+}
+
 const fetchJobDetails = async (targetJobId = null) => {
   const finalJobId = targetJobId || route.query.jobId
   if (!finalJobId) return
@@ -183,9 +202,10 @@ const fetchJobDetails = async (targetJobId = null) => {
         parsedData = res.data.vlm_result
     }
     
-    manualJsonData.value = parsedData
-    debouncedJsonData.value = JSON.parse(JSON.stringify(parsedData)) // Init immediately
-    initialJsonData.value = JSON.parse(JSON.stringify(parsedData))
+    const normalized = normalizeJobData(parsedData)
+    manualJsonData.value = normalized
+    debouncedJsonData.value = JSON.parse(JSON.stringify(normalized)) // Init immediately
+    initialJsonData.value = JSON.parse(JSON.stringify(normalized))
     
   } catch (e) {
     alert('Error loading job: ' + e)
@@ -226,8 +246,9 @@ const rerunVLM = async () => {
     
     // 更新 JSON 編輯器
     if (res.data.result) {
-        manualJsonData.value = res.data.result
-        initialJsonData.value = JSON.parse(JSON.stringify(res.data.result))
+        const normalized = normalizeJobData(res.data.result)
+        manualJsonData.value = normalized
+        initialJsonData.value = JSON.parse(JSON.stringify(normalized))
         alert('VLM Processing Complete! Data updated.')
     } else {
         alert('VLM Finished but no result returned.')
