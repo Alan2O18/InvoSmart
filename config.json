@@ -12,7 +12,7 @@
         "thumb_max_width": 800
     },
     "vision_settings": {
-        "api_key": "AIzaSyA3H3NTq42dzu1YORmIPl-rgEgMXZndJCE",
+        "api_key": "YOUR_GEMINI_API_KEY",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
         "model_name": "models/gemini-3.1-flash-lite-preview",
         "temperature": 0.0,
