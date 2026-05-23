@@ -110,8 +110,6 @@ class JobRepository:
                 "source_format": job.source_format,
                 "preview_cache_path": job.preview_cache_path,
                 "manual_json_text": getattr(job, "manual_json_text", None),
-                "flattened_data": None,
-                "flattening_status": None,
                 "created_at": job.created_at,
                 "updated_at": job.updated_at,
             }
@@ -607,9 +605,6 @@ class JobRepository:
             "vlm_stats": vlm_stats,
             "qr_verified": bool(job.get("qr_verified")),
             "manual_json_text": manual_json_text,
-            # Deprecated fields retained for response shape compatibility.
-            "flattened_data": None,
-            "flattening_status": None,
             "manual_updated_at": job.get("manual_updated_at"),
             "created_at": job["created_at"],
             "updated_at": job["updated_at"],

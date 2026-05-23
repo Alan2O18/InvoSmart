@@ -3,6 +3,8 @@ import logging
 import base64
 from pathlib import Path
 from typing import List, Optional, Literal
+import cv2
+import numpy as np
 from backend.repositories.pdf_task_repo import PdfTaskRepository
 from backend.utils.stamp_ops import get_rotated_stamp_bytes
 
@@ -121,3 +123,20 @@ class PdfTaskService:
             return doc.page_count
         finally:
             doc.close()
+
+    @staticmethod
+    def render_pdf_first_page_to_bgr(pdf_path: str) -> np.ndarray:
+        with fitz.open(pdf_path) as doc:
+            if doc.page_count <= 0:
+                raise ValueError("PDF has no pages")
+            page = doc[0]
+            zoom_matrix = fitz.Matrix(2.0, 2.0)
+            pix = page.get_pixmap(matrix=zoom_matrix)
+
+        img_data = pix.samples
+        if pix.n == 4:
+            img_array = np.frombuffer(img_data, dtype=np.uint8).reshape(pix.h, pix.w, 4)
+            return cv2.cvtColor(img_array, cv2.COLOR_RGBA2BGR)
+
+        img_array = np.frombuffer(img_data, dtype=np.uint8).reshape(pix.h, pix.w, 3)
+        return cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)

@@ -177,7 +177,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed, onUnmounted } from 'vue'
+import { ref, onMounted, computed, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../services/api'
 import ResplitModal from '../components/ResplitModal.vue'
@@ -247,6 +247,12 @@ onMounted(() => {
   fetchProjectData()
   pollInterval = setInterval(fetchProjectData, 2000)
   if (route.query.edit === 'true') {
+    showSettingsModal.value = true
+  }
+})
+
+watch(() => route.query.edit, (val) => {
+  if (val === 'true') {
     showSettingsModal.value = true
   }
 })

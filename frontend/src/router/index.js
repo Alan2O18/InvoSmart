@@ -31,6 +31,11 @@ const router = createRouter({
       component: () => import('../views/SettingsView.vue')
     },
     {
+      path: '/voucher-template-config',
+      name: 'voucher-template-config',
+      component: () => import('../views/VoucherTemplateConfigView.vue')
+    },
+    {
       path: '/pdf-tasks',
       name: 'pdf-tasks',
       component: () => import('../views/PdfTasksView.vue')
@@ -39,16 +44,6 @@ const router = createRouter({
       path: '/pdf-tasks/:id/editor',
       name: 'pdf-task-editor',
       component: () => import('../views/PdfTaskEditorView.vue')
-    },
-    {
-      path: '/stamps',
-      name: 'stamps-management',
-      redirect: '/management'
-    },
-    {
-      path: '/stamp-zones',
-      name: 'stamp-zones-config',
-      redirect: '/management'
     },
     {
       path: '/management',

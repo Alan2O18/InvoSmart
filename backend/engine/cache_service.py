@@ -7,8 +7,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
 
-import cv2
-import numpy as np
 from PIL import Image, features
 
 from backend.engine.image_codec_adapter import ImageCodecAdapter
@@ -95,25 +93,6 @@ class CacheService:
             save_kwargs = {"quality": 90}
 
         image.save(cache_path, format=pil_format, **save_kwargs)
-
-    @staticmethod
-    def _render_pdf_first_page_to_bgr(pdf_path: str) -> np.ndarray:
-        import fitz
-
-        with fitz.open(pdf_path) as doc:
-            if doc.page_count <= 0:
-                raise ValueError("PDF has no pages")
-            page = doc[0]
-            zoom_matrix = fitz.Matrix(2.0, 2.0)
-            pix = page.get_pixmap(matrix=zoom_matrix)
-
-        img_data = pix.samples
-        if pix.n == 4:
-            img_array = np.frombuffer(img_data, dtype=np.uint8).reshape(pix.h, pix.w, 4)
-            return cv2.cvtColor(img_array, cv2.COLOR_RGBA2BGR)
-
-        img_array = np.frombuffer(img_data, dtype=np.uint8).reshape(pix.h, pix.w, 3)
-        return cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
 
     async def ensure_preview_cache(self, project_id: str, image_path: str, max_width: int = 800) -> Optional[dict]:
         source = Path(image_path)
