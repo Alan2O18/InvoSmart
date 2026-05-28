@@ -6,6 +6,7 @@
     <nav>
       <router-link to="/">Home</router-link>
       <router-link to="/projects">Projects</router-link>
+      <router-link to="/projects/overview">預決算全覽</router-link>
       <router-link to="/pdf-tasks">PDF Tasks</router-link>
       <router-link to="/management">Management</router-link>
       <router-link to="/settings">Settings</router-link>

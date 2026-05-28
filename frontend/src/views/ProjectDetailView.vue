@@ -4,7 +4,8 @@
       <div style="display: flex; gap: 1rem; align-items: center; justify-content: flex-start;">
         <button @click="$router.push('/projects')" class="back-btn">← 返回列表</button>
         <h1 style="margin: 0;">{{ project.name || project.project_id }}</h1>
-        <button @click="showSettingsModal = true" class="edit-btn">編輯預算與報表</button>
+        <button @click="$router.push({ name: 'budget-editor', params: { id: projectId } })" class="edit-btn">預決算編輯器</button>
+        <button @click="showSettingsModal = true" class="icon-btn" title="編輯專案資訊">⚙️ 專案設定</button>
       </div>
       <div class="header-info">
         <span class="activity-id">活動編號：{{ project.project_id }}</span>

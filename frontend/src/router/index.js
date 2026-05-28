@@ -31,6 +31,16 @@ const router = createRouter({
       component: () => import('../views/JobEditorView.vue')
     },
     {
+      path: '/project/:id/budget-editor',
+      name: 'budget-editor',
+      component: () => import('../views/BudgetEditorView.vue')
+    },
+    {
+      path: '/projects/overview',
+      name: 'projects-overview',
+      component: () => import('../views/ProjectsOverviewView.vue')
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('../views/SettingsView.vue')
