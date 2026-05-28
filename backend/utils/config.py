@@ -15,6 +15,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 _ENV_CONFIG_MAP = {
     "dev":  "config.json",
     "prod": "config.prod.json",
+    "test": "config.test.json",
 }
 
 def get_active_env() -> str:

@@ -13,7 +13,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet("dev","prod")]
+    [ValidateSet("dev","prod","test")]
     [string]$Env = "dev"
 )
 
@@ -22,7 +22,7 @@ $Root = $PSScriptRoot
 if (-not $Root) { $Root = (Get-Location).Path }
 
 # ── Config file map ────────────────────────────────────────────────────────
-$ConfigFile = if ($Env -eq "prod") { "config.prod.json" } else { "config.json" }
+$ConfigFile = if ($Env -eq "prod") { "config.prod.json" } elseif ($Env -eq "test") { "config.test.json" } else { "config.json" }
 $ConfigPath = Join-Path $Root $ConfigFile
 
 Write-Host ("=" * 60)

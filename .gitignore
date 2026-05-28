@@ -12,6 +12,7 @@ Thumbs.db
 # Environments & Configurations
 .env
 config.prod.json
+config.test.json
 
 # Databases & Runtime Data
 *.db
