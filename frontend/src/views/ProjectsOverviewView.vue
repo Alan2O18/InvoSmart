@@ -23,6 +23,14 @@
       </div>
     </section>
 
+    <!-- Autocomplete datalists -->
+    <datalist id="income-items">
+      <option v-for="item in budgetIncomeSuggestions" :key="`income-${item}`" :value="item"></option>
+    </datalist>
+    <datalist id="expense-items">
+      <option v-for="item in expenseCategorySuggestions" :key="`expense-${item}`" :value="item"></option>
+    </datalist>
+
     <!-- Project Accordion List -->
     <main class="overview-list" v-if="!initialLoading">
       <div 
@@ -86,6 +94,23 @@
 
           <!-- Content Details -->
           <div v-else class="content-details">
+            <!-- Edit Mode Toggle and Action Buttons -->
+            <div class="edit-mode-bar">
+              <label class="switch-label">
+                <input type="checkbox" v-model="project.editMode" />
+                <span class="switch-text">✏️ 啟用編輯模式</span>
+              </label>
+              <div class="edit-actions" v-if="project.editMode">
+                <span v-if="project.isBudgetDirty || project.dirtyJobs?.size > 0" class="dirty-badge">● 有未儲存的變更</span>
+                <button @click="saveProjectBudget(project)" :disabled="project.savingBudget" class="save-btn small blue">
+                  {{ project.savingBudget ? '儲存中...' : '💾 儲存預算' }}
+                </button>
+                <button @click="saveProjectFinal(project)" :disabled="project.savingFinal" class="save-btn small green">
+                  {{ project.savingFinal ? '儲存中...' : '💾 儲存決算' }}
+                </button>
+              </div>
+            </div>
+
             <!-- Summary stats -->
             <div class="variance-summary-box" :class="getVarianceClass(project.budgetTotal - project.actualTotal)">
               <div class="variance-stat">
@@ -103,11 +128,28 @@
               <!-- Left: Budget details -->
               <div class="sheet-column">
                 <div class="sheet-column-header">
-                  <h3>📊 預算支出項目 (Budget Estimated)</h3>
+                  <div class="sheet-header-flex">
+                    <h3>📊 預算支出項目 (Budget Estimated)</h3>
+                    <div class="sheet-actions">
+                      <button @click="copyBudgetExpenseTSV(project)" class="add-job-item-btn mini" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.2); color: #fff;">📤 匯出 TSV</button>
+                      <button v-if="project.editMode" @click="openImportModal(project, 'budgetExpense')" class="add-job-item-btn mini" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.2); color: #fff;">📥 匯入 TSV</button>
+                      <button v-if="project.editMode" @click="addBudgetExpenseRow(project)" class="add-job-item-btn mini">+ 新增項目</button>
+                    </div>
+                  </div>
                 </div>
                 <div class="sheet-table-wrapper">
                   <table class="overview-detail-table">
-                    <thead>
+                    <thead v-if="project.editMode">
+                      <tr>
+                        <th style="width: 25%">項目</th>
+                        <th style="width: 15%; text-align: right">數量</th>
+                        <th style="width: 15%; text-align: right">單價</th>
+                        <th style="width: 15%; text-align: right">小計</th>
+                        <th style="width: 22%">用途</th>
+                        <th style="width: 8%; text-align: center">操作</th>
+                      </tr>
+                    </thead>
+                    <thead v-else>
                       <tr>
                         <th>項目</th>
                         <th style="text-align: right">數量</th>
@@ -118,14 +160,87 @@
                     </thead>
                     <tbody>
                       <tr v-for="(item, idx) in getBudgetExpenses(project)" :key="'b-exp-' + idx">
-                        <td>{{ item.name }}</td>
-                        <td style="text-align: right">{{ item.qty }}</td>
-                        <td style="text-align: right">{{ formatCurrency(item.price) }}</td>
-                        <td style="text-align: right; color: #60a5fa;">{{ formatCurrency(item.total) }}</td>
-                        <td class="dim-text">{{ item.purpose }}</td>
+                        <template v-if="project.editMode">
+                          <td>
+                            <input 
+                              v-model="item.name" 
+                              list="expense-items"
+                              placeholder="項目名稱" 
+                              @change="onBudgetExpenseChange(project, item)"
+                              @keydown="handleCellKeydown($event, 'budgetExpense', project.project_id, idx, 0)"
+                              @paste="handleCellPaste($event, 'budgetExpense', project, idx, 0, getBudgetExpenses(project))"
+                              :data-project="project.project_id"
+                              :data-row="idx"
+                              data-col="0"
+                            />
+                          </td>
+                          <td>
+                            <input 
+                              type="number"
+                              v-model.number="item.qty" 
+                              placeholder="1"
+                              class="num-input"
+                              @change="onBudgetExpenseChange(project, item)"
+                              @keydown="handleCellKeydown($event, 'budgetExpense', project.project_id, idx, 1)"
+                              @paste="handleCellPaste($event, 'budgetExpense', project, idx, 1, getBudgetExpenses(project))"
+                              :data-project="project.project_id"
+                              :data-row="idx"
+                              data-col="1"
+                            />
+                          </td>
+                          <td>
+                            <input 
+                              type="number"
+                              v-model.number="item.price" 
+                              placeholder="0"
+                              class="num-input"
+                              @change="onBudgetExpenseChange(project, item)"
+                              @keydown="handleCellKeydown($event, 'budgetExpense', project.project_id, idx, 2)"
+                              @paste="handleCellPaste($event, 'budgetExpense', project, idx, 2, getBudgetExpenses(project))"
+                              :data-project="project.project_id"
+                              :data-row="idx"
+                              data-col="2"
+                            />
+                          </td>
+                          <td>
+                            <input 
+                              type="number"
+                              :value="item.total" 
+                              class="num-input readonly"
+                              readonly
+                              placeholder="0"
+                              @keydown="handleCellKeydown($event, 'budgetExpense', project.project_id, idx, 3)"
+                              :data-project="project.project_id"
+                              :data-row="idx"
+                              data-col="3"
+                            />
+                          </td>
+                          <td>
+                            <input 
+                              v-model="item.purpose" 
+                              placeholder="用途說明" 
+                              @change="project.isBudgetDirty = true"
+                              @keydown="handleCellKeydown($event, 'budgetExpense', project.project_id, idx, 4)"
+                              @paste="handleCellPaste($event, 'budgetExpense', project, idx, 4, getBudgetExpenses(project))"
+                              :data-project="project.project_id"
+                              :data-row="idx"
+                              data-col="4"
+                            />
+                          </td>
+                          <td style="text-align: center">
+                            <button @click="removeBudgetExpenseRow(project, idx)" class="delete-row-btn" title="刪除項目">✕</button>
+                          </td>
+                        </template>
+                        <template v-else>
+                          <td>{{ item.name }}</td>
+                          <td style="text-align: right">{{ item.qty }}</td>
+                          <td style="text-align: right">{{ formatCurrency(item.price) }}</td>
+                          <td style="text-align: right; color: #60a5fa;">{{ formatCurrency(item.total) }}</td>
+                          <td class="dim-text">{{ item.purpose }}</td>
+                        </template>
                       </tr>
                       <tr v-if="getBudgetExpenses(project).length === 0">
-                        <td colspan="5" class="empty-cell">無預算支出資料</td>
+                        <td :colspan="project.editMode ? 6 : 5" class="empty-cell">無預算支出資料</td>
                       </tr>
                     </tbody>
                   </table>
@@ -135,11 +250,26 @@
               <!-- Right: Actual details -->
               <div class="sheet-column">
                 <div class="sheet-column-header">
-                  <h3>💸 決算支出項目 (Actual Expenses)</h3>
+                  <div class="sheet-header-flex">
+                    <h3>💸 決算支出項目 (Actual Expenses)</h3>
+                    <div class="sheet-actions">
+                      <button @click="copyAllFinalExpenseTSV(project)" class="add-job-item-btn mini" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.2); color: #fff;">📤 匯出全部 TSV</button>
+                    </div>
+                  </div>
                 </div>
                 <div class="sheet-table-wrapper">
                   <table class="overview-detail-table">
-                    <thead>
+                    <thead v-if="project.editMode">
+                      <tr>
+                        <th style="width: 30%">發票品項名稱</th>
+                        <th style="width: 10%; text-align: right">數量</th>
+                        <th style="width: 15%; text-align: right">單價</th>
+                        <th style="width: 15%; text-align: right">金額</th>
+                        <th style="width: 22%">支出科目/類別</th>
+                        <th style="width: 8%; text-align: center">操作</th>
+                      </tr>
+                    </thead>
+                    <thead v-else>
                       <tr>
                         <th>憑證檔案 / 項目</th>
                         <th style="text-align: right">數量</th>
@@ -152,22 +282,104 @@
                       <template v-for="(job, jobIdx) in project.jobDetails" :key="'job-' + jobIdx">
                         <!-- Group Header -->
                         <tr class="job-group-row">
-                          <td colspan="5">📄 {{ job.voucherId || job.jobId }} (合計: {{ formatCurrency(job.total) }})</td>
+                          <td :colspan="project.editMode ? 6 : 5">
+                            <div class="job-group-header-flex">
+                              <span>📄 {{ job.voucherId || job.jobId }} (合計: {{ formatCurrency(job.total) }})</span>
+                              <div class="job-actions" @click.stop>
+                                <button type="button" @click="copyJobTSV(project, job)" class="add-job-item-btn mini" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.2); color: #fff;">📤 匯出 TSV</button>
+                                <button v-if="project.editMode" type="button" @click="openImportModal(project, 'finalExpense', job.jobId, job.voucherId || job.jobId)" class="add-job-item-btn mini" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.2); color: #fff;">📥 匯入 TSV</button>
+                                <button v-if="project.editMode" type="button" @click="addFinalExpenseRow(project, job.jobId)" class="add-job-item-btn mini">+ 新增品項</button>
+                              </div>
+                            </div>
+                          </td>
                         </tr>
                         <!-- Items -->
-                        <tr v-for="(item, idx) in job.items" :key="'item-' + jobIdx + '-' + idx">
-                          <td style="padding-left: 1.5rem;">{{ item.name }}</td>
-                          <td style="text-align: right">{{ item.qty }}</td>
-                          <td style="text-align: right">{{ formatCurrency(item.price) }}</td>
-                          <td style="text-align: right; color: #34d399;">{{ formatCurrency(item.total) }}</td>
-                          <td class="dim-text">{{ item.category }}</td>
+                        <tr v-for="(item, idx) in job.items" :key="'item-' + jobIdx + '-' + idx" :class="{ 'row-dirty': project.dirtyJobs?.has(job.jobId) }">
+                          <template v-if="project.editMode">
+                            <td>
+                              <input 
+                                v-model="item.name" 
+                                placeholder="發票商品名稱" 
+                                @change="onFinalItemChange(project, job.jobId, item)"
+                                @keydown="handleCellKeydown($event, 'finalExpense', project.project_id, getFlatIndex(project, jobIdx, idx), 0)"
+                                @paste="handleCellPaste($event, 'finalExpense', project, getFlatIndex(project, jobIdx, idx), 0, getFlatItemsList(project))"
+                                :data-project="project.project_id"
+                                :data-row="getFlatIndex(project, jobIdx, idx)"
+                                data-col="0"
+                              />
+                            </td>
+                            <td>
+                              <input 
+                                type="number"
+                                v-model.number="item.qty" 
+                                placeholder="1"
+                                class="num-input"
+                                @change="onFinalItemChange(project, job.jobId, item)"
+                                @keydown="handleCellKeydown($event, 'finalExpense', project.project_id, getFlatIndex(project, jobIdx, idx), 1)"
+                                @paste="handleCellPaste($event, 'finalExpense', project, getFlatIndex(project, jobIdx, idx), 1, getFlatItemsList(project))"
+                                :data-project="project.project_id"
+                                :data-row="getFlatIndex(project, jobIdx, idx)"
+                                data-col="1"
+                              />
+                            </td>
+                            <td>
+                              <input 
+                                type="number"
+                                v-model.number="item.price" 
+                                placeholder="0"
+                                class="num-input"
+                                @change="onFinalItemChange(project, job.jobId, item)"
+                                @keydown="handleCellKeydown($event, 'finalExpense', project.project_id, getFlatIndex(project, jobIdx, idx), 2)"
+                                @paste="handleCellPaste($event, 'finalExpense', project, getFlatIndex(project, jobIdx, idx), 2, getFlatItemsList(project))"
+                                :data-project="project.project_id"
+                                :data-row="getFlatIndex(project, jobIdx, idx)"
+                                data-col="2"
+                              />
+                            </td>
+                            <td>
+                              <input 
+                                type="number"
+                                :value="item.total" 
+                                class="num-input readonly"
+                                readonly
+                                placeholder="0"
+                                @keydown="handleCellKeydown($event, 'finalExpense', project.project_id, getFlatIndex(project, jobIdx, idx), 3)"
+                                :data-project="project.project_id"
+                                :data-row="getFlatIndex(project, jobIdx, idx)"
+                                data-col="3"
+                              />
+                            </td>
+                            <td>
+                              <input 
+                                v-model="item.category" 
+                                list="expense-items"
+                                placeholder="e.g. 鐘點費、印刷費" 
+                                @change="onFinalItemChange(project, job.jobId, item)"
+                                @keydown="handleCellKeydown($event, 'finalExpense', project.project_id, getFlatIndex(project, jobIdx, idx), 4)"
+                                @paste="handleCellPaste($event, 'finalExpense', project, getFlatIndex(project, jobIdx, idx), 4, getFlatItemsList(project))"
+                                :data-project="project.project_id"
+                                :data-row="getFlatIndex(project, jobIdx, idx)"
+                                data-col="4"
+                              />
+                            </td>
+                            <td style="text-align: center">
+                              <button @click="deleteFinalExpenseRow(project, job.jobId, idx)" class="delete-row-btn" title="刪除品項">✕</button>
+                            </td>
+                          </template>
+                          <template v-else>
+                            <td style="padding-left: 1.5rem;">{{ item.name }}</td>
+                            <td style="text-align: right">{{ item.qty }}</td>
+                            <td style="text-align: right">{{ formatCurrency(item.price) }}</td>
+                            <td style="text-align: right; color: #34d399;">{{ formatCurrency(item.total) }}</td>
+                            <td class="dim-text">{{ item.category }}</td>
+                          </template>
                         </tr>
                         <tr v-if="job.items.length === 0">
-                          <td colspan="5" class="empty-cell" style="padding-left: 1.5rem;">無明細項目</td>
+                          <td :colspan="project.editMode ? 6 : 5" class="empty-cell" style="padding-left: 1.5rem;">無明細項目</td>
                         </tr>
                       </template>
                       <tr v-if="!project.jobDetails || project.jobDetails.length === 0">
-                        <td colspan="5" class="empty-cell">無決算明細資料</td>
+                        <td :colspan="project.editMode ? 6 : 5" class="empty-cell">無決算明細資料</td>
                       </tr>
                     </tbody>
                   </table>
@@ -183,15 +395,71 @@
       <div class="spinner"></div>
       <p>正在載入專案清單...</p>
     </div>
+
+    <!-- TSV Import Modal -->
+    <div v-if="showImportModal" class="modal-overlay" @click.self="closeImportModal">
+      <div class="modal-container-small">
+        <header class="modal-header">
+          <h2>📥 匯入 TSV 數據 (專案: {{ currentImportProject?.name || currentImportProject?.project_id }})</h2>
+          <button type="button" class="close-btn" @click="closeImportModal">✕</button>
+        </header>
+        <div class="modal-body">
+          <p class="import-help">
+            請貼上從 Excel 或 Google Sheets 複製的資料列：
+          </p>
+          <div class="format-hint">
+            <span class="hint-title">預期欄位順序：</span>
+            <code v-if="importTarget === 'budgetExpense'">項目名稱 &nbsp;&nbsp;|&nbsp;&nbsp; 數量 &nbsp;&nbsp;|&nbsp;&nbsp; 預估單價 &nbsp;&nbsp;|&nbsp;&nbsp; 用途說明</code>
+            <code v-if="importTarget === 'finalExpense'">品項名稱 &nbsp;&nbsp;|&nbsp;&nbsp; 數量 &nbsp;&nbsp;|&nbsp;&nbsp; 單價 &nbsp;&nbsp;|&nbsp;&nbsp; 支出科目/類別 &nbsp;&nbsp;|&nbsp;&nbsp; 備註</code>
+          </div>
+
+          <div class="radio-group">
+            <label>
+              <input type="radio" v-model="importMode" value="append" />
+              附加至現有資料末端 (Append)
+            </label>
+            <label>
+              <input type="radio" v-model="importMode" value="overwrite" />
+              覆蓋現有資料 (Overwrite)
+            </label>
+          </div>
+
+          <textarea 
+            v-model="tsvInputText" 
+            placeholder="在此貼上複製的試算表格內容..."
+            rows="8" 
+            class="tsv-textarea"
+          ></textarea>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" @click="closeImportModal" class="secondary">取消</button>
+          <button type="button" @click="handleTsvImport" class="primary-btn">確認匯入</button>
+        </footer>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import api from '../services/api'
 
 const projects = ref([])
 const initialLoading = ref(false)
+
+// Autocomplete suggestions
+const budgetIncomeSuggestions = ref([])
+const expenseCategorySuggestions = ref([])
+
+// TSV Import Modal state
+const showImportModal = ref(false)
+const importTarget = ref('') // 'budgetExpense' | 'finalExpense'
+const currentImportProject = ref(null)
+const importJobId = ref('')
+const importJobTitle = ref('')
+const importMode = ref('append') // 'append' | 'overwrite'
+const tsvInputText = ref('')
 
 // Aggregated values
 const totalEstimatedExpenses = computed(() => {
@@ -237,7 +505,9 @@ const toggleExpand = async (project) => {
       const detailRes = await api.getProjectDetail(project.project_id)
       const detail = detailRes.data
       project.metadata = detail.metadata || {}
-      
+      if (!project.metadata.budgetExpense) project.metadata.budgetExpense = []
+      if (!project.metadata.budgetIncome) project.metadata.budgetIncome = []
+
       const budgetExpense = project.metadata.budgetExpense || []
       project.budgetTotal = budgetExpense.reduce((sum, item) => sum + (Number(item.total) || 0), 0)
       
@@ -283,6 +553,11 @@ const toggleExpand = async (project) => {
         project.actualTotal = 0
       }
       
+      project.editMode = false
+      project.isBudgetDirty = false
+      project.dirtyJobs = new Set()
+      project.savingBudget = false
+      project.savingFinal = false
       project.loaded = true
     } catch (e) {
       console.error('Failed to load project details for ' + project.project_id, e)
@@ -314,7 +589,12 @@ const loadProjects = async () => {
         expanded: false,
         loading: false,
         loaded: false,
-        jobDetails: []
+        jobDetails: [],
+        editMode: false,
+        isBudgetDirty: false,
+        dirtyJobs: new Set(),
+        savingBudget: false,
+        savingFinal: false
       }
     })
   } catch (e) {
@@ -325,8 +605,472 @@ const loadProjects = async () => {
   }
 }
 
+// -------------------------------------------------------------
+// SUGGESTIONS & TSV IMPORT/EXPORT
+// -------------------------------------------------------------
+const loadSuggestions = async () => {
+  try {
+    const [incomeRes, expenseRes] = await Promise.all([
+      api.getSuggestions('budget_income_item', '', 200),
+      api.getSuggestions('expense_category', '', 200),
+    ])
+    budgetIncomeSuggestions.value = incomeRes.data || []
+    expenseCategorySuggestions.value = expenseRes.data || []
+  } catch (e) {
+    console.error('Failed to load suggestions:', e)
+  }
+}
+
+const saveSuggestion = async (category, value) => {
+  const text = String(value || '').trim()
+  if (!text) return
+  try {
+    await api.addSuggestion(category, text)
+    if (category === 'budget_income_item' && !budgetIncomeSuggestions.value.includes(text)) {
+      budgetIncomeSuggestions.value.push(text)
+    }
+    if (category === 'expense_category' && !expenseCategorySuggestions.value.includes(text)) {
+      expenseCategorySuggestions.value.push(text)
+    }
+  } catch (e) {
+    console.error(`Failed to save suggestion ${category}:`, e)
+  }
+}
+
+const recalculateTotals = (project) => {
+  if (project.metadata?.budgetExpense) {
+    project.budgetTotal = project.metadata.budgetExpense.reduce((sum, item) => sum + (Number(item.total) || 0), 0)
+  }
+  if (project.jobDetails) {
+    let actualSum = 0
+    project.jobDetails.forEach(job => {
+      const items = job.items || []
+      const jobSum = items.reduce((sum, item) => sum + (Number(item.total) || 0), 0)
+      job.total = jobSum
+      actualSum += jobSum
+    })
+    project.actualTotal = actualSum
+  }
+}
+
+// -------------------------------------------------------------
+// BUDGET CRUD
+// -------------------------------------------------------------
+const addBudgetExpenseRow = (project) => {
+  if (!project.metadata) project.metadata = {}
+  if (!project.metadata.budgetExpense) project.metadata.budgetExpense = []
+  project.metadata.budgetExpense.push({ name: '', qty: 1, price: 0, total: 0, purpose: '' })
+  project.isBudgetDirty = true
+}
+
+const removeBudgetExpenseRow = (project, idx) => {
+  if (project.metadata?.budgetExpense) {
+    project.metadata.budgetExpense.splice(idx, 1)
+    project.isBudgetDirty = true
+    recalculateTotals(project)
+  }
+}
+
+const onBudgetExpenseChange = (project, item) => {
+  item.total = (Number(item.qty) || 0) * (Number(item.price) || 0)
+  project.isBudgetDirty = true
+  recalculateTotals(project)
+}
+
+// -------------------------------------------------------------
+// FINAL ACCOUNT CRUD & MERGING
+// -------------------------------------------------------------
+const getFlatItemsList = (project) => {
+  const list = []
+  if (!project.jobDetails) return list
+  project.jobDetails.forEach(job => {
+    const items = job.items || []
+    items.forEach(item => {
+      list.push(item)
+    })
+  })
+  return list
+}
+
+const getFlatIndex = (project, jobIdx, idx) => {
+  let flatIndex = 0
+  for (let j = 0; j < jobIdx; j++) {
+    flatIndex += project.jobDetails[j]?.items?.length || 0
+  }
+  return flatIndex + idx
+}
+
+const onFinalItemChange = (project, jobId, item) => {
+  item.total = (Number(item.qty) || 0) * (Number(item.price) || 0)
+  if (!project.dirtyJobs) project.dirtyJobs = new Set()
+  project.dirtyJobs.add(jobId)
+  recalculateTotals(project)
+}
+
+const addFinalExpenseRow = (project, jobId) => {
+  const job = project.jobDetails.find(j => j.jobId === jobId)
+  if (job) {
+    if (!job.items) job.items = []
+    job.items.push({ name: '', qty: 1, price: 0, total: 0, category: '', remark: '' })
+    if (!project.dirtyJobs) project.dirtyJobs = new Set()
+    project.dirtyJobs.add(jobId)
+    recalculateTotals(project)
+  }
+}
+
+const deleteFinalExpenseRow = (project, jobId, idx) => {
+  const job = project.jobDetails.find(j => j.jobId === jobId)
+  if (job && job.items) {
+    job.items.splice(idx, 1)
+    if (!project.dirtyJobs) project.dirtyJobs = new Set()
+    project.dirtyJobs.add(jobId)
+    recalculateTotals(project)
+  }
+}
+
+// -------------------------------------------------------------
+// SAVE FUNCTIONS
+// -------------------------------------------------------------
+const saveProjectBudget = async (project) => {
+  project.savingBudget = true
+  try {
+    const updatedMetadata = {
+      ...project.metadata,
+      budgetExpense: project.metadata.budgetExpense || [],
+      budgetIncome: project.metadata.budgetIncome || []
+    }
+    await api.updateProject(project.project_id, updatedMetadata)
+
+    // Save category suggestions
+    for (const item of project.metadata.budgetExpense || []) {
+      if (item.name) await saveSuggestion('expense_category', item.name)
+    }
+
+    project.isBudgetDirty = false
+    alert(`專案 ${project.name || project.project_id} 預算儲存成功！`)
+  } catch (e) {
+    console.error('Failed to save project budget:', e)
+    alert('儲存預算失敗：' + e)
+  } finally {
+    project.savingBudget = false
+  }
+}
+
+const saveProjectFinal = async (project) => {
+  if (!project.dirtyJobs || project.dirtyJobs.size === 0) {
+    alert('決算無任何變更需要儲存。')
+    return
+  }
+  project.savingFinal = true
+  try {
+    const promises = Array.from(project.dirtyJobs).map(async (jobId) => {
+      const job = project.jobDetails.find(j => j.jobId === jobId)
+      if (!job) return
+
+      const res = await api.getJobDetails(project.project_id, jobId)
+      const detailData = res.data
+
+      let parsedData = {}
+      if (detailData.manual_json_text) {
+        try {
+          parsedData = JSON.parse(detailData.manual_json_text)
+        } catch (e) {
+          parsedData = detailData.vlm_result || {}
+        }
+      } else if (detailData.vlm_result) {
+        parsedData = detailData.vlm_result
+      }
+
+      const totalSum = job.items.reduce((sum, item) => sum + (Number(item.total) || 0), 0)
+      const summary = parsedData.summary || { subtotal: 0, tax: 0, total: 0 }
+      summary.total = totalSum
+      summary.subtotal = totalSum
+
+      const payload = {
+        receipt_type: detailData.receipt_type || parsedData.receipt_type || '電子發票證明聯',
+        header: parsedData.header || { supplier: '', buyer: '', invoice_id: '', date: '' },
+        items: job.items,
+        summary: summary,
+        verification: parsedData.verification || { handwritten_total_chinese: '', stamp_shop_name: '', qr_code_detected: false }
+      }
+      return api.saveManualJson(project.project_id, jobId, payload)
+    })
+
+    await Promise.all(promises)
+
+    // Save category suggestions
+    for (const job of project.jobDetails || []) {
+      for (const item of job.items || []) {
+        if (item.category) await saveSuggestion('expense_category', item.category)
+      }
+    }
+
+    project.dirtyJobs.clear()
+    alert(`專案 ${project.name || project.project_id} 決算儲存成功！`)
+  } catch (e) {
+    console.error('Failed to save project final details:', e)
+    alert('儲存決算失敗：' + e)
+  } finally {
+    project.savingFinal = false
+  }
+}
+
+// -------------------------------------------------------------
+// TSV COPY/EXPORT HELPERS
+// -------------------------------------------------------------
+const copyBudgetExpenseTSV = (project) => {
+  let tsv = '項目\t數量\t單價\t金額\t用途\n'
+  const items = project.metadata?.budgetExpense || []
+  items.forEach(row => {
+    tsv += `${row.name || ''}\t${row.qty || 1}\t${row.price || 0}\t${row.total || 0}\t${row.purpose || ''}\n`
+  })
+  navigator.clipboard.writeText(tsv)
+  alert('預算支出已複製為 TSV 格式，可直接貼入 Excel！')
+}
+
+const copyJobTSV = (project, job) => {
+  let tsv = '品項名稱\t數量\t單價\t金額\t類別\t備註\n'
+  const items = job.items || []
+  items.forEach(row => {
+    tsv += `${row.name || ''}\t${row.qty || 1}\t${row.price || 0}\t${row.total || 0}\t${row.category || ''}\t${row.remark || ''}\n`
+  })
+  navigator.clipboard.writeText(tsv)
+  alert(`憑證 ${job.voucherId || job.jobId} 支出已複製為 TSV 格式！`)
+}
+
+const copyAllFinalExpenseTSV = (project) => {
+  let tsv = '憑證\t項目名稱\t數量\t單價\t金額\t類別\n'
+  if (project.jobDetails) {
+    project.jobDetails.forEach(job => {
+      const items = job.items || []
+      const jobTitle = job.voucherId || job.jobId
+      items.forEach(row => {
+        tsv += `${jobTitle}\t${row.name || ''}\t${row.qty || 0}\t${row.price || 0}\t${row.total || 0}\t${row.category || ''}\n`
+      })
+    })
+  }
+  navigator.clipboard.writeText(tsv)
+  alert('決算支出已複製為 TSV 格式，可直接貼入 Excel！')
+}
+
+// -------------------------------------------------------------
+// EXCEL-LIKE KEYBOARD NAVIGATION & PASTE
+// -------------------------------------------------------------
+const handleCellKeydown = (e, tableType, projectId, rowIndex, colIndex) => {
+  const table = e.currentTarget.closest('table')
+  if (!table) return
+
+  let targetRow = rowIndex
+  let targetCol = colIndex
+
+  if (e.key === 'ArrowUp') {
+    targetRow--
+  } else if (e.key === 'ArrowDown') {
+    targetRow++
+  } else if (e.key === 'ArrowLeft') {
+    if (e.target.selectionStart === 0) {
+      targetCol--
+    } else {
+      return
+    }
+  } else if (e.key === 'ArrowRight') {
+    if (e.target.selectionStart === e.target.value.length) {
+      targetCol++
+    } else {
+      return
+    }
+  } else if (e.key === 'Enter') {
+    e.preventDefault()
+    targetRow++
+  } else {
+    return
+  }
+
+  const nextInput = table.querySelector(`input[data-project="${projectId}"][data-row="${targetRow}"][data-col="${targetCol}"]`)
+  if (nextInput) {
+    nextInput.focus()
+    nextInput.select()
+    e.preventDefault()
+  }
+}
+
+const handleCellPaste = (e, tableType, project, startRowIndex, startColIndex, list) => {
+  e.preventDefault()
+  const clipboardData = e.clipboardData || window.clipboardData
+  const pastedText = clipboardData.getData('Text')
+  if (!pastedText) return
+
+  const rows = pastedText.split(/\r?\n/).map(row => row.split('\t'))
+  
+  for (let r = 0; r < rows.length; r++) {
+    const rowData = rows[r]
+    if (rowData.length === 1 && rowData[0] === '') continue
+    
+    const targetRowIndex = startRowIndex + r
+    
+    if (tableType === 'budgetExpense') {
+      while (project.metadata.budgetExpense.length <= targetRowIndex) {
+        project.metadata.budgetExpense.push({ name: '', qty: 1, price: 0, total: 0, purpose: '' })
+      }
+    }
+
+    const row = list[targetRowIndex]
+    if (!row || row.placeholder) continue
+
+    for (let c = 0; c < rowData.length; c++) {
+      const val = rowData[c]
+      const targetColIndex = startColIndex + c
+
+      if (tableType === 'budgetExpense') {
+        if (targetColIndex === 0) row.name = val
+        if (targetColIndex === 1) row.qty = Number(val) || 1
+        if (targetColIndex === 2) row.price = Number(val) || 0
+        if (targetColIndex === 4) row.purpose = val
+        row.total = (Number(row.qty) || 0) * (Number(row.price) || 0)
+      } else if (tableType === 'finalExpense') {
+        // Find job ID for this flat item row
+        // Note: list contains flat list of items which are mutated in-place
+        if (targetColIndex === 0) row.name = val
+        if (targetColIndex === 1) row.qty = Number(val) || 1
+        if (targetColIndex === 2) row.price = Number(val) || 0
+        if (targetColIndex === 4) row.category = val
+        if (targetColIndex === 5) row.remark = val
+        row.total = (Number(row.qty) || 0) * (Number(row.price) || 0)
+        
+        // Find parent jobId for this item to mark it dirty
+        if (project.jobDetails) {
+          project.jobDetails.forEach(job => {
+            if (job.items && job.items.includes(row)) {
+              if (!project.dirtyJobs) project.dirtyJobs = new Set()
+              project.dirtyJobs.add(job.jobId)
+            }
+          })
+        }
+      }
+    }
+  }
+
+  if (tableType === 'budgetExpense') {
+    project.isBudgetDirty = true
+  }
+  recalculateTotals(project)
+}
+
+// -------------------------------------------------------------
+// TSV IMPORT MODAL
+// -------------------------------------------------------------
+const openImportModal = (project, target, jobId = '', jobTitle = '') => {
+  currentImportProject.value = project
+  importTarget.value = target
+  importJobId.value = jobId
+  importJobTitle.value = jobTitle
+  importMode.value = 'append'
+  tsvInputText.value = ''
+  showImportModal.value = true
+}
+
+const closeImportModal = () => {
+  showImportModal.value = false
+}
+
+const handleTsvImport = () => {
+  const text = tsvInputText.value.trim()
+  if (!text) {
+    alert('請貼上 TSV 資料')
+    return
+  }
+
+  const rows = text.split(/\r?\n/).map(row => row.split('\t'))
+  
+  // Parse rows (skip header row if it contains column titles)
+  let startIndex = 0
+  const firstRow = rows[0]
+  if (firstRow && firstRow.some(cell => cell.includes('項目') || cell.includes('名稱') || cell.includes('科目') || cell.includes('類別') || cell.includes('金額') || cell.includes('單價') || cell.includes('數量'))) {
+    startIndex = 1 // Skip header
+  }
+
+  const parsedRows = []
+  for (let i = startIndex; i < rows.length; i++) {
+    const cols = rows[i]
+    if (cols.length === 1 && cols[0] === '') continue
+
+    if (importTarget.value === 'budgetExpense') {
+      const qty = Number(cols[1]) || 1
+      const price = Number(cols[2]) || 0
+      parsedRows.push({
+        name: cols[0] || '',
+        qty: qty,
+        price: price,
+        total: qty * price,
+        purpose: cols[4] || cols[3] || ''
+      })
+    } else if (importTarget.value === 'finalExpense') {
+      const qty = Number(cols[1]) || 1
+      const price = Number(cols[2]) || 0
+      parsedRows.push({
+        name: cols[0] || '',
+        qty: qty,
+        price: price,
+        total: qty * price,
+        category: cols[4] || cols[3] || '',
+        remark: cols[5] || ''
+      })
+    }
+  }
+
+  if (parsedRows.length === 0) {
+    alert('沒有解析出有效的資料列')
+    return
+  }
+
+  const project = currentImportProject.value
+  if (!project) return
+
+  if (importTarget.value === 'budgetExpense') {
+    if (!project.metadata) project.metadata = {}
+    if (!project.metadata.budgetExpense) project.metadata.budgetExpense = []
+
+    if (importMode.value === 'overwrite') {
+      project.metadata.budgetExpense = parsedRows
+    } else {
+      project.metadata.budgetExpense = [...project.metadata.budgetExpense, ...parsedRows]
+    }
+    project.isBudgetDirty = true
+  } else if (importTarget.value === 'finalExpense') {
+    const jobId = importJobId.value
+    const job = project.jobDetails.find(j => j.jobId === jobId)
+    if (job) {
+      if (importMode.value === 'overwrite') {
+        job.items = parsedRows
+      } else {
+        if (!job.items) job.items = []
+        job.items = [...job.items, ...parsedRows]
+      }
+      if (!project.dirtyJobs) project.dirtyJobs = new Set()
+      project.dirtyJobs.add(jobId)
+    }
+  }
+
+  recalculateTotals(project)
+  showImportModal.value = false
+  alert(`成功匯入 ${parsedRows.length} 筆資料！`)
+}
+
+// Router leave guard
+onBeforeRouteLeave((to, from, next) => {
+  const dirtyProject = projects.value.find(p => p.isBudgetDirty || p.dirtyJobs?.size > 0)
+  if (dirtyProject) {
+    const confirmLeave = confirm(`專案「${dirtyProject.name || dirtyProject.project_id}」有未儲存的變更。確定要離開嗎？`)
+    if (confirmLeave) next()
+    else next(false)
+  } else {
+    next()
+  }
+})
+
 onMounted(() => {
   loadProjects()
+  loadSuggestions()
 })
 </script>
 
@@ -584,6 +1328,83 @@ onMounted(() => {
   gap: 1.5rem;
 }
 
+/* Edit Mode Bar */
+.edit-mode-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
+  background: rgba(28, 28, 35, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+}
+
+.switch-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #9ca3af;
+}
+
+.switch-label input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dirty-badge {
+  font-size: 0.85rem;
+  color: #fbbf24;
+  margin-right: 0.5rem;
+  animation: pulse 2s infinite;
+}
+
+.save-btn {
+  color: white;
+  border: none;
+  padding: 0.6rem 1.25rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.save-btn:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.save-btn.small {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.8rem;
+}
+
+.save-btn.green {
+  background: linear-gradient(135deg, #10b981, #059669);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+}
+
+.save-btn.blue {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+}
+
 /* Variance summary styling */
 .variance-summary-box {
   padding: 1rem 1.5rem;
@@ -659,9 +1480,22 @@ onMounted(() => {
   color: #e5e7eb;
 }
 
+.sheet-header-flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.sheet-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
 .sheet-table-wrapper {
   overflow-y: auto;
-  max-height: 350px;
+  max-height: 450px;
 }
 
 .overview-detail-table {
@@ -679,9 +1513,49 @@ onMounted(() => {
 }
 
 .overview-detail-table td {
-  padding: 0.6rem 0.75rem;
+  padding: 0.25rem 0.4rem;
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
   color: #d1d5db;
+}
+
+/* Excel inputs style inside table */
+.overview-detail-table input {
+  width: 100%;
+  background: transparent;
+  border: 1px solid transparent;
+  color: #fff;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  border-radius: 4px;
+  box-sizing: border-box;
+  transition: all 0.15s ease;
+}
+
+.overview-detail-table input:focus {
+  background: rgba(0, 0, 0, 0.35);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.4);
+  outline: none;
+}
+
+.overview-detail-table input.num-input {
+  text-align: right;
+}
+
+.overview-detail-table input.readonly {
+  color: #9ca3af;
+  background-color: rgba(255, 255, 255, 0.01);
+  cursor: not-allowed;
+}
+
+.overview-detail-table input.readonly:focus {
+  border-color: transparent;
+  box-shadow: none;
+  background-color: rgba(255, 255, 255, 0.01);
+}
+
+.overview-detail-table tr:hover {
+  background-color: rgba(255, 255, 255, 0.01);
 }
 
 .overview-detail-table tr.job-group-row {
@@ -693,6 +1567,67 @@ onMounted(() => {
   color: #9ca3af;
   font-size: 0.8rem;
   border-bottom: 1px solid rgba(59, 130, 246, 0.1);
+  padding: 0.5rem 0.75rem;
+}
+
+.job-group-header-flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.job-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.add-job-item-btn {
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+  color: #34d399;
+  padding: 0.25rem 0.75rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.add-job-item-btn:hover {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: #34d399;
+}
+
+.add-job-item-btn.mini {
+  padding: 0.15rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.delete-row-btn {
+  background: transparent;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  font-size: 1rem;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  margin: 0 auto;
+  transition: all 0.2s ease;
+}
+
+.delete-row-btn:hover {
+  background-color: rgba(239, 68, 68, 0.15);
+}
+
+.row-dirty {
+  background-color: rgba(251, 191, 36, 0.02);
+  border-left: 3px solid #fbbf24;
 }
 
 .dim-text {
@@ -741,5 +1676,165 @@ onMounted(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+/* TSV Import Modal styles */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal-container-small {
+  width: min(550px, 90vw);
+  background: #1c1c24;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  color: white;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+  overflow: hidden;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.modal-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: #60a5fa;
+  font-weight: 600;
+}
+
+.close-btn {
+  background: transparent;
+  border: none;
+  color: #888;
+  font-size: 1.5rem;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.close-btn:hover {
+  color: white;
+}
+
+.modal-body {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.import-help {
+  font-size: 0.9rem;
+  color: #9ca3af;
+  margin: 0;
+}
+
+.format-hint {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.hint-title {
+  color: #60a5fa;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.format-hint code {
+  color: #10b981;
+  font-family: monospace;
+}
+
+.radio-group {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.9rem;
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.tsv-textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.4);
+  color: white;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.tsv-textarea:focus {
+  border-color: #3b82f6;
+  outline: none;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.modal-footer button {
+  padding: 0.5rem 1.25rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.modal-footer button.secondary {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #e5e7eb;
+}
+
+.modal-footer button.secondary:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.modal-footer button.primary-btn {
+  background: #3b82f6;
+  border: none;
+  color: white;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+}
+
+.modal-footer button.primary-btn:hover {
+  background: #2563eb;
 }
 </style>

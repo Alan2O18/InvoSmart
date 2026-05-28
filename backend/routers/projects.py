@@ -133,6 +133,11 @@ async def create_project(
             except Exception:
                 pass
 
+        # Set default values for project settings fields
+        for field in ("subsidyReason", "subsidyMethod", "balanceHandling", "overdraftHandling"):
+            if not meta_dict.get(field):
+                meta_dict[field] = "無"
+
         if files:
             async with handle_upload_files(files) as saved_file_paths:
                 result = await engine.create_project(project_id, saved_file_paths, name=activity_name, metadata=meta_dict)

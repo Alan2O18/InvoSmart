@@ -40,6 +40,13 @@
 
     <!-- Main Content Area -->
     <main class="editor-main" v-if="!loading">
+      <datalist id="income-items">
+        <option v-for="item in budgetIncomeSuggestions" :key="`income-${item}`" :value="item"></option>
+      </datalist>
+      <datalist id="expense-items">
+        <option v-for="item in expenseCategorySuggestions" :key="`expense-${item}`" :value="item"></option>
+      </datalist>
+
       <!-- 1. BUDGET TAB -->
       <div v-if="activeTab === 'budget'" class="tab-content">
         <!-- 1.1 Budget Income -->
@@ -47,7 +54,8 @@
           <div class="section-header">
             <h2>1. 預算收入配置 (Estimated Income)</h2>
             <div class="section-actions">
-              <button @click="copyBudgetIncomeTSV" class="action-btn-secondary">📋 複製為 TSV</button>
+              <button @click="copyBudgetIncomeTSV" class="action-btn-secondary">📤 匯出 TSV</button>
+              <button @click="openImportModal('budgetIncome')" class="action-btn-secondary">📥 匯入 TSV</button>
               <button @click="addBudgetIncomeRow" class="action-btn">+ 新增收入項目</button>
             </div>
           </div>
@@ -67,6 +75,7 @@
                   <td>
                     <input 
                       v-model="row.name" 
+                      list="income-items"
                       placeholder="請輸入項目名稱 (e.g. 報名費)" 
                       @change="isBudgetDirty = true"
                       @keydown="handleCellKeydown($event, 'budgetIncome', idx, 0)"
@@ -127,7 +136,8 @@
           <div class="section-header">
             <h2>2. 預算支出配置 (Estimated Expense)</h2>
             <div class="section-actions">
-              <button @click="copyBudgetExpenseTSV" class="action-btn-secondary">📋 複製為 TSV</button>
+              <button @click="copyBudgetExpenseTSV" class="action-btn-secondary">📤 匯出 TSV</button>
+              <button @click="openImportModal('budgetExpense')" class="action-btn-secondary">📥 匯入 TSV</button>
               <button @click="addBudgetExpenseRow" class="action-btn">+ 新增支出項目</button>
             </div>
           </div>
@@ -149,6 +159,7 @@
                   <td>
                     <input 
                       v-model="row.name" 
+                      list="expense-items"
                       placeholder="項目名稱 (e.g. 印製費)" 
                       @change="onBudgetExpenseChange(row)"
                       @keydown="handleCellKeydown($event, 'budgetExpense', idx, 0)"
@@ -281,7 +292,7 @@
           <div class="section-header">
             <h2>2. 決算支出明細 (Actual Expense) - <span class="badge success">數據來源：發票憑證</span></h2>
             <div class="section-actions" v-if="doneJobIds.length > 0">
-              <button @click="copyFinalExpenseTSV" class="action-btn-secondary">📋 複製為 TSV</button>
+              <button @click="copyFinalExpenseTSV" class="action-btn-secondary">📤 匯出全部 TSV</button>
             </div>
           </div>
 
@@ -305,7 +316,11 @@
                     <td colspan="7">
                       <div class="job-group-title">
                         <span>📄 憑證檔案: <strong>{{ row.jobTitle }}</strong></span>
-                        <button @click="addFinalExpenseRow(row.jobId)" class="add-job-item-btn">+ 新增品項</button>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                          <button type="button" @click="copyJobTSV(row.jobId, row.jobTitle)" class="add-job-item-btn" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.2); color: #fff;">📤 匯出 TSV</button>
+                          <button type="button" @click="openImportModal('finalExpense', row.jobId, row.jobTitle)" class="add-job-item-btn" style="background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.2); color: #fff;">📥 匯入 TSV</button>
+                          <button type="button" @click="addFinalExpenseRow(row.jobId)" class="add-job-item-btn">+ 新增品項</button>
+                        </div>
                       </div>
                     </td>
                   </tr>
@@ -371,6 +386,7 @@
                     <td>
                       <input 
                         v-model="row.category" 
+                        list="expense-items"
                         placeholder="e.g. 鐘點費、印刷費" 
                         @change="onFinalItemChange(row)"
                         @keydown="handleCellKeydown($event, 'finalExpense', idx, 4)"
@@ -426,6 +442,49 @@
       <div class="spinner"></div>
       <p>讀取專案預決算資料中，請稍候...</p>
     </div>
+
+    <!-- TSV Import Modal -->
+    <div v-if="showImportModal" class="modal-overlay" @click.self="closeImportModal">
+      <div class="modal-container-small">
+        <header class="modal-header">
+          <h2>📥 匯入 TSV 數據</h2>
+          <button type="button" class="close-btn" @click="closeImportModal">✕</button>
+        </header>
+        <div class="modal-body">
+          <p class="import-help">
+            請貼上從 Excel 或 Google Sheets 複製的資料列：
+          </p>
+          <div class="format-hint">
+            <span class="hint-title">預期欄位順序：</span>
+            <code v-if="importTarget === 'budgetIncome'">項目名稱 &nbsp;&nbsp;|&nbsp;&nbsp; 預算金額 &nbsp;&nbsp;|&nbsp;&nbsp; 備註說明</code>
+            <code v-if="importTarget === 'budgetExpense'">項目名稱 &nbsp;&nbsp;|&nbsp;&nbsp; 數量 &nbsp;&nbsp;|&nbsp;&nbsp; 預估單價 &nbsp;&nbsp;|&nbsp;&nbsp; 用途說明</code>
+            <code v-if="importTarget === 'finalExpense'">品項名稱 &nbsp;&nbsp;|&nbsp;&nbsp; 數量 &nbsp;&nbsp;|&nbsp;&nbsp; 單價 &nbsp;&nbsp;|&nbsp;&nbsp; 支出科目/類別 &nbsp;&nbsp;|&nbsp;&nbsp; 備註</code>
+          </div>
+
+          <div class="radio-group">
+            <label>
+              <input type="radio" v-model="importMode" value="append" />
+              附加至現有資料末端 (Append)
+            </label>
+            <label>
+              <input type="radio" v-model="importMode" value="overwrite" />
+              覆蓋現有資料 (Overwrite)
+            </label>
+          </div>
+
+          <textarea 
+            v-model="tsvInputText" 
+            placeholder="在此貼上複製的試算表格內容..."
+            rows="8" 
+            class="tsv-textarea"
+          ></textarea>
+        </div>
+        <footer class="modal-footer">
+          <button type="button" @click="closeImportModal" class="secondary">取消</button>
+          <button type="button" @click="handleTsvImport" class="primary-btn">確認匯入</button>
+        </footer>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -451,6 +510,18 @@ const dirtyJobs = ref(new Set())
 const isBudgetDirty = ref(false)
 const loading = ref(false)
 const saving = ref(false)
+
+// Autocomplete suggestions
+const budgetIncomeSuggestions = ref([])
+const expenseCategorySuggestions = ref([])
+
+// TSV Import Modal state
+const showImportModal = ref(false)
+const importTarget = ref('') // 'budgetIncome' | 'budgetExpense' | 'finalExpense'
+const importJobId = ref('')
+const importJobTitle = ref('')
+const importMode = ref('append') // 'append' | 'overwrite'
+const tsvInputText = ref('')
 
 // Computed Totals
 const budgetIncomeTotal = computed(() => {
@@ -484,6 +555,153 @@ const isFirstItemOfJob = (row, index) => {
   if (index === 0) return true
   const prevRow = finalExpenseItems.value[index - 1]
   return prevRow.jobId !== row.jobId
+}
+
+// -------------------------------------------------------------
+// SUGGESTIONS & TSV IMPORT/EXPORT
+// -------------------------------------------------------------
+const loadSuggestions = async () => {
+  try {
+    const [incomeRes, expenseRes] = await Promise.all([
+      api.getSuggestions('budget_income_item', '', 200),
+      api.getSuggestions('expense_category', '', 200),
+    ])
+    budgetIncomeSuggestions.value = incomeRes.data || []
+    expenseCategorySuggestions.value = expenseRes.data || []
+  } catch (e) {
+    console.error('Failed to load suggestions:', e)
+  }
+}
+
+const saveSuggestion = async (category, value) => {
+  const text = String(value || '').trim()
+  if (!text) return
+  try {
+    await api.addSuggestion(category, text)
+    if (category === 'budget_income_item' && !budgetIncomeSuggestions.value.includes(text)) {
+      budgetIncomeSuggestions.value.push(text)
+    }
+    if (category === 'expense_category' && !expenseCategorySuggestions.value.includes(text)) {
+      expenseCategorySuggestions.value.push(text)
+    }
+  } catch (e) {
+    console.error(`Failed to save suggestion ${category}:`, e)
+  }
+}
+
+const copyJobTSV = (jobId, jobTitle) => {
+  const jobData = jobDetailsMap.value[jobId]
+  if (!jobData) return
+  let tsv = '品項名稱\t數量\t單價\t金額\t類別\t備註\n'
+  const items = jobData.items || []
+  items.forEach(row => {
+    tsv += `${row.name || ''}\t${row.qty || 1}\t${row.price || 0}\t${row.total || 0}\t${row.category || ''}\t${row.remark || ''}\n`
+  })
+  navigator.clipboard.writeText(tsv)
+  alert(`憑證 ${jobTitle} 支出已複製為 TSV 格式！`)
+}
+
+const openImportModal = (target, jobId = '', jobTitle = '') => {
+  importTarget.value = target
+  importJobId.value = jobId
+  importJobTitle.value = jobTitle
+  importMode.value = 'append'
+  tsvInputText.value = ''
+  showImportModal.value = true
+}
+
+const closeImportModal = () => {
+  showImportModal.value = false
+}
+
+const handleTsvImport = () => {
+  const text = tsvInputText.value.trim()
+  if (!text) {
+    alert('請貼上 TSV 資料')
+    return
+  }
+
+  const rows = text.split(/\r?\n/).map(row => row.split('\t'))
+  
+  // Parse rows (skip header row if it contains column titles)
+  let startIndex = 0
+  const firstRow = rows[0]
+  if (firstRow && firstRow.some(cell => cell.includes('項目') || cell.includes('名稱') || cell.includes('科目') || cell.includes('類別') || cell.includes('金額') || cell.includes('單價') || cell.includes('數量'))) {
+    startIndex = 1 // Skip header
+  }
+
+  const parsedRows = []
+  for (let i = startIndex; i < rows.length; i++) {
+    const cols = rows[i]
+    if (cols.length === 1 && cols[0] === '') continue
+
+    if (importTarget.value === 'budgetIncome') {
+      parsedRows.push({
+        name: cols[0] || '',
+        amount: Number(cols[1]) || 0,
+        note: cols[2] || ''
+      })
+    } else if (importTarget.value === 'budgetExpense') {
+      const qty = Number(cols[1]) || 1
+      const price = Number(cols[2]) || 0
+      parsedRows.push({
+        name: cols[0] || '',
+        qty: qty,
+        price: price,
+        total: qty * price,
+        purpose: cols[4] || cols[3] || ''
+      })
+    } else if (importTarget.value === 'finalExpense') {
+      const qty = Number(cols[1]) || 1
+      const price = Number(cols[2]) || 0
+      parsedRows.push({
+        name: cols[0] || '',
+        qty: qty,
+        price: price,
+        total: qty * price,
+        category: cols[4] || cols[3] || '',
+        remark: cols[5] || ''
+      })
+    }
+  }
+
+  if (parsedRows.length === 0) {
+    alert('沒有解析出有效的資料列')
+    return
+  }
+
+  if (importTarget.value === 'budgetIncome') {
+    if (importMode.value === 'overwrite') {
+      budgetIncome.value = parsedRows
+    } else {
+      budgetIncome.value = [...budgetIncome.value, ...parsedRows]
+    }
+    isBudgetDirty.value = true
+  } else if (importTarget.value === 'budgetExpense') {
+    if (importMode.value === 'overwrite') {
+      budgetExpense.value = parsedRows
+    } else {
+      budgetExpense.value = [...budgetExpense.value, ...parsedRows]
+    }
+    isBudgetDirty.value = true
+  } else if (importTarget.value === 'finalExpense') {
+    const jobId = importJobId.value
+    const jobData = jobDetailsMap.value[jobId]
+    if (jobData) {
+      if (importMode.value === 'overwrite') {
+        jobData.items = parsedRows
+      } else {
+        if (!jobData.items) jobData.items = []
+        jobData.items = [...jobData.items, ...parsedRows]
+      }
+      dirtyJobs.value.add(jobId)
+      updateJobSummary(jobId)
+      rebuildFinalExpenseItems()
+    }
+  }
+
+  showImportModal.value = false
+  alert(`成功匯入 ${parsedRows.length} 筆資料！`)
 }
 
 // -------------------------------------------------------------
@@ -858,7 +1076,19 @@ const handleSave = async () => {
       dirtyJobs.value.clear()
       savedAny = true
     }
+    
+    // Dynamically persist suggestions
     if (savedAny) {
+      for (const item of budgetIncome.value || []) {
+        if (item.name) await saveSuggestion('budget_income_item', item.name)
+      }
+      for (const item of budgetExpense.value || []) {
+        if (item.name) await saveSuggestion('expense_category', item.name)
+      }
+      for (const item of finalExpenseItems.value || []) {
+        if (item.category) await saveSuggestion('expense_category', item.category)
+      }
+      
       alert('所有變更已成功儲存！')
     } else {
       alert('無任何變更需要儲存。')
@@ -916,6 +1146,7 @@ onBeforeRouteLeave((to, from, next) => {
 
 onMounted(() => {
   loadData()
+  loadSuggestions()
 })
 </script>
 
@@ -1384,5 +1615,82 @@ onMounted(() => {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.5; }
+}
+
+/* TSV Import Modal styles */
+.modal-container-small {
+  width: min(550px, 90vw);
+  background: #2a2a35;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  color: white;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+  overflow: hidden;
+}
+
+.modal-body {
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.import-help {
+  font-size: 0.9rem;
+  color: #9ca3af;
+  margin: 0;
+}
+
+.format-hint {
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.hint-title {
+  color: #60a5fa;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 0.25rem;
+}
+
+.format-hint code {
+  color: #10b981;
+  font-family: monospace;
+}
+
+.radio-group {
+  display: flex;
+  gap: 1.5rem;
+  font-size: 0.9rem;
+}
+
+.radio-group label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.tsv-textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.4);
+  color: white;
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.tsv-textarea:focus {
+  border-color: #3b82f6;
+  outline: none;
 }
 </style>

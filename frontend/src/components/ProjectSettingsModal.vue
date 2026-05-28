@@ -395,15 +395,22 @@ const fetchProject = async () => {
         location: '',
         teacherCount: 0,
         studentCount: 0,
-        subsidyReason: '',
-        subsidyMethod: '',
-        balanceHandling: '',
-        overdraftHandling: '',
+        subsidyReason: '無',
+        subsidyMethod: '無',
+        balanceHandling: '無',
+        overdraftHandling: '無',
         budgetDate: '',
         finalAccountDate: '',
         budgetIncome: [],
         budgetExpense: []
       }, meta)
+      
+      // Ensure fallbacks to '無' if fields are empty strings
+      if (!form.subsidyReason) form.subsidyReason = '無'
+      if (!form.subsidyMethod) form.subsidyMethod = '無'
+      if (!form.balanceHandling) form.balanceHandling = '無'
+      if (!form.overdraftHandling) form.overdraftHandling = '無'
+
       onGroupChange()
     }
   } catch (error) {
