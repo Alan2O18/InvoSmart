@@ -3,7 +3,6 @@ import logging
 import os
 
 from fastapi import APIRouter, HTTPException, Body, Depends
-from openai import OpenAI
 
 from backend.dependencies import get_engine
 from backend.engine.core import Engine
@@ -37,6 +36,7 @@ def list_vision_models(engine: Engine = Depends(get_engine)):
         if not api_key:
             raise HTTPException(status_code=400, detail="Missing vision API key")
 
+        from openai import OpenAI
         client = OpenAI(api_key=api_key, base_url=base_url, timeout=20.0)
         models = client.models.list()
         model_ids = sorted({m.id for m in (models.data or []) if getattr(m, "id", None)})

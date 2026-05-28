@@ -28,7 +28,7 @@ def test_update_config(mock_save, mock_load, mock_app_client, mock_engine_for_ap
     assert args["vision_settings"]["model"] == "gemini"
 
 
-@patch('backend.routers.config.OpenAI')
+@patch('openai.OpenAI')
 def test_list_vision_models(mock_openai_cls, mock_app_client, mock_engine_for_api):
     class _Model:
         def __init__(self, model_id):

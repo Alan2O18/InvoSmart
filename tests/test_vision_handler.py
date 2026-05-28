@@ -79,7 +79,7 @@ class TestVisionHandler:
             assert result.startswith("data:image/jpeg;base64,")
             assert len(result) > 50
 
-    @patch("backend.processing.vision_handler.OpenAI")
+    @patch("openai.OpenAI")
     def test_process_image_success(self, mock_openai_cls):
         """Test successful process_image with mocked OpenAI client."""
         from backend.processing.vision_handler import VisionHandler
@@ -105,7 +105,7 @@ class TestVisionHandler:
         assert stats["processor"] == "VLM-OpenAI"
         mock_client.chat.completions.create.assert_called_once()
 
-    @patch("backend.processing.vision_handler.OpenAI")
+    @patch("openai.OpenAI")
     def test_process_image_retry(self, mock_openai_cls):
         """Test that API retries work correctly."""
         from backend.processing.vision_handler import VisionHandler
@@ -135,7 +135,7 @@ class TestVisionHandler:
         assert result["receipt_type"] == "test"
         assert mock_client.chat.completions.create.call_count == 2
 
-    @patch("backend.processing.vision_handler.OpenAI")
+    @patch("openai.OpenAI")
     def test_process_image_all_retries_fail(self, mock_openai_cls):
         """Test that all retries exhausted returns error."""
         from backend.processing.vision_handler import VisionHandler
@@ -180,7 +180,7 @@ class TestVisionHandler:
         """Test exception inside client initialization."""
         from backend.processing.vision_handler import VisionHandler
         with patch.dict(os.environ, {}, clear=True):
-            with patch("backend.processing.vision_handler.OpenAI", side_effect=Exception("Init Failed")):
+            with patch("openai.OpenAI", side_effect=Exception("Init Failed")):
                 handler = VisionHandler({"vision_settings": {"api_key": "key"}})
                 assert handler._client is None
 
@@ -288,7 +288,7 @@ class TestVisionHandler:
             assert res == ""
             assert stats["error"] == "Prep Error"
 
-    @patch("backend.processing.vision_handler.OpenAI")
+    @patch("openai.OpenAI")
     def test_call_with_retry_no_text(self, mock_openai_cls):
         from backend.processing.vision_handler import VisionHandler
         mock_client = MagicMock()
@@ -304,7 +304,7 @@ class TestVisionHandler:
         with pytest.raises(ValueError, match="回應中找不到文字內容"):
             handler._call_with_retry("prompt", "data:image/jpeg;base64,123")
 
-    @patch("backend.processing.vision_handler.OpenAI")
+    @patch("openai.OpenAI")
     def test_call_with_retry_with_reasoning(self, mock_openai_cls):
         from backend.processing.vision_handler import VisionHandler
         mock_client = MagicMock()

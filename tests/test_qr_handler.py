@@ -84,7 +84,7 @@ class TestQRHandler:
     # Detection Tests (Mocked QReader)
     # ============================================================================
 
-    @patch("backend.processing.qr_handler.QReader")
+    @patch("qreader.QReader")
     def test_detect_and_decode_success(self, MockQReader):
         """Test successful detection and decoding with QReader."""
         # Setup mock
@@ -108,7 +108,7 @@ class TestQRHandler:
         assert result["invoice_id"] == "AB12345678"
         assert result["raw_data"] == valid_qr
 
-    @patch("backend.processing.qr_handler.QReader")
+    @patch("qreader.QReader")
     def test_detect_and_decode_no_qr(self, MockQReader):
         """Test no QR code detected."""
         mock_instance = MockQReader.return_value
@@ -122,7 +122,7 @@ class TestQRHandler:
         result = handler.detect_and_decode(img)
         assert result is None
 
-    @patch("backend.processing.qr_handler.QReader")
+    @patch("qreader.QReader")
     def test_detect_and_decode_corrupted_qr(self, MockQReader):
         """Test detected QR but invalid content."""
         mock_instance = MockQReader.return_value
@@ -141,20 +141,20 @@ class TestQRHandler:
     # Additional Branch Coverage Tests
     # ============================================================================
 
-    @patch('backend.processing.qr_handler.QREADER_AVAILABLE', False)
     def test_init_qreader_available_false(self):
-        handler = QRHandler({})
-        assert handler.qreader is None
-        assert handler.detect_and_decode(np.zeros((10, 10, 3))) is None
-        assert handler.get_qr_locations(np.zeros((10, 10, 3))) == []
+        with patch.dict("sys.modules", {"qreader": None}):
+            handler = QRHandler({})
+            assert handler.qreader is None
+            assert handler.detect_and_decode(np.zeros((10, 10, 3))) is None
+            assert handler.get_qr_locations(np.zeros((10, 10, 3))) == []
 
-    @patch('backend.processing.qr_handler.QReader')
+    @patch('qreader.QReader')
     def test_init_qreader_exception(self, MockQReader):
         MockQReader.side_effect = Exception("Init error")
         handler = QRHandler({})
         assert handler.qreader is None
 
-    @patch('backend.processing.qr_handler.QReader')
+    @patch('qreader.QReader')
     def test_detect_and_decode_gray_image(self, MockQReader):
         mock_instance = MockQReader.return_value
         mock_instance.detect_and_decode.return_value = ("AB123456781130115123400000064000000000000000012345678aabbccddeeffgghhiijjkk",)
@@ -166,7 +166,7 @@ class TestQRHandler:
         result = handler.detect_and_decode(img)
         assert result is not None
 
-    @patch('backend.processing.qr_handler.QReader')
+    @patch('qreader.QReader')
     def test_detect_and_decode_empty_text_in_list(self, MockQReader):
         mock_instance = MockQReader.return_value
         # First is empty string, second is valid
@@ -177,7 +177,7 @@ class TestQRHandler:
         result = handler.detect_and_decode(img)
         assert result is not None
 
-    @patch('backend.processing.qr_handler.QReader')
+    @patch('qreader.QReader')
     def test_detect_and_decode_exception(self, MockQReader):
         mock_instance = MockQReader.return_value
         mock_instance.detect_and_decode.side_effect = Exception("Decode err")
@@ -214,7 +214,7 @@ class TestQRHandler:
         mock_detect.return_value = None
         assert self.handler.is_electronic_invoice(np.zeros((10,10,3))) is False
 
-    @patch('backend.processing.qr_handler.QReader')
+    @patch('qreader.QReader')
     def test_get_qr_locations(self, MockQReader):
         mock_instance = MockQReader.return_value
         
@@ -235,7 +235,7 @@ class TestQRHandler:
         assert locs[0] == (10, 20, 20, 20)
         assert locs[1] == (50, 60, 50, 60)
 
-    @patch('backend.processing.qr_handler.QReader')
+    @patch('qreader.QReader')
     def test_get_qr_locations_invalid_item(self, MockQReader):
         mock_instance = MockQReader.return_value
         # One valid item, one item without enough elements in tuple, one scalar
@@ -252,7 +252,7 @@ class TestQRHandler:
         locs = handler.get_qr_locations(np.zeros((100,100), dtype=np.uint8))
         assert len(locs) == 1
 
-    @patch('backend.processing.qr_handler.QReader')
+    @patch('qreader.QReader')
     def test_get_qr_locations_empty(self, MockQReader):
         mock_instance = MockQReader.return_value
         mock_instance.detect_and_decode.return_value = []
@@ -261,7 +261,7 @@ class TestQRHandler:
         locs = handler.get_qr_locations(np.zeros((10,10,3)))
         assert locs == []
 
-    @patch('backend.processing.qr_handler.QReader')
+    @patch('qreader.QReader')
     def test_get_qr_locations_catch_error(self, MockQReader):
         mock_instance = MockQReader.return_value
         # Trigger ValueError / TypeError during map(int, bbox[:4])
@@ -273,7 +273,7 @@ class TestQRHandler:
         locs = handler.get_qr_locations(np.zeros((10,10,3)))
         assert locs == []
 
-    @patch('backend.processing.qr_handler.QReader')
+    @patch('qreader.QReader')
     def test_get_qr_locations_exception(self, MockQReader):
         mock_instance = MockQReader.return_value
         mock_instance.detect_and_decode.side_effect = Exception("Detect err")

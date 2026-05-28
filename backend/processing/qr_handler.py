@@ -15,14 +15,6 @@ import numpy as np
 import cv2
 from typing import Optional
 
-try:
-    from qreader import QReader
-    QREADER_AVAILABLE = True
-except ImportError:
-    QREADER_AVAILABLE = False
-    logger = logging.getLogger(__name__)
-    logger.warning("QReader 未安裝，請執行 `pip install qreader`")
-
 logger = logging.getLogger(__name__)
 
 
@@ -42,18 +34,25 @@ class QRHandler:
         """
         self.config = config
         self.qreader = None
-        
-        if QREADER_AVAILABLE:
-            try:
-                # 初始化 QReader (model_size='n' for speed/nano, or 's' for small)
-                # 使用 'n' (nano) 以求速度與準確度的平衡，若需要更高準確度可改為 's'
-                logger.info("正在初始化 QReader (YOLOv8)...")
-                self.qreader = QReader(model_size='n')
-                logger.info("QReader 初始化完成")
-            except Exception as e:
-                logger.error(f"QReader 初始化失敗: {e}")
-        else:
+        self._initialized = False
+
+    def _ensure_initialized(self):
+        """延遲初始化 QReader"""
+        if self._initialized:
+            return
+        try:
+            from qreader import QReader
+            # 初始化 QReader (model_size='n' for speed/nano, or 's' for small)
+            # 使用 'n' (nano) 以求速度與準確度的平衡，若需要更高準確度可改為 's'
+            logger.info("正在初始化 QReader (YOLOv8)...")
+            self.qreader = QReader(model_size='n')
+            logger.info("QReader 初始化完成")
+        except ImportError:
+            logger.warning("QReader 未安裝，請執行 `pip install qreader`")
             logger.warning("QRHandler: QReader 模組不可用")
+        except Exception as e:
+            logger.error(f"QReader 初始化失敗: {e}")
+        self._initialized = True
 
     def detect_and_decode(self, image_array: np.ndarray) -> Optional[dict]:
         """
@@ -75,6 +74,7 @@ class QRHandler:
                 }
             None: 未偵測到 QR Code 或解碼失敗
         """
+        self._ensure_initialized()
         if not self.qreader:
             return None
 
@@ -212,6 +212,7 @@ class QRHandler:
             list: QR Code 邊界框列表 [(x, y, w, h), ...]
             注意：QReader detection 返回的是 (x1, y1, x2, y2)
         """
+        self._ensure_initialized()
         if not self.qreader:
             return []
 

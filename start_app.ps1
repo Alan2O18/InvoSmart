@@ -47,7 +47,7 @@ Read-Host 'Press Enter to exit'
 "@
 
 Write-Host "[*] Starting backend in a new window..." -ForegroundColor Magenta
-Start-Process powershell.exe -ArgumentList @("-NoExit","-Command",$BackendScript) -WorkingDirectory $Root
+Start-Process powershell.exe -ArgumentList @("-NoProfile","-NoExit","-Command",$BackendScript) -WorkingDirectory $Root
 
 # ── Frontend ───────────────────────────────────────────────────────────────
 $FrontendDir = Join-Path $Root "frontend"
@@ -63,7 +63,7 @@ Read-Host 'Press Enter to exit'
 "@
 
 Write-Host "[*] Starting frontend in a new window..." -ForegroundColor Magenta
-Start-Process powershell.exe -ArgumentList @("-NoExit","-Command",$FrontendScript) -WorkingDirectory $FrontendDir
+Start-Process powershell.exe -ArgumentList @("-NoProfile","-NoExit","-Command",$FrontendScript) -WorkingDirectory $FrontendDir
 
 # ── Summary ────────────────────────────────────────────────────────────────
 Write-Host ""

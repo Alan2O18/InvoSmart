@@ -20,8 +20,6 @@ import os
 import traceback
 import numpy as np
 import cv2
-from openai import OpenAI
-
 logger = logging.getLogger(__name__)
 
 
@@ -175,6 +173,7 @@ class VisionHandler:
     def _init_client(self):
         """初始化 OpenAI client"""
         try:
+            from openai import OpenAI
             self._client = OpenAI(
                 api_key=self.api_key,
                 base_url=self.base_url,
