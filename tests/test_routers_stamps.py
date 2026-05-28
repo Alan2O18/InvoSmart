@@ -25,7 +25,9 @@ def _build_sheet_image_bytes() -> bytes:
 
 @pytest.fixture
 def stamp_client(tmp_path):
-    db_engine = create_async_engine('sqlite+aiosqlite:///:memory:')
+    from sqlalchemy.pool import NullPool
+    db_path = tmp_path / 'test_stamps.db'
+    db_engine = create_async_engine(f'sqlite+aiosqlite:///{db_path}', poolclass=NullPool)
     session_factory = sessionmaker(db_engine, class_=AsyncSession, expire_on_commit=False)
 
     async def init_tables():
