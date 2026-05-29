@@ -107,13 +107,36 @@ class PythonValidator:
         scores["ocr"] = min(15, ocr_confidence * 15 * 1.1) # 稍微放大一點
         
         # 5. 來源可靠性 / QR Code (15%)
-        if qr_decode:
+        verification = data.get("verification", {})
+        qr_verified = verification.get("qr_verified", False)
+        if qr_verified:
             scores["source"] = 15
         elif data.get("receipt_type") == "電子發票":
              scores["source"] = 5 # 說是電子發票但沒 QR，扣分
         else:
              scores["source"] = 10 # 手寫或其他，給個基本分
              
+        # 6. QR Code 二次對帳與驗證 (Secondary Reconciliation)
+        if qr_verified:
+            vlm_invoice_id = str(verification.get("vlm_invoice_id") or "").strip()
+            qr_invoice_id = str(verification.get("qr_invoice_id") or "").strip()
+            if vlm_invoice_id and qr_invoice_id and vlm_invoice_id != qr_invoice_id:
+                issues.append(f"[QR對帳] 發票號碼不符: VLM='{vlm_invoice_id}', QR='{qr_invoice_id}'")
+            
+            vlm_date = str(verification.get("vlm_date") or "").strip().replace("-", "").replace("/", "")
+            qr_date = str(verification.get("qr_date") or "").strip().replace("-", "").replace("/", "")
+            if vlm_date and qr_date and vlm_date != qr_date:
+                issues.append(f"[QR對帳] 日期不符: VLM='{verification.get('vlm_date')}', QR='{verification.get('qr_date')}'")
+                
+            vlm_total = verification.get("vlm_total")
+            qr_total = verification.get("qr_total")
+            if vlm_total is not None and qr_total is not None:
+                try:
+                    if float(vlm_total) != float(qr_total):
+                        issues.append(f"[QR對帳] 總金額不符: VLM={vlm_total}, QR={qr_total}")
+                except Exception:
+                    pass
+
         # 總分計算
         total_score = sum(scores.values())
         confidence = round(total_score / 100.0, 2)

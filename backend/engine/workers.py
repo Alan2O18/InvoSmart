@@ -67,7 +67,7 @@ def global_receipt_worker_loop(engine):
             
             # VLM 處理
             try:
-                result = engine.receipt_processor.process(image)
+                result = engine.receipt_processor.process(image, project_id=project_id)
                 
                 if result.get("success"):
                     loop.run_until_complete(

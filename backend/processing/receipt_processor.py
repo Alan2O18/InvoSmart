@@ -40,8 +40,13 @@ class ReceiptProcessor:
 
         # Init repos
         from backend.repositories.suggestion_repository import SuggestionRepository
+        from backend.repositories.project_repository import ProjectRepository
         from backend.database.core import AsyncSessionLocal
         self.suggestion_repo = SuggestionRepository(session_factory=AsyncSessionLocal)
+        try:
+            self.project_repo = ProjectRepository(config=self.config, session_factory=AsyncSessionLocal)
+        except Exception:
+            self.project_repo = None
         
         logger.info("ReceiptProcessor 初始化完成 (VLM-First 架構)")
     
@@ -51,12 +56,13 @@ class ReceiptProcessor:
         self.vision_handler.update_config(config)
         logger.info("[ReceiptProcessor] 配置已更新")
     
-    def process(self, image_array: np.ndarray) -> dict:
+    def process(self, image_array: np.ndarray, project_id: str = None) -> dict:
         """
         處理收據圖片 - 單一入口點
         
         Args:
             image_array: OpenCV 格式的圖片 (BGR)
+            project_id: 專案 ID，用於獲取預算品類限制 (選填)
             
         Returns:
             dict: 處理結果，包含:
@@ -70,17 +76,48 @@ class ReceiptProcessor:
         
         stats_list = []
         
-        # ===== Step 0: 建立 RAG 上下文 (從歷史建議詞庫) =====
+        # ===== Step 0: 建立 RAG 上下文與預算品類限制 =====
         rag_context = ""
+        budget_categories = []
+        if project_id and self.project_repo:
+            try:
+                import asyncio
+                import inspect
+                res = self.project_repo.get_project(project_id)
+                if inspect.iscoroutine(res):
+                    try:
+                        loop = asyncio.get_running_loop()
+                        proj = loop.run_until_complete(res)
+                    except RuntimeError:
+                        proj = asyncio.run(res)
+                else:
+                    proj = res
+                
+                if proj and isinstance(proj, dict):
+                    meta = proj.get("metadata") or {}
+                    budget_exp = meta.get("budgetExpense") or []
+                    for item in budget_exp:
+                        if isinstance(item, dict) and item.get("name"):
+                            name = str(item["name"]).strip()
+                            if name and name not in budget_categories:
+                                budget_categories.append(name)
+            except Exception as e:
+                logger.warning(f"[Step 0] 獲取專案預算品類失敗: {e}")
+
         try:
             import asyncio
-            try:
-                loop = asyncio.get_running_loop()
-                # If there's a running loop, we shouldn't use asyncio.run
-                rag_context = loop.run_until_complete(self.suggestion_repo.build_rag_context())
-            except RuntimeError:
-                # No running loop, use asyncio.run
-                rag_context = asyncio.run(self.suggestion_repo.build_rag_context())
+            import inspect
+            res = self.suggestion_repo.build_rag_context()
+            if inspect.iscoroutine(res):
+                try:
+                    loop = asyncio.get_running_loop()
+                    # If there's a running loop, we shouldn't use asyncio.run
+                    rag_context = loop.run_until_complete(res)
+                except RuntimeError:
+                    # No running loop, use asyncio.run
+                    rag_context = asyncio.run(res)
+            else:
+                rag_context = res
                 
             if rag_context:
                 logger.info(f"[Step 0] RAG 上下文已建立 ({len(rag_context)} chars)")
@@ -88,6 +125,17 @@ class ReceiptProcessor:
                 logger.info("[Step 0] 建議詞庫尚無資料，跳過 RAG 注入")
         except Exception as e:
             logger.warning(f"[Step 0] 建立 RAG 上下文失敗（不影響辨識）: {e}")
+
+        if budget_categories:
+            cat_list_str = "、".join(budget_categories)
+            category_restriction = (
+                f"\n\n【限制與品類規範】\n"
+                f"這張發票的品項分類（items 陣列中每個項目的 category 欄位），必須只能從以下專案預算之品類列表中選擇，"
+                f"絕對不可自行發明或填寫列表外的品類。若無法完全歸類，請優先選擇最接近的品類：\n"
+                f"▸ 允許的品類列表：{cat_list_str}\n"
+            )
+            rag_context = category_restriction + "\n" + rag_context
+            logger.info(f"[Step 0] 已注入預算品類限制，共 {len(budget_categories)} 個品類")
         
         # ===== Step 1: VLM 分析 (含 RAG 上下文) =====
         logger.info("[Step 1] VLM 分析...")
@@ -139,7 +187,7 @@ class ReceiptProcessor:
     
     def _merge_qr_data(self, vlm_result: dict, qr_data: dict) -> dict:
         """
-        合併 QR Code 資料到 VLM 結果
+        合併 QR Code 資料到 VLM 結果，並備份原始資料以進行二次對帳。
         
         QR Code 為確定性資料，優先信任。
         """
@@ -148,6 +196,20 @@ class ReceiptProcessor:
         
         header = vlm_result["header"]
         
+        if not vlm_result.get("verification"):
+            vlm_result["verification"] = {}
+        verification = vlm_result["verification"]
+        
+        # 備份 VLM 原始辨識結果以供二次對帳
+        verification["vlm_invoice_id"] = header.get("invoice_id") or ""
+        verification["vlm_date"] = header.get("date") or ""
+        verification["vlm_total"] = vlm_result.get("summary", {}).get("total") if vlm_result.get("summary") else None
+        
+        # 保存 QR 資料供對照
+        verification["qr_invoice_id"] = qr_data.get("invoice_id") or ""
+        verification["qr_date"] = qr_data.get("date") or ""
+        verification["qr_total"] = qr_data.get("total")
+
         # QR 資料優先覆蓋 (若存在)
         if qr_data.get("invoice_id"):
             header["invoice_id"] = qr_data["invoice_id"]
@@ -159,9 +221,7 @@ class ReceiptProcessor:
             vlm_result["summary"]["total"] = qr_data["total"]
         
         # 標記 QR 驗證
-        if not vlm_result.get("verification"):
-            vlm_result["verification"] = {}
-        vlm_result["verification"]["qr_verified"] = True
+        verification["qr_verified"] = True
         
         return vlm_result
     

@@ -104,9 +104,15 @@
         </datalist>
       </div>
       <div class="field-row checkbox-row">
-        <label>QR Code</label>
+        <label>QR Code 偵測</label>
         <input type="checkbox" v-model="formData.verification.qr_code_detected" :disabled="isJsonInvalid" />
         <span>已偵測到 QR Code</span>
+      </div>
+      <div class="field-row" v-if="formData.verification.qr_verified !== undefined">
+        <label>QR 二次對帳</label>
+        <span class="qr-status-badge" :class="formData.verification.qr_verified ? 'verified' : 'unverified'">
+          {{ formData.verification.qr_verified ? '🟢 已通過 QR 數位驗證對帳' : '⚪ 未進行 QR 數位對帳' }}
+        </span>
       </div>
     </fieldset>
 
@@ -455,5 +461,22 @@ legend {
 .disabled-mode {
     pointer-events: none;
     opacity: 0.8;
+}
+
+.qr-status-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-weight: bold;
+}
+.qr-status-badge.verified {
+  background-color: rgba(74, 222, 128, 0.15);
+  border: 1px solid #4ade80;
+  color: #4ade80;
+}
+.qr-status-badge.unverified {
+  background-color: rgba(239, 83, 80, 0.15);
+  border: 1px solid #ef5350;
+  color: #ef5350;
 }
 </style>

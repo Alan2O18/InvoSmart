@@ -230,3 +230,48 @@ class TestPythonValidator:
         
         # Will flag as issue since 1 * 0 != 100
         assert len(issues) >= 0  # Just verify it runs without error
+
+    def test_validate_qr_verified_reconciliation_pass(self, validator):
+        """Test validation with matching VLM and QR Code details."""
+        data = {
+            "header": {"supplier": "測試商店", "date": "2024-01-15", "invoice_id": "AB12345678"},
+            "items": [{"name": "商品A", "qty": 1, "price": 100, "total": 100}],
+            "summary": {"total": 100},
+            "verification": {
+                "qr_verified": True,
+                "vlm_invoice_id": "AB12345678",
+                "qr_invoice_id": "AB12345678",
+                "vlm_date": "2024-01-15",
+                "qr_date": "2024-01-15",
+                "vlm_total": 100,
+                "qr_total": 100
+            }
+        }
+
+        result = validator.validate(data)
+        assert result.is_valid is True
+        assert len(result.issues) == 0
+        assert result.confidence >= 0.85  # Includes 15% QR code bonus
+
+    def test_validate_qr_verified_reconciliation_mismatches(self, validator):
+        """Test validation flags issues for mismatched VLM and QR Code fields."""
+        data = {
+            "header": {"supplier": "測試商店", "date": "2024-01-15", "invoice_id": "AB12345678"},
+            "items": [{"name": "商品A", "qty": 1, "price": 100, "total": 100}],
+            "summary": {"total": 100},
+            "verification": {
+                "qr_verified": True,
+                "vlm_invoice_id": "AB1234567B",  # Mismatch (OCR typo)
+                "qr_invoice_id": "AB12345678",
+                "vlm_date": "2024-01-14",  # Mismatch
+                "qr_date": "2024-01-15",
+                "vlm_total": 90,  # Mismatch
+                "qr_total": 100
+            }
+        }
+
+        result = validator.validate(data)
+        assert result.is_valid is False
+        assert any("發票號碼不符" in issue for issue in result.issues)
+        assert any("日期不符" in issue for issue in result.issues)
+        assert any("總金額不符" in issue for issue in result.issues)

@@ -175,9 +175,7 @@ class JobRepository:
 
         voucher_id = (
             header.get("voucher_id")
-            or header.get("invoice_id")
             or summary.get("voucher_id")
-            or summary.get("invoice_id")
             or ""
         )
         supplier = header.get("supplier") or summary.get("supplier") or ""
@@ -213,19 +211,6 @@ class JobRepository:
 
     def _reconstruct_display_json(self, job: dict[str, Any], items: list[InvoiceItem]) -> dict[str, Any]:
         """Assemble frontend-compatible display JSON from DB fields + InvoiceItem rows."""
-        header = {
-            "voucher_id": job.get("voucher_id") or "",
-            "invoice_id": job.get("voucher_id") or "",
-            "supplier": job.get("supplier") or "",
-            "date": job.get("invoice_date") or "",
-        }
-        summary = {
-            "purpose": job.get("purpose") or "",
-            "total": job.get("total_amount") if job.get("total_amount") is not None else "",
-        }
-
-        normalized_items = [self._invoice_item_to_payload(item) for item in items]
-
         raw_payload: dict[str, Any] = {}
         raw_vlm = job.get("vlm_result_json")
         if isinstance(raw_vlm, str) and raw_vlm.strip():
@@ -238,15 +223,30 @@ class JobRepository:
         raw_header = raw_payload.get("header") if isinstance(raw_payload.get("header"), dict) else {}
         raw_summary = raw_payload.get("summary") if isinstance(raw_payload.get("summary"), dict) else {}
 
+        invoice_id = raw_header.get("invoice_id") or raw_summary.get("invoice_id") or ""
+
+        header = {
+            "voucher_id": job.get("voucher_id") or "",
+            "invoice_id": invoice_id or job.get("voucher_id") or "",
+            "supplier": job.get("supplier") or raw_header.get("supplier") or "",
+            "date": job.get("invoice_date") or raw_header.get("date") or "",
+        }
+        summary = {
+            "purpose": job.get("purpose") or "",
+            "total": job.get("total_amount") if job.get("total_amount") is not None else "",
+        }
+
+        normalized_items = [self._invoice_item_to_payload(item) for item in items]
+
         if not header["voucher_id"]:
             header["voucher_id"] = (
                 raw_header.get("voucher_id")
-                or raw_header.get("invoice_id")
                 or raw_summary.get("voucher_id")
-                or raw_summary.get("invoice_id")
                 or ""
             )
-            header["invoice_id"] = header["voucher_id"]
+        if not header["invoice_id"]:
+            header["invoice_id"] = invoice_id or ""
+
         if not header["supplier"]:
             header["supplier"] = raw_header.get("supplier") or raw_summary.get("supplier") or ""
         if not header["date"]:

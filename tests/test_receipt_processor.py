@@ -227,3 +227,56 @@ class TestReceiptProcessor:
         assert result["metadata"]["total_time_s"] >= 0
         assert "stats" in result["metadata"]
         assert len(result["metadata"]["stats"]) >= 1
+
+    def test_process_injects_budget_categories_context(self, mock_processor):
+        """Test that project budget categories are injected into VLM prompt_context."""
+        processor, mocks = mock_processor
+        
+        # Mock project repo
+        mock_project = {
+            "project_id": "proj-123",
+            "metadata": {
+                "budgetExpense": [
+                    {"name": "印製費", "qty": 1, "price": 100, "total": 100},
+                    {"name": "餐飲費", "qty": 2, "price": 50, "total": 100}
+                ]
+            }
+        }
+        processor.project_repo = MagicMock()
+        processor.project_repo.get_project.return_value = mock_project
+        
+        vlm_result = {"header": {}, "items": [], "summary": {}}
+        mocks['vision'].process_image.return_value = (vlm_result, {"total_time_s": 0.2})
+        mocks['qr'].detect_and_decode.return_value = None
+        
+        img = np.zeros((100, 100, 3), dtype=np.uint8)
+        processor.process(img, project_id="proj-123")
+        
+        # Verify VisionHandler received prompt context containing categories list
+        called_args = mocks['vision'].process_image.call_args[1]
+        assert "prompt_context" in called_args
+        assert "印製費" in called_args["prompt_context"]
+        assert "餐飲費" in called_args["prompt_context"]
+        assert "允許的品類列表" in called_args["prompt_context"]
+
+    def test_merge_qr_reconciliation_fields(self, mock_processor):
+        """Test that _merge_qr_data backs up VLM fields and records QR data for reconciliation."""
+        processor, _ = mock_processor
+
+        vlm_result = {
+            "header": {"invoice_id": "WRONG123", "supplier": "Shop", "date": "2025-01-01"},
+            "summary": {"total": 100},
+        }
+        qr_data = {"invoice_id": "AB12345678", "date": "2025-01-02", "total": 200}
+
+        merged = processor._merge_qr_data(vlm_result, qr_data)
+
+        verification = merged["verification"]
+        assert verification["qr_verified"] is True
+        assert verification["vlm_invoice_id"] == "WRONG123"
+        assert verification["vlm_date"] == "2025-01-01"
+        assert verification["vlm_total"] == 100
+        
+        assert verification["qr_invoice_id"] == "AB12345678"
+        assert verification["qr_date"] == "2025-01-02"
+        assert verification["qr_total"] == 200
