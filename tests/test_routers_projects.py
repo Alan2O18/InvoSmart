@@ -247,3 +247,21 @@ def test_collect_project_option_suggestions_supports_people_and_budget_options()
     assert set(collected["expense_category"]) == {"茶水費", "文具費"}
 
 
+def test_unarchive_project_success(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.project_repo.update_project_status = AsyncMock()
+
+    response = mock_app_client.post("/api/projects/proj1/unarchive")
+    assert response.status_code == 200
+    assert response.json()["status"] == "success"
+    assert response.json()["project_status"] == "PROCESSED"
+    mock_engine_for_api.project_repo.update_project_status.assert_called_once_with("proj1", "PROCESSED")
+
+
+def test_unarchive_project_failure(mock_app_client, mock_engine_for_api):
+    mock_engine_for_api.project_repo.update_project_status = AsyncMock(side_effect=RuntimeError("db failed"))
+
+    response = mock_app_client.post("/api/projects/proj1/unarchive")
+    assert response.status_code == 500
+
+
+

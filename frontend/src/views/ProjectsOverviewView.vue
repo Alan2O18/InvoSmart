@@ -97,8 +97,9 @@
             <!-- Edit Mode Toggle and Action Buttons -->
             <div class="edit-mode-bar">
               <label class="switch-label">
-                <input type="checkbox" v-model="project.editMode" />
+                <input type="checkbox" v-model="project.editMode" :disabled="project.status === 'ARCHIVED' || project.status === 'SEALED'" />
                 <span class="switch-text">✏️ 啟用編輯模式</span>
+                <span v-if="project.status === 'ARCHIVED' || project.status === 'SEALED'" class="archive-inline-badge">（專案已封存，無法編輯）</span>
               </label>
               <div class="edit-actions" v-if="project.editMode">
                 <span v-if="project.isBudgetDirty || project.dirtyJobs?.size > 0" class="dirty-badge">● 有未儲存的變更</span>
@@ -1836,5 +1837,12 @@ onMounted(() => {
 
 .modal-footer button.primary-btn:hover {
   background: #2563eb;
+}
+
+.archive-inline-badge {
+  color: #f87171;
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-left: 0.5rem;
 }
 </style>

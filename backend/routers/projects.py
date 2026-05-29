@@ -228,6 +228,17 @@ async def update_activity_info(project_id: str, info: dict, engine: Engine = Dep
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/{project_id}/unarchive")
+async def unarchive_project(project_id: str, engine: Engine = Depends(get_engine)):
+    """Unarchive/reactivate an archived project."""
+    try:
+        await engine.project_repo.update_project_status(project_id, "PROCESSED")
+        return {"status": "success", "project_status": "PROCESSED"}
+    except Exception as e:
+        logger.error(f"Error unarchiving project: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/{project_id}/generate-voucher-pdf")
 async def generate_voucher_pdf(project_id: str, engine: Engine = Depends(get_engine)):
     """產生並下載憑證黏貼 PDF"""

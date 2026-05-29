@@ -142,6 +142,9 @@ export default {
   runArchive(projectId) {
     return api.post(`/api/projects/${projectId}/run_archive`)
   },
+  runUnarchive(projectId) {
+    return api.post(`/api/projects/${projectId}/unarchive`)
+  },
 
   // =====================
   // PDF Tasks

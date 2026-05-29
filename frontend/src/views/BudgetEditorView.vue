@@ -11,7 +11,7 @@
       </div>
       <div class="header-right">
         <span v-if="isBudgetDirty || dirtyJobs.size > 0" class="dirty-badge">● 有未儲存的變更</span>
-        <button @click="handleSave" :disabled="saving" class="save-btn">
+        <button @click="handleSave" :disabled="saving || isArchived" class="save-btn">
           {{ saving ? '儲存中...' : '儲存變更' }}
         </button>
         <button @click="exportWord" :disabled="loading" class="export-btn">
@@ -19,6 +19,11 @@
         </button>
       </div>
     </header>
+
+    <!-- Archive Warning Banner -->
+    <div v-if="isArchived" class="archive-warning-banner">
+      ⚠️ 此專案已封存，目前處於唯讀狀態。若需要修改，請先至「專案詳情」解除封存。
+    </div>
 
     <!-- Tab Selection -->
     <div class="tabs-container">
@@ -510,6 +515,8 @@ const dirtyJobs = ref(new Set())
 const isBudgetDirty = ref(false)
 const loading = ref(false)
 const saving = ref(false)
+
+const isArchived = computed(() => projectData.value?.status === 'ARCHIVED' || projectData.value?.status === 'SEALED')
 
 // Autocomplete suggestions
 const budgetIncomeSuggestions = ref([])
@@ -1692,5 +1699,19 @@ onMounted(() => {
 .tsv-textarea:focus {
   border-color: #3b82f6;
   outline: none;
+}
+
+.archive-warning-banner {
+  background-color: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #f87171;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  margin-bottom: 1.5rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 </style>

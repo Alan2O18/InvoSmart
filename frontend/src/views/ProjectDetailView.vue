@@ -41,7 +41,8 @@
       <div class="arrow">→</div>
       <div class="step" :class="{ active: canArchive }">
         <h3>5. 封存</h3>
-        <button @click="runArchive" :disabled="!canArchive || loading">封存活動</button>
+        <button v-if="project?.status === 'ARCHIVED' || project?.status === 'SEALED'" @click="runUnarchive" :disabled="loading" style="background-color: #d97706; color: white;">解除封存</button>
+        <button v-else @click="runArchive" :disabled="!canArchive || loading">封存活動</button>
       </div>
     </div>
 
@@ -379,6 +380,17 @@ const runArchive = async () => {
       const res = await api.runArchive(projectId); 
       if(res.data.status === 'sealed') alert('Archived to: ' + res.data.path);
       else alert('Archive result: ' + JSON.stringify(res.data));
+      await fetchProjectData(); 
+  } 
+  catch (e) { alert(e); } 
+  finally { loading.value = false; }
+}
+
+const runUnarchive = async () => {
+  loading.value = true
+  try { 
+      await api.runUnarchive(projectId); 
+      alert('專案已解除封存！');
       await fetchProjectData(); 
   } 
   catch (e) { alert(e); } 
